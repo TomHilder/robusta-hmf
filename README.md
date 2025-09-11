@@ -1,8 +1,6 @@
 # Robusta-HMF
 
-`jax` implementation of robust heteroskedastic matrix factorisation.
-
-Robusta like the coffee bean, get it?
+`jax` implementation of robust heteroskedastic matrix factorisation. Robusta like the coffee bean, get it?
 
 ## TODOs
 
@@ -20,5 +18,7 @@ Robusta like the coffee bean, get it?
 - [ ] Tests!*
 - [ ] CI, automated tests, automated relases, and PyPI*
 - [ ] Relax version requirements since uv by default is newest everything
+
+Upon reaching some critical "done-ness", this package should be moved to it's own repo while keeping the git history. Probably just before whenever we want automated tests, releases, PyPI, etc.
 
 (*) = Priority

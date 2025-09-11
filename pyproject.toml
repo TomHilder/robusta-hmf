@@ -1,19 +1,15 @@
 [project]
 name = "robusta-hmf"
 version = "0.1.0"
-description = "Add your description here"
+description = "Robust heteroskedastic matrix factorisation in JAX."
 readme = "README.md"
 authors = [
     { name = "Tom Hilder", email = "tom.hilder.dlhp@gmail.com" },
     { name = "David W. Hogg", email = "TODO@TODO.com" },
 ]
 requires-python = ">=3.13"
-dependencies = [
-    "jax>=0.7.1",
-]
+dependencies = ["jax>=0.7.1"]
 
-[project.scripts]
-robusta-hmf = "robusta_hmf:main"
 
 [build-system]
 requires = ["hatchling"]
