@@ -1,40 +1,43 @@
 # new.py
 # Tom and GPT-5 Make RHMF go brrrr
+import abc
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import optax
+from jaxtyping import Array
 
 
 # ---------------- State ----------------
 class RHMFState(eqx.Module):
-    A: jnp.ndarray
-    G: jnp.ndarray
-    it: int  # = eqx.field(default=0)
+    A: Array = eqx.field(converter=jax.numpy.asarray)
+    G: Array = eqx.field(converter=jax.numpy.asarray)
+    it: int = eqx.field(default=0)
+    opt_state: optax.OptState | None = eqx.field(default=None)
 
 
 # ---------------- Likelihood Base + Implementations ----------------
-# TODO: Check Equinox convention for abstract base classes
 class Likelihood(eqx.Module):
     """Abstract base for likelihoods."""
 
-    def weights(self, X, A, G):
-        raise NotImplementedError
+    @abc.abstractmethod
+    def weights(self, Y, A, G, W_data):
+        pass
 
-    def loss(self, X, A, G):
-        raise NotImplementedError
+    @abc.abstractmethod
+    def loss(self, Y, A, G, W_data):
+        pass
 
 
 class GaussianLikelihood(Likelihood):
-    """Gaussian = least squares."""
+    def weights(self, Y, A, G, W_data):
+        W_latent = jnp.ones_like(Y)
+        return W_data * W_latent
 
-    def weights(self, X, A, G):
-        return jnp.ones_like(X)
-
-    def loss(self, X, A, G):
-        pred = A @ G.T
-        resid = X - pred
-        return jnp.sum(resid**2)
+    def loss(self, Y, A, G, W_data):
+        r_sq = W_data * (Y - A @ G.T) ** 2
+        return r_sq.sum()
 
 
 class CauchyLikelihood(Likelihood):
@@ -42,15 +45,14 @@ class CauchyLikelihood(Likelihood):
 
     scale: float = 1.0
 
-    def weights(self, X, A, G):
-        pred = A @ G.T
-        resid = X - pred
-        return 1.0 / (1.0 + (resid / self.scale) ** 2)
+    def weights(self, Y, A, G, W_data):
+        r_sq = W_data * (Y - A @ G.T) ** 2
+        W_latent = 1.0 / (1.0 + r_sq / self.scale**2)
+        return W_data * W_latent
 
-    def loss(self, X, A, G):
-        pred = A @ G.T
-        resid = X - pred
-        return jnp.sum(jnp.log1p((resid / self.scale) ** 2))
+    def loss(self, Y, A, G, W_data):
+        r_sq = W_data * (Y - A @ G.T) ** 2
+        return jnp.sum(jnp.log1p(r_sq / self.scale**2))
 
 
 class StudentTLikelihood(Likelihood):
@@ -147,29 +149,6 @@ class Reorienter(eqx.Module):
         state = eqx.tree_at(lambda s: s.A, state, A_new)
         state = eqx.tree_at(lambda s: s.G, state, G_new)
         return state
-
-
-# ---------------- SGD Optimiser ----------------
-class JointOptimiser(eqx.Module):
-    opt: optax.GradientTransformation
-    opt_state: optax.OptState
-
-    def __call__(
-        self, X, state: RHMFState, likelihood: Likelihood, regularizer: Regularizer
-    ):
-        def loss_fn(params, X):
-            A, G = params
-            base = likelihood.loss(X, A, G)
-            reg = regularizer(state.replace(A=A, G=G))
-            return base + reg
-
-        params = (state.A, state.G)
-        loss, grads = eqx.filter_value_and_grad(loss_fn)(params, X)
-        updates, new_opt_state = self.opt.update(grads, self.opt_state, params)
-        new_params = optax.apply_updates(params, updates)
-        A_new, G_new = new_params
-        new_state = state.replace(A=A_new, G=G_new, it=state.it + 1)
-        return new_state, JointOptimiser(self.opt, new_opt_state), loss
 
 
 # ---------------- Orchestrators (branch-free steps) ----------------

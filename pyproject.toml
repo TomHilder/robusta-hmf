@@ -8,9 +8,19 @@ authors = [
     { name = "David W. Hogg", email = "TODO@TODO.com" },
 ]
 requires-python = ">=3.13"
-dependencies = ["jax>=0.7.1"]
+dependencies = [
+    "equinox>=0.13.0",
+    "jax>=0.7.1",
+    "optax>=0.2.5",
+]
 
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
+]

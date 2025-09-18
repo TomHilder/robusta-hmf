@@ -1,30 +1,18 @@
-from .new import (
-    ALS_RHMF,
-    SGD_RHMF,
-    GaussianLikelihood,
-    JointOptimiser,
-    L2Regularizer,
-    Regularizer,
-    Reorienter,
-    StudentTLikelihood,
-    WeightedAStep,
-    WeightedGStep,
-)
-from .rhmf import RHMF, test, update_W, wls
+from .als import WeightedAStep, WeightedGStep
+from .likelihoods import CauchyLikelihood, GaussianLikelihood, StudentTLikelihood
+from .regularisers import L2Regulariser
+from .rhmf import ALS_RHMF, SGD_RHMF, RHMFState
+from .rotations import FastAffine
 
 __all__ = [
-    "RHMF",
-    "test",
-    "update_W",
-    "wls",
-    "ALS_RHMF",
-    "SGD_RHMF",
-    "GaussianLikelihood",
-    "JointOptimiser",
-    "L2Regularizer",
-    "Regularizer",
-    "Reorienter",
-    "StudentTLikelihood",
     "WeightedAStep",
     "WeightedGStep",
+    "GaussianLikelihood",
+    "CauchyLikelihood",
+    "StudentTLikelihood",
+    "L2Regulariser",
+    "RHMFState",
+    "ALS_RHMF",
+    "SGD_RHMF",
+    "FastAffine",
 ]
