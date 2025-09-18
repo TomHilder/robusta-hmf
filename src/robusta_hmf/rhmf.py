@@ -68,6 +68,20 @@ def wls(matrix, y1, w1):
     return jnp.linalg.solve(matrix * w1 @ matrix.T, matrix * w1 @ y1)
 
 
+def wls_spd(matrix, y1, w1, ridge=0.0):
+    MW = matrix * w1  # (K,M), column-scaled
+    S = MW @ matrix.T  # (K,K), SPD
+    if ridge != 0.0:
+        S = S + ridge * jnp.eye(S.shape[0], dtype=S.dtype)
+    b = MW @ y1  # (K,)
+    L = jnp.linalg.cholesky(S)
+    z = jax.scipy.linalg.solve_triangular(L, b, lower=True)
+    return jax.scipy.linalg.solve_triangular(L.T, z, lower=False)
+
+
+# wls = wls_spd  # use the SPD version
+
+
 class RHMF:
     def __init__(self, rank, nsigma, A=None, G=None):
         self.K = int(rank)
