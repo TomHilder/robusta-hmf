@@ -8,14 +8,16 @@ from robusta_hmf.likelihoods import (
     StudentTLikelihood,
 )
 
+jax.config.update("jax_enable_x64", True)
+
 
 def rng(seed=0, N=6, M=5, K=3):
     key = jax.random.key(seed)
     Y = jax.random.normal(key, (N, M))
+    W = jax.random.uniform(key, (N, M), minval=0.5, maxval=2.0)
     A = jax.random.normal(key, (N, K))
     G = jax.random.normal(key, (M, K))
-    W = jax.random.uniform(key, (N, M), minval=0.5, maxval=2.0)
-    return Y, A, G, W
+    return Y, W, A, G
 
 
 def resid(Y, A, G):
@@ -34,10 +36,10 @@ def wls_surrogate_loss(Wtot, Y, A, G):
     "L", [GaussianLikelihood(), CauchyLikelihood(scale=1.3), StudentTLikelihood()]
 )
 def test_shapes_and_total_equals_data_times_irls(L):
-    Y, A, G, W = rng()
-    W_irls = L.weights_irls(Y, A, G, W)
+    Y, W, A, G = rng()
+    W_irls = L.weights_irls(Y, W, A, G)
     W_tot = (
-        W * W_irls if not hasattr(L, "weights_total") else L.weights_total(Y, A, G, W)
+        W * W_irls if not hasattr(L, "weights_total") else L.weights_total(Y, W, A, G)
     )
     assert W_irls.shape == Y.shape
     assert jnp.allclose(W_tot, W * W_irls)
@@ -45,11 +47,11 @@ def test_shapes_and_total_equals_data_times_irls(L):
 
 def test_gaussian_matches_chi2():
     L = GaussianLikelihood()
-    Y, A, G, W = rng()
-    assert jnp.allclose(L.weights_irls(Y, A, G, W), jnp.ones_like(Y))
-    assert jnp.allclose(L.weights_total(Y, A, G, W), W)
+    Y, W, A, G = rng()
+    assert jnp.allclose(L.weights_irls(Y, W, A, G), jnp.ones_like(Y))
+    assert jnp.allclose(L.weights_total(Y, W, A, G), W)
     r2 = resid(Y, A, G) ** 2
-    assert jnp.allclose(L.loss(Y, A, G, W), jnp.sum(W * r2))
+    assert jnp.allclose(L.loss(Y, W, A, G), jnp.sum(W * r2))
 
 
 # ----------------------------
@@ -57,51 +59,51 @@ def test_gaussian_matches_chi2():
 # ----------------------------
 def test_cauchy_downweights_outliers():
     L = CauchyLikelihood(scale=1.0)
-    Y, A, G, W = rng()
-    W0 = L.weights_total(Y, A, G, W)
+    Y, W, A, G = rng()
+    W0 = L.weights_total(Y, W, A, G)
     Y_big = Y.at[0, 0].set(Y[0, 0] + 50.0)
-    W1 = L.weights_total(Y_big, A, G, W)
+    W1 = L.weights_total(Y_big, W, A, G)
     assert W1[0, 0] < W0[0, 0]
 
 
 def test_scale_effect_cauchy():
-    Y, A, G, W = rng()
+    Y, W, A, G = rng()
     L_small = CauchyLikelihood(scale=0.5)
     L_large = CauchyLikelihood(scale=5.0)
-    W_small = L_small.weights_irls(Y, A, G, W)
-    W_large = L_large.weights_irls(Y, A, G, W)
+    W_small = L_small.weights_irls(Y, W, A, G)
+    W_large = L_large.weights_irls(Y, W, A, G)
     # Larger scale -> less downweighting -> larger IRLS factors
     assert jnp.all(W_large >= W_small - 1e-12)
     # With the rescaled loss, larger scale also increases the loss
-    assert L_large.loss(Y, A, G, W) >= L_small.loss(Y, A, G, W) - 1e-12
+    assert L_large.loss(Y, W, A, G) >= L_small.loss(Y, W, A, G) - 1e-12
 
 
 # ----------------------------
 # Student-t special cases
 # ----------------------------
 def test_student_t_matches_cauchy_at_nu1():
-    Y, A, G, W = rng()
+    Y, W, A, G = rng()
     s = 1.7
     C = CauchyLikelihood(scale=s)
     T = StudentTLikelihood(nu=1.0, scale=s)
     # exact equality for both weights_total and loss
     assert jnp.allclose(
-        C.weights_total(Y, A, G, W),
-        W * T.weights_irls(Y, A, G, W),
+        C.weights_total(Y, W, A, G),
+        W * T.weights_irls(Y, W, A, G),
         rtol=1e-7,
         atol=1e-8,
     )
-    assert jnp.allclose(C.loss(Y, A, G, W), T.loss(Y, A, G, W), rtol=1e-7, atol=1e-8)
+    assert jnp.allclose(C.loss(Y, W, A, G), T.loss(Y, W, A, G), rtol=1e-7, atol=1e-8)
 
 
 def test_student_t_gaussian_limit_large_nu():
-    Y, A, G, W = rng()
+    Y, W, A, G = rng()
     T = StudentTLikelihood(nu=1e9, scale=1.0)
     Gaus = GaussianLikelihood()
-    Wt = W * T.weights_irls(Y, A, G, W)
+    Wt = W * T.weights_irls(Y, W, A, G)
     assert jnp.allclose(Wt, W, rtol=1e-6, atol=1e-6)
-    gA_t, gG_t = jax.grad(lambda A, G: T.loss(Y, A, G, W), (0, 1))(A, G)
-    gA_g, gG_g = jax.grad(lambda A, G: Gaus.loss(Y, A, G, W), (0, 1))(A, G)
+    gA_t, gG_t = jax.grad(lambda A, G: T.loss(Y, W, A, G), (0, 1))(A, G)
+    gA_g, gG_g = jax.grad(lambda A, G: Gaus.loss(Y, W, A, G), (0, 1))(A, G)
     assert jnp.allclose(gA_t, gA_g, rtol=1e-6, atol=1e-5)
     assert jnp.allclose(gG_t, gG_g, rtol=1e-6, atol=1e-5)
 
@@ -118,11 +120,11 @@ def test_student_t_gaussian_limit_large_nu():
     ],
 )
 def test_tangent_match_gradients_exact(L):
-    Y, A, G, W = rng()
-    Wtot = W * L.weights_irls(Y, A, G, W)
+    Y, W, A, G = rng()
+    Wtot = W * L.weights_irls(Y, W, A, G)
 
     def loss_true(A, G):
-        return L.loss(Y, A, G, W)
+        return L.loss(Y, W, A, G)
 
     def loss_wls(A, G):
         return wls_surrogate_loss(Wtot, Y, A, G)
@@ -142,11 +144,11 @@ def test_tangent_match_gradients_exact(L):
     "L", [CauchyLikelihood(scale=1.0), StudentTLikelihood(nu=2.5, scale=0.8)]
 )
 def test_no_nans_and_bounds(L):
-    Y, A, G, W = rng()
+    Y, W, A, G = rng()
     Y = Y.at[0, 0].set(Y[0, 0] + 1e6)  # huge residual
-    w_irls = L.weights_irls(Y, A, G, W)
+    w_irls = L.weights_irls(Y, W, A, G)
     w_total = W * w_irls
-    loss = L.loss(Y, A, G, W)
+    loss = L.loss(Y, W, A, G)
     assert jnp.all(jnp.isfinite(w_irls))
     assert jnp.all(jnp.isfinite(w_total))
     assert jnp.isfinite(loss)

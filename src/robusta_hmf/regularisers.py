@@ -9,8 +9,6 @@ from .state import RHMFState
 
 
 class Regulariser(eqx.Module):
-    """Abstract base; default is no regularization."""
-
     @abc.abstractmethod
     def __call__(self, state: RHMFState) -> float: ...
 
