@@ -10,7 +10,7 @@ from .state import RHMFState
 class WeightedAStep(eqx.Module):
     ridge: float | None = eqx.field(static=True, default=None)
 
-    def __call__(self, Y, state: RHMFState, W):
+    def __call__(self, Y, W, state: RHMFState):
         G = state.G
 
         def solve_row(y_i, w_i):
@@ -29,7 +29,7 @@ class WeightedAStep(eqx.Module):
 class WeightedGStep(eqx.Module):
     ridge: float | None = eqx.field(static=True, default=None)
 
-    def __call__(self, Y, state: RHMFState, W):
+    def __call__(self, Y, W, state: RHMFState):
         A = state.A
 
         def solve_col(y_j, w_j):
