@@ -46,7 +46,7 @@ class CauchyLikelihood(Likelihood):
         return s2 * jnp.sum(jnp.log1p((W_data * r2) / s2))
 
 
-class StudentTLikelihood(eqx.Module):
+class StudentTLikelihood(Likelihood):
     nu: float = 3.0
     scale: float = 1.0
 

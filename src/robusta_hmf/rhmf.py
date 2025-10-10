@@ -28,6 +28,9 @@ class ALS_RHMF(eqx.Module):
         G = jax.random.normal(k2, (D, K))
         return RHMFState(A=A, G=G, it=0)
 
+    def custom_init(self, A, G):
+        return RHMFState(A=A, G=G, it=0)
+
     @eqx.filter_jit
     def step(self, Y, W_data, state: RHMFState):
         W = self.likelihood.weights_total(Y, W_data, state.A, state.G)
@@ -52,6 +55,10 @@ class SGD_RHMF(eqx.Module):
         k1, k2 = jax.random.split(key)
         A = jax.random.normal(k1, (N, K))
         G = jax.random.normal(k2, (D, K))
+        opt_state = self.opt.init((A, G))
+        return RHMFState(A=A, G=G, it=0, opt_state=opt_state)
+
+    def custom_init(self, A, G):
         opt_state = self.opt.init((A, G))
         return RHMFState(A=A, G=G, it=0, opt_state=opt_state)
 
