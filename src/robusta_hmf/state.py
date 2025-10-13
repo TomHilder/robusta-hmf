@@ -1,3 +1,5 @@
+# state.py
+
 import equinox as eqx
 import jax
 import optax

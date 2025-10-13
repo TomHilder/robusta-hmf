@@ -1,4 +1,4 @@
-# regularisation.py
+# regularisers.py
 
 import abc
 

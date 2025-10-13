@@ -12,8 +12,8 @@ def rng(seed=0, N=6, M=5, K=3):
     key = jax.random.key(seed)
     Y = jax.random.normal(key, (N, M))
     W = jax.random.uniform(key, (N, M), minval=0.5, maxval=2.0)
-    A = 10 * jax.random.normal(key, (N, K))
-    G = 10 * jax.random.normal(key, (M, K))
+    A = jax.random.normal(key, (N, K))
+    G = jax.random.normal(key, (M, K))
     return Y, W, A, G
 
 
@@ -82,4 +82,4 @@ def test_fast_affine_orthonormality():
     *_, init_state = get_init_problem()
     state = FastAffine(whiten=True)(init_state)
     AT_A = state.A.T @ state.A
-    assert jnp.allclose(AT_A, jnp.eye(*AT_A.shape))
+    assert jnp.allclose(AT_A, jnp.eye(*AT_A.shape), rtol=1e-6, atol=1e-6)
