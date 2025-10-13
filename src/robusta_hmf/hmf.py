@@ -6,7 +6,7 @@ from jaxtyping import Array
 
 from .als import WeightedAStep, WeightedGStep
 from .likelihoods import GaussianLikelihood, Likelihood
-from .rotations import Rotation, RotationMethod
+from .rotations import Rotation, RotationMethod, get_rotation_cls
 from .state import RHMFState, refresh_opt_state, update_state
 
 
@@ -20,11 +20,12 @@ class ALS_HMF(eqx.Module):
         self,
         als_ridge: float | None = None,
         rotation: RotationMethod = "fast",
+        **rotation_kwargs,
     ):
         self.likelihood = GaussianLikelihood()
         self.a_step = WeightedAStep(ridge=als_ridge)
         self.g_step = WeightedGStep(ridge=als_ridge)
-        self.rotation = Rotation(method=rotation)
+        self.rotation = get_rotation_cls(method=rotation)(**rotation_kwargs)
 
     @eqx.filter_jit
     def step(
@@ -57,12 +58,13 @@ class SGD_HMF(eqx.Module):
         self,
         learning_rate: float = 1e-3,
         rotation: RotationMethod = "fast",
+        **rotation_kwargs,
     ):
         self.likelihood = GaussianLikelihood()
         self.opt = optax.adam(learning_rate)
-        self.rotation = Rotation(method=rotation)
+        self.rotation = get_rotation_cls(method=rotation)(**rotation_kwargs)
 
-    @eqx.filter_jit(donate="state")
+    @eqx.filter_jit
     def step(
         self,
         Y: Array,

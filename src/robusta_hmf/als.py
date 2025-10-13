@@ -4,7 +4,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 
-from .state import RHMFState
+from .state import RHMFState, update_state
 
 
 class WeightedAStep(eqx.Module):
@@ -23,7 +23,7 @@ class WeightedAStep(eqx.Module):
             return jnp.linalg.solve(M, b)
 
         A_new = jax.vmap(solve_row)(Y, W)  # [N, K]
-        return eqx.tree_at(lambda s: s.A, state, A_new)
+        return update_state(state, A=A_new)
 
 
 class WeightedGStep(eqx.Module):
@@ -42,4 +42,4 @@ class WeightedGStep(eqx.Module):
             return jnp.linalg.solve(M, b)
 
         G_new = jax.vmap(solve_col)(Y.T, W.T)  # [D, K]
-        return eqx.tree_at(lambda s: s.G, state, G_new)
+        return update_state(state, G=G_new)
