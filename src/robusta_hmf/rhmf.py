@@ -3,11 +3,12 @@
 import equinox as eqx
 import jax
 import optax
+from jaxtyping import Array
 
 from .als import WeightedAStep, WeightedGStep
-from .likelihoods import Likelihood
+from .likelihoods import GaussianLikelihood, Likelihood
 from .regularisers import Regulariser
-from .rotations import Rotation
+from .rotations import Rotation, RotationMethod
 from .state import RHMFState
 
 
@@ -16,23 +17,6 @@ class ALS_RHMF(eqx.Module):
     a_step: WeightedAStep
     g_step: WeightedGStep
     rotation: Rotation
-    regulariser: Regulariser | None = eqx.field(default=None)
-
-    def __post_init__(self):
-        if self.regulariser is not None:
-            raise NotImplementedError("Regularisers not implemented yet.")
-
-    def init_state(self, N, M, K, key):
-        pass
-
-    def random_init(self, N, M, K, key):
-        k1, k2 = jax.random.split(key)
-        A = jax.random.normal(k1, (N, K))
-        G = jax.random.normal(k2, (M, K))
-        return RHMFState(A=A, G=G, it=0)
-
-    def custom_init(self, A, G):
-        return RHMFState(A=A, G=G, it=0)
 
     @eqx.filter_jit
     def step(self, Y, W_data, state: RHMFState):

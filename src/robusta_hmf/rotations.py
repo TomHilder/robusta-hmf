@@ -1,11 +1,14 @@
 # rotations.py
 
 import abc
+from typing import Literal
 
 import equinox as eqx
 import jax.numpy as jnp
 
-from .state import RHMFState
+from .state import RHMFState, update_state
+
+RotationMethod = Literal["fast", "slow", "fast-weighted", "identity"]
 
 
 class Rotation(eqx.Module):
@@ -40,12 +43,10 @@ class FastAffine(Rotation):
 
         A_new = A @ R
         G_new = state.G @ Rinverse
-        state = eqx.tree_at(lambda s: s.A, state, A_new)
-        state = eqx.tree_at(lambda s: s.G, state, G_new)
-        return state
+        return update_state(state, A=A_new, G=G_new)
 
 
-class SlowAffineBigSVD(Rotation):
+class SlowAffine(Rotation):
     eps: float = eqx.field(static=True, default=1e-6)
 
     def __call__(self, state: RHMFState) -> RHMFState:
@@ -56,12 +57,24 @@ class SlowAffineBigSVD(Rotation):
         U, S, V = jnp.linalg.svd(C, full_matrices=False)
         A_new = (U[:, :K] * S[:K]).T
         G_new = V[:K, :]
-        state = eqx.tree_at(lambda s: s.A, state, A_new)
-        state = eqx.tree_at(lambda s: s.G, state, G_new)
-        return state
+        return update_state(state, A=A_new, G=G_new)
 
 
 class FastWeightedAffine(Rotation):
     # TODO
     def __call__(self, state: RHMFState) -> RHMFState:
         raise NotImplementedError
+
+
+def get_rotation_cls(method: RotationMethod) -> Rotation:
+    # Returns the class not an instance
+    if method == "fast":
+        return FastAffine
+    elif method == "slow":
+        return SlowAffine
+    elif method == "fast-weighted":
+        return FastWeightedAffine
+    elif method == "identity":
+        return Identity
+    else:
+        raise ValueError(f"Unknown rotation method: {method}")

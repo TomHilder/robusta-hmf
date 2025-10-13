@@ -2,7 +2,11 @@
 import jax
 import jax.numpy as jnp
 import pytest
-from robusta_hmf.rotations import FastAffine, Identity
+from robusta_hmf.rotations import (
+    FastAffine,
+    Identity,
+    get_rotation_cls,
+)
 from robusta_hmf.state import RHMFState
 
 jax.config.update("jax_enable_x64", True)
@@ -83,3 +87,19 @@ def test_fast_affine_orthonormality():
     state = FastAffine(whiten=True)(init_state)
     AT_A = state.A.T @ state.A
     assert jnp.allclose(AT_A, jnp.eye(*AT_A.shape), rtol=1e-6, atol=1e-6)
+
+
+# ----------------------------
+# Test get_rotation_cls
+# ----------------------------
+
+
+def test_get_rotation_cls():
+    # Test that the correct class is returned
+    cls = get_rotation_cls("fast")
+    assert cls == FastAffine
+    cls = get_rotation_cls("identity")
+    assert cls == Identity
+    # Test that an error is raised for unknown methods
+    with pytest.raises(ValueError):
+        get_rotation_cls("unknown_method")
