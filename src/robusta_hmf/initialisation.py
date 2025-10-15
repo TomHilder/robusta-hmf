@@ -85,7 +85,7 @@ class Initialiser:
         # Initialise the optax state
         if opt is None:
             opt_state = None
-        elif isinstance(opt, tuple):
+        elif isinstance(opt[0], optax.GradientTransformation):
             # block-SGD case: (opt_A, opt_G)
             optA, optG = opt
             opt_state = (optA.init((A, G)), optG.init((A, G)))

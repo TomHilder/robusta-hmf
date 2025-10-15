@@ -71,15 +71,6 @@ class FastAffine(Rotation):
         evals, V = jnp.linalg.eigh(C)
         lam = jnp.maximum(evals, self.eps)
 
-        # Debug line — works even under jit
-        jax.debug.print(
-            "Rotation step {it}: min={min:.3e}, max={max:.3e}, cond={cond:.3e}",
-            it=state.it,
-            min=evals.min(),
-            max=evals.max(),
-            cond=evals.max() / evals.min(),
-        )
-
         if self.whiten:
             invsqrt = 1.0 / jnp.sqrt(lam)
             sqrtv = jnp.sqrt(lam)

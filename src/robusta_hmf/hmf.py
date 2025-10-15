@@ -10,7 +10,7 @@ from jaxtyping import Array
 
 from .als import WeightedAStep, WeightedGStep
 from .likelihoods import GaussianLikelihood, Likelihood
-from .rotations import FastAffine, Rotation, RotationMethod, get_rotation_cls
+from .rotations import FastAffine, Identity, Rotation, RotationMethod, get_rotation_cls
 from .state import RHMFState, refresh_opt_state, update_state
 
 
@@ -65,11 +65,11 @@ class SGD_HMF(eqx.Module):
         **rotation_kwargs,
     ):
         self.likelihood = GaussianLikelihood()
-        self.opt = optax.adam(learning_rate)
+        # self.opt = optax.adam(learning_rate)
         # self.opt = optax.adamw(learning_rate)
-        # self.opt = optax.adafactor(
-        # factored=True, decay_rate=0.9, learning_rate=learning_rate
-        # )
+        self.opt = optax.adafactor(
+            factored=True, decay_rate=0.9, learning_rate=learning_rate
+        )
         # self.opt = optax.sgd(learning_rate=learning_rate, momentum=0.9, nesterov=True)
         # self.opt = optax.chain(
         #     optax.clip_by_global_norm(1.0),
@@ -293,7 +293,8 @@ class SGD_BlockHMF(eqx.Module):
         self.opt = (opt_A, opt_G)
         # -------------------- rotations ---------------------
         # NOTE: whiten argument now does nothing since it's hardcoded
-        self.rot_G = FastAffine(target="G", whiten=True, eps=rotation_eps)
+        # self.rot_G = FastAffine(target="G", whiten=False, eps=rotation_eps)
+        self.rot_G = Identity()
         self.rot_A = FastAffine(target="A", whiten=False, eps=rotation_eps)
         self.kA = kA
         self.kG = kG
