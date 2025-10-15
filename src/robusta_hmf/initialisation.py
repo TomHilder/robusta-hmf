@@ -70,7 +70,9 @@ class Initialiser:
         A: Array | None = None,
         G: Array | None = None,
         Y: Array | None = None,
-        opt: optax.GradientTransformation | None = None,
+        opt: optax.GradientTransformation
+        | tuple[optax.GradientTransformation, optax.GradientTransformation]
+        | None = None,
     ) -> RHMFState:
         # Initialise A and G according to strategy
         if self.strategy == "random":
@@ -79,10 +81,16 @@ class Initialiser:
             A, G = svd_init(Y, self.N, self.M, self.K)
         elif self.strategy == "custom":
             A, G = custom_init(A, G, self.N, self.M, self.K)
+
         # Initialise the optax state
-        if opt is not None:
-            opt_state = opt.init((A, G))
-        else:
+        if opt is None:
             opt_state = None
-        # Return RHMFState object and the optax optimiser object
+        elif isinstance(opt, tuple):
+            # block-SGD case: (opt_A, opt_G)
+            optA, optG = opt
+            opt_state = (optA.init((A, G)), optG.init((A, G)))
+        else:
+            # single optimiser case (e.g., joint SGD_HMF)
+            opt_state = opt.init((A, G))
+
         return RHMFState(A=A, G=G, it=0, opt_state=opt_state), opt

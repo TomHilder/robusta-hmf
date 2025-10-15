@@ -78,16 +78,25 @@ def test_identity():
 def test_fast_affine_orthogonality():
     # NOTE: G is not orthogonal after rotation, A is
     *_, init_state = get_init_problem()
-    state = FastAffine(whiten=False)(init_state)
+    state = FastAffine(whiten=False, target="A")(init_state)
     AT_A = state.A.T @ state.A
     assert jnp.allclose(AT_A, jnp.diag(jnp.diag(AT_A)))
 
 
 def test_fast_affine_orthonormality():
     *_, init_state = get_init_problem()
-    state = FastAffine(whiten=True)(init_state)
+    state = FastAffine(whiten=True, target="A")(init_state)
     AT_A = state.A.T @ state.A
     assert jnp.allclose(AT_A, jnp.eye(*AT_A.shape), rtol=1e-6, atol=1e-6)
+
+
+@pytest.mark.parametrize("whiten", [True, False])
+def test_fast_affine_invariance(whiten):
+    *_, init_state = get_init_problem()
+    state = FastAffine(whiten=whiten)(init_state)
+    Y1 = state.A @ state.G.T
+    Y2 = init_state.A @ init_state.G.T
+    assert jnp.allclose(Y1, Y2)
 
 
 # ----------------------------

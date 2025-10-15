@@ -4,6 +4,7 @@ import abc
 from typing import Literal
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 
 from .state import RHMFState, update_state
@@ -23,26 +24,82 @@ class Identity(Rotation):
         return state
 
 
+# class FastAffine(Rotation):
+#     whiten: bool = eqx.field(static=True, default=True)
+#     eps: float = eqx.field(static=True, default=1e-6)
+
+#     def __call__(self, state: RHMFState) -> RHMFState:
+#         A = state.A
+#         K = A.shape[1]
+#         C = A.T @ A + self.eps * jnp.eye(K, dtype=A.dtype)
+#         evals, V = jnp.linalg.eigh(C)
+
+#         if self.whiten:
+#             invsqrt = 1.0 / jnp.sqrt(jnp.maximum(evals, self.eps))
+#             sqrtv = jnp.sqrt(jnp.maximum(evals, self.eps))
+#             R = V @ (invsqrt[:, None] * V.T)  # V Λ^{-1/2} V^T
+#             Rinverse = V @ (sqrtv[:, None] * V.T)
+#         else:
+#             R, Rinverse = V, V
+
+#         A_new = A @ R
+#         G_new = state.G @ Rinverse
+#         return update_state(state, A=A_new, G=G_new)
+
+
 class FastAffine(Rotation):
+    # Which side to whiten: "A", "G", or "none"
+    target: Literal["A", "G", "none"] = eqx.field(static=True, default="G")
     whiten: bool = eqx.field(static=True, default=True)
     eps: float = eqx.field(static=True, default=1e-6)
 
     def __call__(self, state: RHMFState) -> RHMFState:
-        A = state.A
+        A, G = state.A, state.G
         K = A.shape[1]
-        C = A.T @ A + self.eps * jnp.eye(K, dtype=A.dtype)
+        I = jnp.eye(K, dtype=A.dtype)
+
+        # Pick matrix for eigendecomposition
+        if self.target == "A":
+            X = A
+        elif self.target == "G":
+            X = G
+        else:  # "none"
+            X = A  # arbitrary, used only for orthogonal part
+
+        # Compute symmetric covariance
+        C = 0.5 * (X.T @ X + (X.T @ X).T) + self.eps * I
         evals, V = jnp.linalg.eigh(C)
+        lam = jnp.maximum(evals, self.eps)
+
+        # Debug line — works even under jit
+        jax.debug.print(
+            "Rotation step {it}: min={min:.3e}, max={max:.3e}, cond={cond:.3e}",
+            it=state.it,
+            min=evals.min(),
+            max=evals.max(),
+            cond=evals.max() / evals.min(),
+        )
 
         if self.whiten:
-            invsqrt = 1.0 / jnp.sqrt(jnp.maximum(evals, self.eps))
-            sqrtv = jnp.sqrt(jnp.maximum(evals, self.eps))
+            invsqrt = 1.0 / jnp.sqrt(lam)
+            sqrtv = jnp.sqrt(lam)
             R = V @ (invsqrt[:, None] * V.T)  # V Λ^{-1/2} V^T
-            Rinverse = V @ (sqrtv[:, None] * V.T)
+            Rinverse = V @ (sqrtv[:, None] * V.T)  # inverse of above
         else:
-            R, Rinverse = V, V.T
+            R = V
+            Rinverse = V
 
-        A_new = A @ R
-        G_new = state.G @ Rinverse
+        # Apply transform depending on target
+        if self.target == "A":
+            A_new = A @ R
+            G_new = G @ Rinverse
+        elif self.target == "G":
+            A_new = A @ Rinverse
+            G_new = G @ R
+        else:  # "none"
+            A_new = A @ R
+            G_new = G @ Rinverse
+
         return update_state(state, A=A_new, G=G_new)
 
 
