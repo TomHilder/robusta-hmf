@@ -81,3 +81,6 @@ def test_conv_tester_G_max_frac(shape, tol):
     old_state = RHMFState(A=jnp.zeros_like(mat1), G=mat1)
     new_state = RHMFState(A=jnp.zeros_like(mat2), G=mat2)
     assert not conv.is_converged(old_state, new_state)
+
+
+# TODO: Add tests for rel_frac_loss option!
