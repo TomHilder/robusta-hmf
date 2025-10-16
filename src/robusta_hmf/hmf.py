@@ -1,17 +1,17 @@
 # hmf.py
 
-from typing import Tuple
-
 import equinox as eqx
-import jax
-import jax.numpy as jnp
 import optax
 from jaxtyping import Array
 
 from .als import WeightedAStep, WeightedGStep
 from .likelihoods import GaussianLikelihood, Likelihood
-from .rotations import FastAffine, Identity, Rotation, RotationMethod, get_rotation_cls
+from .opt_methods import OptMethod
+from .rotations import Rotation, RotationMethod, get_rotation_cls
 from .state import RHMFState, refresh_opt_state, update_state
+
+# TODO: restructure to have a base HMF class and then subclasses for SGD and ALS?
+# Then also subclass the same thing for RHMF classes too?
 
 
 class ALS_HMF(eqx.Module):
@@ -19,6 +19,7 @@ class ALS_HMF(eqx.Module):
     a_step: WeightedAStep
     g_step: WeightedGStep
     rotation: Rotation
+    opt_method: OptMethod = eqx.field(static=True, default="als")
 
     def __init__(
         self,
@@ -30,6 +31,7 @@ class ALS_HMF(eqx.Module):
         self.a_step = WeightedAStep(ridge=als_ridge)
         self.g_step = WeightedGStep(ridge=als_ridge)
         self.rotation = get_rotation_cls(method=rotation)(**rotation_kwargs)
+        self.opt_method = "als"
 
     @eqx.filter_jit
     def step(
@@ -57,6 +59,7 @@ class SGD_HMF(eqx.Module):
     likelihood: Likelihood = eqx.field(static=True)
     opt: optax.GradientTransformation = eqx.field(static=True)
     rotation: Rotation = eqx.field(static=True)
+    opt_method: OptMethod = eqx.field(static=True, default="sgd")
 
     def __init__(
         self,
@@ -78,6 +81,7 @@ class SGD_HMF(eqx.Module):
                 learning_rate=learning_rate,
             )
         self.rotation = get_rotation_cls(method=rotation)(**rotation_kwargs)
+        self.opt_method = "sgd"
 
     @eqx.filter_jit
     def step(
