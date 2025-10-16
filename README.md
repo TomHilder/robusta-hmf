@@ -14,7 +14,7 @@
   - [x] Initialisation.
   - [x] Re-orientation. Can easily imagine wanting something cheaper for really big data.
 - [ ] Add a save and restore method. Probably avoid pickle/dill and instead encapsulate info in serialisable way and then rebuild model upon loading*
-- [ ] Tests!*
+- [x] Tests!*
 - [ ] CI, automated tests, automated relases, and PyPI*
 - [ ] Relax version requirements since uv by default is newest everything
 

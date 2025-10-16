@@ -57,13 +57,13 @@ def test_conv_tester_A_max_frac(shape, tol):
     mat1, mat2 = setup_matrices(0, shape, tol)
     old_state = RHMFState(A=mat1, G=jnp.zeros_like(mat1))
     new_state = RHMFState(A=mat2, G=jnp.zeros_like(mat2))
-    assert conv.is_converged(old_state, new_state)
+    assert conv.is_converged(old_state, new_state, None, None)
     # Version that is not converged
     mat2 = mat1.copy()
     mat2 = mat2.at[0, 0].set(1e4)
     old_state = RHMFState(A=mat1, G=jnp.zeros_like(mat1))
     new_state = RHMFState(A=mat2, G=jnp.zeros_like(mat2))
-    assert not conv.is_converged(old_state, new_state)
+    assert not conv.is_converged(old_state, new_state, None, None)
 
 
 @pytest.mark.parametrize("shape", [(200, 200), (100, 200), (100, 200)])
@@ -74,13 +74,13 @@ def test_conv_tester_G_max_frac(shape, tol):
     mat1, mat2 = setup_matrices(0, shape, tol)
     old_state = RHMFState(A=jnp.zeros_like(mat1), G=mat1)
     new_state = RHMFState(A=jnp.zeros_like(mat2), G=mat2)
-    assert conv.is_converged(old_state, new_state)
+    assert conv.is_converged(old_state, new_state, None, None)
     # Version that is not converged
     mat2 = mat1.copy()
     mat2 = mat2.at[0, 0].set(1e4)
     old_state = RHMFState(A=jnp.zeros_like(mat1), G=mat1)
     new_state = RHMFState(A=jnp.zeros_like(mat2), G=mat2)
-    assert not conv.is_converged(old_state, new_state)
+    assert not conv.is_converged(old_state, new_state, None, None)
 
 
 # TODO: Add tests for rel_frac_loss option!
