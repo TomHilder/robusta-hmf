@@ -65,16 +65,13 @@ class SGD_HMF(eqx.Module):
         **rotation_kwargs,
     ):
         self.likelihood = GaussianLikelihood()
-        # self.opt = optax.adam(learning_rate)
-        # self.opt = optax.adamw(learning_rate)
         self.opt = optax.adafactor(
-            factored=True, decay_rate=0.9, learning_rate=learning_rate
+            factored=True,
+            decay_rate=0.9,
+            learning_rate=learning_rate,
         )
-        # self.opt = optax.sgd(learning_rate=learning_rate, momentum=0.9, nesterov=True)
-        # self.opt = optax.chain(
-        #     optax.clip_by_global_norm(1.0),
-        #     optax.adafactor(factored=True, decay_rate=0.9, learning_rate=learning_rate),
-        #     # optax.adam(learning_rate),
+        # self.opt = optax.lamb(
+        # learning_rate=learning_rate,
         # )
         self.rotation = get_rotation_cls(method=rotation)(**rotation_kwargs)
 
@@ -108,8 +105,8 @@ class SGD_HMF(eqx.Module):
                 G=G_new,
                 opt_state=opt_state,
             )
-        # Recompute loss
-        loss = self.likelihood.loss(Y, W_data, state.A, state.G)
+        # # Recompute loss
+        # loss = self.likelihood.loss(Y, W_data, state.A, state.G)
 
         state = update_state(state, it=state.it + 1)
         return state, loss
