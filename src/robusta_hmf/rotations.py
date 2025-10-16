@@ -4,7 +4,6 @@ import abc
 from typing import Literal
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 
 from .state import RHMFState, update_state
@@ -24,33 +23,9 @@ class Identity(Rotation):
         return state
 
 
-# class FastAffine(Rotation):
-#     whiten: bool = eqx.field(static=True, default=True)
-#     eps: float = eqx.field(static=True, default=1e-6)
-
-#     def __call__(self, state: RHMFState) -> RHMFState:
-#         A = state.A
-#         K = A.shape[1]
-#         C = A.T @ A + self.eps * jnp.eye(K, dtype=A.dtype)
-#         evals, V = jnp.linalg.eigh(C)
-
-#         if self.whiten:
-#             invsqrt = 1.0 / jnp.sqrt(jnp.maximum(evals, self.eps))
-#             sqrtv = jnp.sqrt(jnp.maximum(evals, self.eps))
-#             R = V @ (invsqrt[:, None] * V.T)  # V Λ^{-1/2} V^T
-#             Rinverse = V @ (sqrtv[:, None] * V.T)
-#         else:
-#             R, Rinverse = V, V
-
-#         A_new = A @ R
-#         G_new = state.G @ Rinverse
-#         return update_state(state, A=A_new, G=G_new)
-
-
 class FastAffine(Rotation):
-    # Which side to whiten: "A", "G", or "none"
     target: Literal["A", "G", "none"] = eqx.field(static=True, default="G")
-    whiten: bool = eqx.field(static=True, default=True)
+    whiten: bool = eqx.field(static=True, default=False)
     eps: float = eqx.field(static=True, default=1e-6)
 
     def __call__(self, state: RHMFState) -> RHMFState:
@@ -63,8 +38,8 @@ class FastAffine(Rotation):
             X = A
         elif self.target == "G":
             X = G
-        else:  # "none"
-            X = A  # arbitrary, used only for orthogonal part
+        else:
+            X = A
 
         # Compute symmetric covariance
         C = 0.5 * (X.T @ X + (X.T @ X).T) + self.eps * I

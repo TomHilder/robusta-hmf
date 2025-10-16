@@ -85,12 +85,7 @@ class Initialiser:
         # Initialise the optax state
         if opt is None:
             opt_state = None
-        elif isinstance(opt[0], optax.GradientTransformation):
-            # block-SGD case: (opt_A, opt_G)
-            optA, optG = opt
-            opt_state = (optA.init((A, G)), optG.init((A, G)))
         else:
-            # single optimiser case (e.g., joint SGD_HMF)
             opt_state = opt.init((A, G))
 
-        return RHMFState(A=A, G=G, it=0, opt_state=opt_state), opt
+        return RHMFState(A=A, G=G, it=0, opt_state=opt_state)

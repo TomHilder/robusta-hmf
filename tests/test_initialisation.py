@@ -32,7 +32,7 @@ jax.config.update("jax_enable_x64", True)
 def test_random_init_shapes(shape):
     N, M, K = shape
     init = Initialiser(N, M, K, strategy="random")
-    state, _ = init.execute(seed=0)
+    state = init.execute(seed=0)
     assert state.A.shape == (N, K)
     assert state.G.shape == (M, K)
 
@@ -40,8 +40,8 @@ def test_random_init_shapes(shape):
 def test_random_init_determinism():
     N, M, K = 6, 5, 3
     init = Initialiser(N, M, K, strategy="random")
-    state1, _ = init.execute(seed=0)
-    state2, _ = init.execute(seed=0)
+    state1 = init.execute(seed=0)
+    state2 = init.execute(seed=0)
     assert jnp.allclose(state1.A, state2.A)
     assert jnp.allclose(state1.G, state2.G)
 
@@ -49,8 +49,8 @@ def test_random_init_determinism():
 def test_random_init_different_seeds():
     N, M, K = 6, 5, 3
     init = Initialiser(N, M, K, strategy="random")
-    state1, _ = init.execute(seed=0)
-    state2, _ = init.execute(seed=1)
+    state1 = init.execute(seed=0)
+    state2 = init.execute(seed=1)
     assert not jnp.allclose(state1.A, state2.A)
     assert not jnp.allclose(state1.G, state2.G)
 
@@ -91,7 +91,7 @@ def test_svd_init_shapes(shape):
             init.execute(seed=0, Y=Y)
     else:
         init = Initialiser(N, M, K, strategy="svd")
-        state, _ = init.execute(seed=0, Y=Y)
+        state = init.execute(seed=0, Y=Y)
         assert state.A.shape == (N, K)
         assert state.G.shape == (M, K)
 
@@ -115,8 +115,8 @@ def test_svd_determinism():
     N, M, K = 6, 5, 3
     Y = jax.random.normal(jax.random.key(0), (N, M))
     init = Initialiser(N, M, K, strategy="svd")
-    state1, _ = init.execute(seed=0, Y=Y)
-    state2, _ = init.execute(seed=0, Y=Y)
+    state1 = init.execute(seed=0, Y=Y)
+    state2 = init.execute(seed=0, Y=Y)
     assert jnp.allclose(state1.A, state2.A)
     assert jnp.allclose(state1.G, state2.G)
 
@@ -137,7 +137,7 @@ def test_svd_reconstruction(shape):
     key = jax.random.key(0)
     Y_true = jax.random.normal(key, (N, M))
     init = Initialiser(N, M, K, strategy="svd")
-    state, _ = init.execute(seed=0, Y=Y_true)
+    state = init.execute(seed=0, Y=Y_true)
     Y_recon = state.A @ state.G.T
     if K >= min(N, M):
         assert jnp.allclose(Y_recon, Y_true)
@@ -172,7 +172,7 @@ def test_custom_init_shapes(shape):
     A = jax.random.normal(jax.random.key(0), (N, K))
     G = jax.random.normal(jax.random.key(1), (M, K))
     init = Initialiser(N, M, K, strategy="custom")
-    state, _ = init.execute(seed=0, A=A, G=G)
+    state = init.execute(seed=0, A=A, G=G)
     assert state.A.shape == (N, K)
     assert state.G.shape == (M, K)
 
@@ -192,11 +192,11 @@ def test_custom_no_A_G():
 def test_optax_state_init():
     N, M, K = 6, 5, 3
     init = Initialiser(N, M, K, strategy="random")
-    state, _ = init.execute(seed=0)
+    state = init.execute(seed=0)
     assert state.opt_state is None
 
     opt = optax.adam(1e-3)
-    state, _ = init.execute(seed=0, opt=opt)
+    state = init.execute(seed=0, opt=opt)
     assert state.opt_state is not None
     jax.tree_util.tree_flatten(state.opt_state)  # Should not error
 

@@ -62,17 +62,21 @@ class SGD_HMF(eqx.Module):
         self,
         learning_rate: float = 1e-3,
         rotation: RotationMethod = "fast",
+        custom_opt: optax.GradientTransformation | None = None,
         **rotation_kwargs,
     ):
+        """
+        Note that the learning_rate is only used if custom_opt is None.
+        """
         self.likelihood = GaussianLikelihood()
-        self.opt = optax.adafactor(
-            factored=True,
-            decay_rate=0.9,
-            learning_rate=learning_rate,
-        )
-        # self.opt = optax.lamb(
-        # learning_rate=learning_rate,
-        # )
+        if custom_opt is not None:
+            self.opt = custom_opt
+        else:
+            self.opt = optax.adafactor(
+                factored=True,
+                decay_rate=0.9,
+                learning_rate=learning_rate,
+            )
         self.rotation = get_rotation_cls(method=rotation)(**rotation_kwargs)
 
     @eqx.filter_jit
@@ -98,6 +102,8 @@ class SGD_HMF(eqx.Module):
             state = update_state(state, A=A_new, G=G_new)
             state = self.rotation(state)  # rotates A/G
             state = refresh_opt_state(state, self.opt)  # refresh
+            # Recalculate loss after rotation
+            loss = self.likelihood.loss(Y, W_data, state.A, state.G)
         else:
             state = update_state(
                 state,
@@ -105,8 +111,6 @@ class SGD_HMF(eqx.Module):
                 G=G_new,
                 opt_state=opt_state,
             )
-        # # Recompute loss
-        # loss = self.likelihood.loss(Y, W_data, state.A, state.G)
 
         state = update_state(state, it=state.it + 1)
         return state, loss
