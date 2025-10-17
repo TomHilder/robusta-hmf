@@ -25,7 +25,9 @@ def update_state(
     it_ = state.it if it is None else it
     opt_ = state.opt_state if opt_state is None else opt_state
     return eqx.tree_at(
-        lambda s: (s.A, s.G, s.it, s.opt_state), state, (A_, G_, it_, opt_)
+        lambda s: (s.A, s.G, s.it, s.opt_state),
+        state,
+        (A_, G_, it_, opt_),
     )
 
 

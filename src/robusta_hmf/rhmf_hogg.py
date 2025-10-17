@@ -1,3 +1,5 @@
+# rhmf_hogg.py
+# NOTE: This is David Hogg's original RHMF code, unchanged except for formatting. It's here for reference and comparison.
 """
 # Robust Heteroskedastic Matrix Factorization
 An iteratively-reweighted-least-squares (IRLS) version of HMF.

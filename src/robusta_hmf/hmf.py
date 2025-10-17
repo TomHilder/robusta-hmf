@@ -40,7 +40,7 @@ class HMF(eqx.Module):
         **rotation_kwargs,
     ):
         """
-        Unified Heteroskedastic Matrix Factorization class.
+        Unified Heteroscedastic Matrix Factorization class. Not really meant for users but live your best life I guess.
 
         Args:
             method: Optimization method, either "als" or "sgd"

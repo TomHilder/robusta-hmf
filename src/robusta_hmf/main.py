@@ -43,11 +43,11 @@ class Robusta:
         robust_scale: float = 1.0,
         # Init params
         init_strategy: str = "svd",
-        initialiser: Initialiser | None = None,
+        override_initialiser: Initialiser | None = None,
         # Convergence params
         conv_strategy: str = "rel_frac_loss",
         conv_tol: float = 1e-3,
-        conv_tester: ConvergenceTester | None = None,
+        override_conv_tester: ConvergenceTester | None = None,
         # HMF params
         als_ridge: float | None = None,
         learning_rate: float = 1e-3,
@@ -71,7 +71,7 @@ class Robusta:
             Scale parameter for Student-t likelihood (only used if robust=True)
         init_strategy : str, default="svd"
             Initialization strategy for factors
-        initialiser : Initialiser | None, default=None
+        override_initialiser : Initialiser | None, default=None
             Custom initialiser object (overrides init_strategy if provided)
         conv_strategy : str, default="rel_frac_loss"
             Convergence detection strategy
@@ -104,20 +104,20 @@ class Robusta:
         )
 
         # Build or use provided initialiser
-        if initialiser is None:
+        if override_initialiser is None:
             # Note: N, M will be set when fit() is called
             # For now we create a partial initialiser
             self._init_strategy = init_strategy
             self._initialiser = None
         else:
-            self._initialiser = initialiser
-            self._init_strategy = None
+            self._initialiser = override_initialiser
+            self._init_strategy = override_initialiser.strategy
 
         # Build or use provided convergence tester
-        if conv_tester is None:
+        if override_conv_tester is None:
             self._conv_tester = ConvergenceTester(strategy=conv_strategy, tol=conv_tol)
         else:
-            self._conv_tester = conv_tester
+            self._conv_tester = override_conv_tester
 
         # Build optimization frame
         self._frame = OptFrame(method=self._hmf, conv_tester=self._conv_tester)
@@ -226,6 +226,21 @@ class Robusta:
         A = state.A if indices is None else state.A[indices]
         return A @ state.G.T
 
+    def infer(
+        self,
+        y_new: Array,
+        w_new: Array,
+        override_method: OptMethod | None = None,
+        state: RHMFState | None = None,
+        max_iter: int = 100,
+        tol: float = 1e-5,
+    ) -> tuple[Array, Array, Array]:
+        """
+        Predict coefficients and reconstruction for new observation(s).
+        """
+        # TODO: Implement this method properly. Need to implement the one-sided fitting logic.
+        raise NotImplementedError("infer() method not yet implemented.")
+
     def basis_vectors(self, state: RHMFState | None = None) -> Array:
         """
         Get the basis vectors (G matrix).
@@ -332,6 +347,7 @@ class Robusta:
         """Loss history from last fit."""
         return self._loss_history
 
+    # NOTE: LLM slop version for the infer() method above commented out below. Proper implementation is TODO.
     # def predict(
     #     self,
     #     y_new: Array,

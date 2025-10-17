@@ -7,6 +7,9 @@ import jax.numpy as jnp
 
 from .state import RHMFState
 
+# NOTE: This stuff is really just a placeholder for now, it's utterly unimplemented and not integrated with any of the rest of the code.
+#       But, in principle it's a nice-to-have. So here it is.
+
 
 class Regulariser(eqx.Module):
     @abc.abstractmethod
