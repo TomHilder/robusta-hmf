@@ -30,7 +30,7 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-src/spectracles/_version.py
+src/robusta_hmf/_version.py
 # MANIFEST
 
 # PyInstaller

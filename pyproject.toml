@@ -1,6 +1,6 @@
 [project]
 name = "robusta-hmf"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Robust heteroskedastic matrix factorisation in JAX."
 readme = "README.md"
 authors = [
@@ -8,19 +8,30 @@ authors = [
     { name = "David W. Hogg", email = "TODO@TODO.com" },
 ]
 requires-python = ">=3.13"
-dependencies = [
-    "equinox>=0.13.0",
-    "jax>=0.7.1",
-    "optax>=0.2.5",
-]
-
+dependencies = ["equinox>=0.13.0", "jax>=0.7.1", "optax>=0.2.5"]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build]
+include = ["src/robusta_hmf/py.typed"]
+exclude = ["**/__pycache__/**"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/**", "README.md", "LICENSE"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/robusta_hmf"]
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/robusta_hmf/_version.py"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.ruff]
+line-length = 99 # Sorry PEP8 I'm a rebel
+
 [dependency-groups]
-dev = [
-    "pytest>=8.4.2",
-    "pytest-cov>=7.0.0",
-]
+dev = ["mypy>=1.18.2", "pytest>=8.4.2", "pytest-cov>=7.0.0"]
