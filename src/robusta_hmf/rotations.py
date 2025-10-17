@@ -31,7 +31,6 @@ class FastAffine(Rotation):
     def __call__(self, state: RHMFState) -> RHMFState:
         A, G = state.A, state.G
         K = A.shape[1]
-        I = jnp.eye(K, dtype=A.dtype)
 
         # Pick matrix for eigendecomposition
         if self.target == "A":
@@ -42,7 +41,7 @@ class FastAffine(Rotation):
             X = A
 
         # Compute symmetric covariance
-        C = 0.5 * (X.T @ X + (X.T @ X).T) + self.eps * I
+        C = 0.5 * (X.T @ X + (X.T @ X).T) + self.eps * jnp.eye(K, dtype=A.dtype)
         evals, V = jnp.linalg.eigh(C)
         lam = jnp.maximum(evals, self.eps)
 
