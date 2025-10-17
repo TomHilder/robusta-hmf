@@ -8,6 +8,7 @@ import jax.numpy as jnp
 from jaxtyping import Array
 
 from .convergence import ConvergenceTester
+from .hmf import HMF
 from .state import RHMFState
 
 OptMethod = Literal["sgd", "als"]
@@ -15,8 +16,7 @@ OptMethod = Literal["sgd", "als"]
 
 @dataclass
 class OptFrame:
-    # TODO: Update below type once ALS_HMF, etc. are subclassed from a common base
-    method: eqx.Module
+    method: HMF
     conv_tester: ConvergenceTester
 
     def run(
@@ -28,6 +28,9 @@ class OptFrame:
         conv_check_cadence: int,
         max_iter: int,
     ):
+        # Get the step function from the method
+        step_fn = self.method.get_stepper()
+
         # Always rotate for als
         if self.method.opt_method == "als":
             rotation_cadence = 1
@@ -45,7 +48,7 @@ class OptFrame:
             # Do we rotate this iteration?
             rot = True if (i % rotation_cadence == 0 and i != 0) else False
             # Take an optimization step and record the loss
-            state, loss = self.method.step(Y=Y, W_data=W, state=state, rotate=rot)
+            state, loss = step_fn(Y=Y, W_data=W, state=state, rotate=rot)
             loss_history.append(loss)
             # Check convergence and print loss every conv_check_cadence iterations
             if i % conv_check_cadence == 0 and i != 0:
