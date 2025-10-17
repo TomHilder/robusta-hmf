@@ -1,13 +1,11 @@
 # __init__.py
 
 from .convergence import ConvergenceTester
-from .frame import OptFrame
-from .hmf import HMF
 from .initialisation import Initialiser
+from .main import Robusta
 
 __all__ = [
-    "HMF",
     "ConvergenceTester",
-    "OptFrame",
     "Initialiser",
+    "Robusta",
 ]
