@@ -1,17 +1,14 @@
 # frame.py
+
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Literal
 
-import equinox as eqx
 import jax.numpy as jnp
 from jaxtyping import Array
 
 from .convergence import ConvergenceTester
 from .hmf import HMF
 from .state import RHMFState
-
-OptMethod = Literal["sgd", "als"]
 
 
 @dataclass

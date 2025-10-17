@@ -1,7 +1,7 @@
 # initialisation.py
 
 from dataclasses import dataclass
-from typing import Literal, get_args
+from typing import Literal, TypeAlias, get_args
 
 import jax
 import jax.numpy as jnp
@@ -10,7 +10,7 @@ from jaxtyping import Array
 
 from .state import RHMFState
 
-InitStrategy = Literal["random", "svd", "custom"]
+InitStrategy: TypeAlias = Literal["random", "svd", "custom"]
 
 
 def random_init(seed: int, N: int, M: int, K: int) -> tuple[Array]:

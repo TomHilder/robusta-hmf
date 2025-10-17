@@ -1,14 +1,14 @@
 # rotations.py
 
 import abc
-from typing import Literal
+from typing import Literal, TypeAlias
 
 import equinox as eqx
 import jax.numpy as jnp
 
 from .state import RHMFState, update_state
 
-RotationMethod = Literal["fast", "slow", "fast-weighted", "identity"]
+RotationMethod: TypeAlias = Literal["fast", "slow", "fast-weighted", "identity"]
 
 
 class Rotation(eqx.Module):

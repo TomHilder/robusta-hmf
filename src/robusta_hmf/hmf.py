@@ -1,14 +1,17 @@
 # hmf.py
 
+from typing import Literal, TypeAlias
+
 import equinox as eqx
 import optax
 from jaxtyping import Array
 
 from .als import WeightedAStep, WeightedGStep
 from .likelihoods import GaussianLikelihood, Likelihood, StudentTLikelihood
-from .opt_methods import OptMethod
 from .rotations import Rotation, RotationMethod, get_rotation_cls
 from .state import RHMFState, refresh_opt_state, update_state
+
+OptMethod: TypeAlias = Literal["sgd", "als"]
 
 
 class HMF(eqx.Module):
