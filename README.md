@@ -4,7 +4,7 @@
 
 ## Installation
 
-Easiest is from PyPI either with `pip` (CURRENTLY NOT ON PYPI YET)
+Easiest is from PyPI either with `pip`
 
 ```sh
 pip install robusta-hmf
