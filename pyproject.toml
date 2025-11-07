@@ -35,3 +35,12 @@ line-length = 99 # Sorry PEP8 I'm a rebel
 
 [dependency-groups]
 dev = ["mypy>=1.18.2", "pytest>=8.4.2", "pytest-cov>=7.0.0"]
+examples = [
+    "astropy>=7.1.1",
+    "ipykernel>=7.1.0",
+    "matplotlib>=3.10.7",
+    "mpl-drip>=1.0.5",
+    "numpy>=2.3.4",
+    "scipy>=1.16.2",
+    "tqdm>=4.67.1",
+]

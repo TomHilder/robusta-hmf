@@ -88,13 +88,9 @@ class HMF(eqx.Module):
         """Validate parameters."""
         if isinstance(self.likelihood, StudentTLikelihood):
             if self.likelihood.scale <= 0:
-                raise ValueError(
-                    f"robust_scale must be positive, got {self.likelihood.scale}"
-                )
+                raise ValueError(f"robust_scale must be positive, got {self.likelihood.scale}")
             if self.likelihood.nu <= 0:
-                raise ValueError(
-                    f"robust_nu must be positive, got {self.likelihood.nu}"
-                )
+                raise ValueError(f"robust_nu must be positive, got {self.likelihood.nu}")
 
         if self.opt_method == "als":
             if self.a_step.ridge is not None and self.a_step.ridge < 0:
@@ -109,15 +105,17 @@ class HMF(eqx.Module):
         W_data: Array,
         state: RHMFState,
         rotate: bool = True,
+        skip_G: bool = False,
     ) -> tuple[RHMFState, float]:
         """Perform one ALS optimization step. Not intended to be called by user."""
         # W step
         W = self.likelihood.weights_total(Y, W_data, state.A, state.G)
         # ALS steps
         state = self.a_step(Y, W, state)
-        state = self.g_step(Y, W, state)
+        if not skip_G:
+            state = self.g_step(Y, W, state)
         # Optional rotation step (Actually should never be skipped for ALS, but this is handled in OptFrame, and kept here for interface consistency)
-        if rotate:
+        if rotate and not skip_G:
             state = self.rotation(state)
         # Compute loss, update states
         loss = self.likelihood.loss(Y, W_data, state.A, state.G)

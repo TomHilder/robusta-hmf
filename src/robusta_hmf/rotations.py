@@ -25,7 +25,7 @@ class Identity(Rotation):
 
 class FastAffine(Rotation):
     target: Literal["A", "G", "none"] = eqx.field(static=True, default="G")
-    whiten: bool = eqx.field(static=True, default=False)
+    whiten: bool = eqx.field(static=True, default=True)
     eps: float = eqx.field(static=True, default=1e-6)
 
     def __call__(self, state: RHMFState) -> RHMFState:

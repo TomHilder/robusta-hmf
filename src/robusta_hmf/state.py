@@ -1,7 +1,10 @@
 # state.py
 
+from pathlib import Path
+
 import equinox as eqx
 import jax
+import numpy as np
 import optax
 from jaxtyping import Array
 
@@ -35,3 +38,24 @@ def refresh_opt_state(state: RHMFState, opt: optax.GradientTransformation) -> RH
     opt_state = opt.init((state.A, state.G))
     state = eqx.tree_at(lambda s: s.opt_state, state, opt_state)
     return state
+
+
+def save_state_to_npz(state: RHMFState, filepath: Path):
+    np.savez(
+        filepath,
+        A=state.A,
+        G=state.G,
+        it=state.it,
+    )
+
+
+def load_state_from_npz(
+    filepath: Path,
+    opt_state: optax.OptState | None = None,
+) -> RHMFState:
+    data = np.load(filepath)
+    A = data["A"]
+    G = data["G"]
+    it = int(data["it"])
+    # If an opt_state is provided, use it
+    return RHMFState(A=A, G=G, it=it, opt_state=opt_state)

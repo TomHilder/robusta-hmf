@@ -1,9 +1,13 @@
 # robusta.py
 
+import warnings
+from copy import deepcopy
 from dataclasses import dataclass
 
+import jax.numpy as jnp
 from jaxtyping import Array
 
+from .als import WeightedAStep
 from .convergence import ConvergenceTester
 from .frame import OptFrame
 from .hmf import HMF, OptMethod
@@ -45,7 +49,7 @@ class Robusta:
         init_strategy: str = "svd",
         override_initialiser: Initialiser | None = None,
         # Convergence params
-        conv_strategy: str = "rel_frac_loss",
+        conv_strategy: str = "max_frac_G",
         conv_tol: float = 1e-3,
         override_conv_tester: ConvergenceTester | None = None,
         # HMF params
@@ -126,13 +130,31 @@ class Robusta:
         self._state = None
         self._loss_history = None
 
+    def set_state(self, state: RHMFState) -> "Robusta":
+        """
+        Returns a copy of the object with the given state.
+
+        Parameters
+        ----------
+        state : RHMFState
+            State to set
+
+        Returns
+        -------
+        new_obj : Robusta
+            New Robusta object with updated state
+        """
+        new_obj = deepcopy(self)
+        new_obj._state = state
+        return new_obj
+
     def fit(
         self,
         Y: Array,
         W: Array,
         max_iter: int = 1000,
-        rotation_cadence: int = 10,
-        conv_check_cadence: int = 20,
+        rotation_cadence: int = 1,
+        conv_check_cadence: int = 10,
         seed: int = 0,
         init_state: RHMFState | None = None,
     ) -> tuple[RHMFState, Array]:
@@ -164,6 +186,12 @@ class Robusta:
             Loss values over iterations
         """
         N, M = Y.shape
+
+        # Give warning if rotation cadence is not 1 for ALS
+        if self.method == "als" and rotation_cadence != 1:
+            warnings.warn(
+                "Using ALS with rotation_cadence != 1. This may lead to unexpected behavior."
+            )
 
         # Initialize state if not provided
         if init_state is None:
@@ -228,18 +256,54 @@ class Robusta:
 
     def infer(
         self,
-        y_new: Array,
-        w_new: Array,
-        override_method: OptMethod | None = None,
+        Y_infer: Array,
+        W_infer: Array,
         state: RHMFState | None = None,
         max_iter: int = 100,
-        tol: float = 1e-5,
+        conv_strategy: str = "max_frac_A",
+        conv_tol: float = 1e-3,
+        conv_check_cadence: int = 10,
     ) -> tuple[Array, Array, Array]:
         """
-        Predict coefficients and reconstruction for new observation(s).
+        Predict coefficients and reconstruction for new observation(s). Always uses least-squares not gradient descent.
         """
-        # TODO: Implement this method properly. Need to implement the one-sided fitting logic.
-        raise NotImplementedError("infer() method not yet implemented.")
+        # NOTE: This implementation is a bit of a mess
+
+        N, _ = Y_infer.shape
+        A_dummy = jnp.zeros((N, self.rank))
+        try:
+            G_fixed = state.G if state is not None else self.G
+        except AttributeError:
+            raise ValueError(
+                "No trained state available. Either provide state or call fit() first."
+            )
+
+        # Get an initial guess for the coefficients using the data weights
+        a_step = WeightedAStep(ridge=self._hmf.a_step.ridge if self.method == "als" else None)
+        A_init = a_step(Y_infer, W_infer, RHMFState(A=A_dummy, G=G_fixed, it=0)).A
+
+        # We can't use conv_strategy of max_frac_G here because G is fixed
+        if conv_strategy == "max_frac_G":
+            warnings.warn("max_frac_G is not supported for infer(). Using max_frac_A instead.")
+            conv_strategy = "max_frac_A"
+
+        # Run one-sided optimization
+        conv_tester = ConvergenceTester(strategy=conv_strategy, tol=conv_tol)
+        frame = OptFrame(method=self._hmf, conv_tester=conv_tester)
+        final_state, loss_history = frame.run(
+            Y=Y_infer,
+            W=W_infer,
+            init_state=RHMFState(
+                A=A_init,
+                G=G_fixed,
+                it=0,
+            ),
+            rotation_cadence=1,  # No rotation since G is fixed so this is a dummy value
+            conv_check_cadence=conv_check_cadence,
+            max_iter=max_iter,
+            skip_G=True,
+        )
+        return final_state, loss_history  # Not stored because this is not the main fit
 
     def basis_vectors(self, state: RHMFState | None = None) -> Array:
         """
@@ -297,6 +361,26 @@ class Robusta:
         """
         return Y - self.synthesize(state=state)
 
+    def mse(self, Y: Array, state: RHMFState | None = None) -> float:
+        """
+        Compute mean squared error of the reconstruction.
+
+        Parameters
+        ----------
+        Y : Array, shape (N, M)
+            Data matrix
+        state : RHMFState | None, default=None
+            State to use. If None, use self._state from last fit.
+
+        Returns
+        -------
+        mse : float
+            Mean squared error
+        """
+        raise NotImplementedError(
+            "MSE calculation not implemented yet since I don't know exactly what metric is appropriate and this is name MSE as a placeholder only."
+        )
+
     def robust_weights(
         self,
         Y: Array,
@@ -346,133 +430,3 @@ class Robusta:
     def loss_history(self) -> Array | None:
         """Loss history from last fit."""
         return self._loss_history
-
-    # NOTE: LLM slop version for the infer() method above commented out below. Proper implementation is TODO.
-    # def predict(
-    #     self,
-    #     y_new: Array,
-    #     w_new: Array,
-    #     override_method: OptMethod | None = None,
-    #     state: RHMFState | None = None,
-    #     max_iter: int = 100,
-    #     tol: float = 1e-5,
-    # ) -> tuple[Array, Array, Array]:
-    #     """
-    #     Predict coefficients and reconstruction for new observation(s).
-
-    #     This method fixes the basis vectors G and optimizes only the coefficients a
-    #     for the new data, using iterative reweighting for robust estimation.
-
-    #     Parameters
-    #     ----------
-    #     y_new : Array, shape (M,) or (N_new, M)
-    #         New observation(s) to predict for
-    #     w_new : Array, shape (M,) or (N_new, M)
-    #         Weights for new observation(s)
-    #     override_method : OptMethod | None, default=None
-    #         If None, use the method from training (self.method).
-    #         If provided, override the inference method (e.g., 'als' for faster inference).
-    #     state : RHMFState | None, default=None
-    #         State to use for prediction. If None, use self._state from last fit.
-    #     max_iter : int, default=100
-    #         Maximum iterations for inference optimization
-    #     tol : float, default=1e-5
-    #         Convergence tolerance for inference (checks fractional change in a)
-
-    #     Returns
-    #     -------
-    #     a_new : Array, shape (K,) or (N_new, K)
-    #         Inferred coefficients
-    #     y_pred : Array, shape (M,) or (N_new, M)
-    #         Predicted reconstruction (a_new @ G.T)
-    #     w_robust : Array, shape (M,) or (N_new, M)
-    #         Robust weights (IRLS weights) for the new data
-    #     """
-    #     # Use provided state or internal state
-    #     state = state if state is not None else self._state
-    #     if state is None:
-    #         raise ValueError("No trained state available. Call fit() first.")
-
-    #     # Determine method to use
-    #     method = override_method if override_method is not None else self.method
-
-    #     # Get the basis vectors
-    #     G = state.G  # Shape (M, K)
-
-    #     # Handle single observation vs batch
-    #     single_obs = y_new.ndim == 1
-    #     if single_obs:
-    #         y_new = y_new[jnp.newaxis, :]
-    #         w_new = w_new[jnp.newaxis, :]
-
-    #     N_new, M = y_new.shape
-
-    #     # Initialize coefficients to zero
-    #     a_new = jnp.zeros((N_new, self.rank))
-
-    #     # Initialize robust weights to data weights
-    #     w_robust = w_new.copy()
-
-    #     # Iteratively solve for a_new with robust reweighting
-    #     converged = False
-    #     n_iter = 0
-
-    #     while not converged and n_iter < max_iter:
-    #         # Store old a for convergence check
-    #         a_old = a_new.copy()
-
-    #         # Weighted least squares for each observation (A-step on new data)
-    #         if method == "als":
-    #             # Use weighted least squares: a = (G^T W G)^-1 G^T W y
-    #             for i in range(N_new):
-    #                 # Get diagonal weight matrix for this observation
-    #                 w_i = w_robust[i]
-    #                 # Solve weighted least squares
-    #                 # a_i = (G^T diag(w_i) G)^-1 G^T diag(w_i) y_i
-    #                 WG = G.T * w_i  # (K, M) with column i scaled by w_i
-    #                 GtWG = WG @ G  # (K, K)
-    #                 GtWy = WG @ y_new[i]  # (K,)
-
-    #                 # Add ridge if needed
-    #                 if (
-    #                     self._hmf.a_step is not None
-    #                     and self._hmf.a_step.ridge is not None
-    #                 ):
-    #                     GtWG = GtWG + self._hmf.a_step.ridge * jnp.eye(self.rank)
-
-    #                 a_new = a_new.at[i].set(jnp.linalg.solve(GtWG, GtWy))
-    #         else:
-    #             # For SGD, we'd do gradient descent on a
-    #             # For simplicity, fall back to ALS for now
-    #             # TODO: Implement proper SGD inference if needed
-    #             raise NotImplementedError(
-    #                 "SGD inference not yet implemented. Use override_method='als'."
-    #             )
-
-    #         # Compute residuals
-    #         resid = y_new - a_new @ G.T
-
-    #         # Update robust weights
-    #         w_robust = self._hmf.likelihood.weights_total(
-    #             Y=y_new,
-    #             W_data=w_new,
-    #             A=a_new.T,
-    #             G=G,
-    #         )
-
-    #         # Check convergence: fractional change in a
-    #         if jnp.max(jnp.abs(a_new - a_old)) / jnp.mean(jnp.abs(a_new)) < tol:
-    #             converged = True
-
-    #         n_iter += 1
-
-    #     # Compute final prediction
-    #     y_pred = a_new @ G.T
-
-    #     # Return to original shape if single observation
-    #     if single_obs:
-    #         a_new = a_new[0]
-    #         y_pred = y_pred[0]
-    #         w_robust = w_robust[0]
-
-    #     return a_new, y_pred, w_robust

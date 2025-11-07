@@ -24,6 +24,7 @@ class OptFrame:
         rotation_cadence: int,
         conv_check_cadence: int,
         max_iter: int,
+        skip_G: bool = False,
     ):
         # Get the step function from the method
         step_fn = self.method.get_stepper()
@@ -45,7 +46,7 @@ class OptFrame:
             # Do we rotate this iteration?
             rot = True if (i % rotation_cadence == 0 and i != 0) else False
             # Take an optimization step and record the loss
-            state, loss = step_fn(Y=Y, W_data=W, state=state, rotate=rot)
+            state, loss = step_fn(Y=Y, W_data=W, state=state, rotate=rot, skip_G=skip_G)
             loss_history.append(loss)
             # Check convergence and print loss every conv_check_cadence iterations
             if i % conv_check_cadence == 0 and i != 0:
