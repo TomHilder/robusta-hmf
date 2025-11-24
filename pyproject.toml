@@ -7,8 +7,8 @@ authors = [
     { name = "Tom Hilder", email = "tom.hilder.dlhp@gmail.com" },
     { name = "David W. Hogg", email = "TODO@TODO.com" },
 ]
-requires-python = ">=3.13"
-dependencies = ["equinox>=0.13.0", "jax>=0.7.1", "optax>=0.2.5"]
+requires-python = ">=3.10"
+dependencies = ["equinox>=0.13.0", "jax>=0.6.0", "optax>=0.2.0"]
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
@@ -34,13 +34,13 @@ source = "vcs"
 line-length = 99 # Sorry PEP8 I'm a rebel
 
 [dependency-groups]
-dev = ["mypy>=1.18.2", "pytest>=8.4.2", "pytest-cov>=7.0.0"]
+dev = ["mypy>=1.18.0", "pytest>=8.4.0", "pytest-cov>=7.0.0"]
 examples = [
-    "astropy>=7.1.1",
+    "astropy>=6.1.0",
     "ipykernel>=7.1.0",
-    "matplotlib>=3.10.7",
+    "matplotlib>=3.10.0",
     "mpl-drip>=1.0.5",
-    "numpy>=2.3.4",
-    "scipy>=1.16.2",
-    "tqdm>=4.67.1",
+    "numpy>=2.2.6",
+    "scipy>=1.15.0",
+    "tqdm>=4.67.0",
 ]
