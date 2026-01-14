@@ -1,3 +1,7 @@
+# Data
+*.hdf5
+*.csv
+
 # vscode
 .vscode/
 
