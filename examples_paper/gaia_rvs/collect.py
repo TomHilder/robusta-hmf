@@ -94,3 +94,7 @@ class MatchedData:
     def close(self):
         if self._f_spec:
             self._f_spec.close()
+
+
+def compute_abs_mag(phot_g_mean_mag, parallax):
+    return phot_g_mean_mag + 5 * np.log10(parallax / 1000) + 5
