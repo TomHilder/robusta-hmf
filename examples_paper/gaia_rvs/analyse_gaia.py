@@ -18,9 +18,13 @@ rng = np.random.default_rng(42)
 
 RANKS = [3, 4, 5, 6, 7]
 Q_VALS = [0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0]
-i_bin = 7
+i_bin = 12
 n_clip_pix = 40
 rng_seed = 42
+
+# Output directory for plots
+plots_dir = Path(f"./plots_bin_{i_bin}")
+plots_dir.mkdir(parents=True, exist_ok=True)
 
 
 # === Helper functions (from training.py) === #
@@ -157,7 +161,7 @@ for obj, res in zip(rhmf_objs, results):
 # === ANALYSIS === #
 
 # Pick a specific (Q, K) for single-model plots
-plot_Q = 4.0
+plot_Q = 3.0
 plot_K = 5
 
 result_ind = np.where(
@@ -178,7 +182,7 @@ for i, i_off in zip(plot_inds, range(5)):
 ax.set_xlabel("Wavelength [nm]")
 ax.set_ylabel("Flux + offset")
 ax.set_title(f"Spectra and Reconstructions (Q={plot_Q}, K={plot_K})")
-plt.savefig("spectra_and_reconstructions.pdf", bbox_inches="tight")
+plt.savefig(plots_dir / "spectra_and_reconstructions.pdf", bbox_inches="tight")
 plt.show()
 
 # === Plot: Basis functions === #
@@ -192,7 +196,7 @@ for k in range(basis.shape[1]):
 ax.set_xlabel("Wavelength [nm]")
 ax.set_ylabel("Flux + offset")
 ax.set_title(f"Basis Functions (Q={plot_Q}, K={plot_K})")
-plt.savefig("basis_functions.pdf", bbox_inches="tight")
+plt.savefig(plots_dir / "basis_functions.pdf", bbox_inches="tight")
 plt.show()
 
 # === Plot: Robust weights histogram === #
@@ -201,11 +205,12 @@ print("Plotting robust weights histogram...")
 weights = plot_rhmf.robust_weights(train_Y, train_W)
 
 fig, ax = plt.subplots(figsize=(10, 6), dpi=100)
-ax.hist(weights.flatten(), bins=50, alpha=0.7, color="C0", density=True)
+ax.hist(weights.flatten(), bins=50, alpha=0.7, color="C0", density=False)
 ax.set_xlabel("Robust Weight")
-ax.set_ylabel("Density")
+ax.set_ylabel("Count")
+ax.set_yscale("log")
 ax.set_title(f"Robust Weights Histogram (Q={plot_Q}, K={plot_K})")
-plt.savefig("robust_weights_histogram.pdf", bbox_inches="tight")
+plt.savefig(plots_dir / "robust_weights_histogram.pdf", bbox_inches="tight")
 plt.show()
 
 # === Plot: Robust weights heatmap === #
@@ -217,7 +222,7 @@ plt.colorbar(label="Robust Weights")
 plt.xlabel("Pixel Index")
 plt.ylabel("Spectrum Index")
 plt.title(f"Robust Weights Heatmap (Q={plot_Q}, K={plot_K})")
-plt.savefig("robust_weights_heatmap.pdf", bbox_inches="tight")
+plt.savefig(plots_dir / "robust_weights_heatmap.pdf", bbox_inches="tight")
 plt.show()
 
 # === Plot: Lowest-weight spectra (potential outliers) === #
@@ -244,7 +249,7 @@ for i, (idx, i_off) in enumerate(zip(normal_spectra_idx, range(n_weird, 2 * n_we
 ax.set_xlabel("Wavelength [nm]")
 ax.set_ylabel("Flux + offset")
 ax.set_title(f"Low-weight (orange) vs Normal (blue) Spectra (Q={plot_Q}, K={plot_K})")
-plt.savefig("outlier_spectra.pdf", bbox_inches="tight")
+plt.savefig(plots_dir / "outlier_spectra.pdf", bbox_inches="tight")
 plt.show()
 
 # === CV: Infer on test set for all models === #
@@ -290,8 +295,103 @@ plt.yticks(RANKS)
 plt.colorbar(label="log(|score - 1|)")
 plt.xlabel("Robust Scale Q")
 plt.ylabel("Rank K")
-plt.title(f"Test Set Calibration Score (Bin {i_bin})")
-plt.savefig("test_set_score_heatmap.pdf", bbox_inches="tight")
+plt.title(f"Test Set Calibration Score: std(z) (Bin {i_bin})")
+plt.savefig(plots_dir / "test_set_score_heatmap.pdf", bbox_inches="tight")
+plt.show()
+
+# === Alternative metric 1: Reduced chi-squared === #
+# chi^2_red = mean((residuals * sqrt(W))^2), should be ~1 for good fit
+
+print("Computing reduced chi-squared...")
+chi2_red_scores = []
+for rhmf, state in zip(rhmf_objs, test_states):
+    residuals = rhmf.residuals(Y=test_Y, state=state)
+    chi2 = (residuals * np.sqrt(test_W)) ** 2
+    chi2_red = np.mean(chi2)
+    chi2_red_scores.append(chi2_red)
+
+chi2_red_scores = np.array(chi2_red_scores).reshape(len(RANKS), len(Q_VALS))
+
+plt.figure(figsize=(10, 6), dpi=100)
+plt.pcolormesh(
+    np.arange(len(Q_VALS)),
+    RANKS,
+    np.log(np.abs(chi2_red_scores - 1)),
+    shading="auto",
+    cmap="viridis",
+)
+plt.xticks(np.arange(len(Q_VALS)))
+plt.gca().set_xticklabels([str(q) for q in Q_VALS])
+plt.yticks(RANKS)
+plt.colorbar(label="log(|chi2_red - 1|)")
+plt.xlabel("Robust Scale Q")
+plt.ylabel("Rank K")
+plt.title(f"Test Set Calibration Score: Reduced Chi-Squared (Bin {i_bin})")
+plt.savefig(plots_dir / "test_set_score_heatmap_chi2.pdf", bbox_inches="tight")
+plt.show()
+
+# === Alternative metric 2: Weighted RMSE === #
+# RMSE = sqrt(mean(W * residuals^2))
+
+print("Computing weighted RMSE...")
+rmse_scores = []
+for rhmf, state in zip(rhmf_objs, test_states):
+    residuals = rhmf.residuals(Y=test_Y, state=state)
+    wmse = np.mean(test_W * residuals**2)
+    rmse = np.sqrt(wmse)
+    rmse_scores.append(rmse)
+
+rmse_scores = np.array(rmse_scores).reshape(len(RANKS), len(Q_VALS))
+
+plt.figure(figsize=(10, 6), dpi=100)
+plt.pcolormesh(
+    np.arange(len(Q_VALS)),
+    RANKS,
+    rmse_scores,
+    shading="auto",
+    cmap="viridis",
+)
+plt.xticks(np.arange(len(Q_VALS)))
+plt.gca().set_xticklabels([str(q) for q in Q_VALS])
+plt.yticks(RANKS)
+plt.colorbar(label="Weighted RMSE")
+plt.xlabel("Robust Scale Q")
+plt.ylabel("Rank K")
+plt.title(f"Test Set Score: Weighted RMSE (Bin {i_bin})")
+plt.savefig(plots_dir / "test_set_score_heatmap_rmse.pdf", bbox_inches="tight")
+plt.show()
+
+# === Alternative metric 3: Median absolute z-score === #
+# For standard normal, median(|z|) ≈ 0.6745
+
+print("Computing median absolute z-score...")
+mad_z_scores = []
+for rhmf, state in zip(rhmf_objs, test_states):
+    residuals = rhmf.residuals(Y=test_Y, state=state)
+    robust_weights = rhmf.robust_weights(test_Y, test_W, state=state)
+    z_scores = residuals * np.sqrt(test_W) * np.sqrt(robust_weights)
+    mad_z = np.median(np.abs(z_scores))
+    mad_z_scores.append(mad_z)
+
+mad_z_scores = np.array(mad_z_scores).reshape(len(RANKS), len(Q_VALS))
+expected_mad = 0.6745  # median(|z|) for standard normal
+
+plt.figure(figsize=(10, 6), dpi=100)
+plt.pcolormesh(
+    np.arange(len(Q_VALS)),
+    RANKS,
+    np.log(np.abs(mad_z_scores - expected_mad)),
+    shading="auto",
+    cmap="viridis",
+)
+plt.xticks(np.arange(len(Q_VALS)))
+plt.gca().set_xticklabels([str(q) for q in Q_VALS])
+plt.yticks(RANKS)
+plt.colorbar(label=f"log(|median(|z|) - {expected_mad}|)")
+plt.xlabel("Robust Scale Q")
+plt.ylabel("Rank K")
+plt.title(f"Test Set Calibration Score: Median |z| (Bin {i_bin})")
+plt.savefig(plots_dir / "test_set_score_heatmap_mad.pdf", bbox_inches="tight")
 plt.show()
 
 # === Plot: Coefficient scatter plots === #
@@ -344,7 +444,7 @@ for i in range(plot_rhmf.rank):
 
 axes[0, plot_rhmf.rank - 1].legend(loc="upper right")
 plt.suptitle(f"Coefficient Scatter Plots (Q={plot_Q}, K={plot_K}, Bin {i_bin})")
-plt.savefig("coefficient_scatter_plots.pdf", bbox_inches="tight")
+plt.savefig(plots_dir / "coefficient_scatter_plots.pdf", bbox_inches="tight")
 plt.show()
 
 print("Done!")
