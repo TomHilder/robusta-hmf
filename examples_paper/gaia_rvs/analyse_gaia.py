@@ -1,0 +1,351 @@
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import mpl_drip
+import numpy as np
+from bins import build_all_bins
+from chex import dataclass
+from collect import MatchedData, compute_abs_mag
+from tqdm import tqdm
+
+from robusta_hmf import Robusta
+from robusta_hmf.state import RHMFState, load_state_from_npz
+
+plt.style.use("mpl_drip.custom")
+rng = np.random.default_rng(42)
+
+# === Configuration (must match training.py) === #
+
+RANKS = [3, 4, 5, 6, 7]
+Q_VALS = [0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0]
+i_bin = 7
+n_clip_pix = 40
+rng_seed = 42
+
+
+# === Helper functions (from training.py) === #
+
+
+def get_test_train_split_idx(n_spectra, n_train_frac, seed):
+    indices = np.arange(n_spectra)
+    rng_split = np.random.default_rng(seed)
+    rng_split.shuffle(indices)
+    n_train = int(n_spectra * n_train_frac)
+    train_indices = indices[:n_train]
+    test_indices = indices[n_train:]
+    return train_indices, test_indices
+
+
+def clip_edge_pix(flux, u_flux, n_clip):
+    if isinstance(n_clip, int):
+        n_clip_l = n_clip_r = n_clip
+    elif isinstance(n_clip, (list, tuple)) and len(n_clip) == 2:
+        n_clip_l, n_clip_r = n_clip
+    else:
+        raise ValueError("n_clip must be an int or a tuple/list of two ints.")
+    return flux[:, n_clip_l:-n_clip_r], u_flux[:, n_clip_l:-n_clip_r]
+
+
+def nans_mask(arrs):
+    nans = np.isnan(np.array(arrs))
+    return np.logical_not(np.any(nans, axis=0))
+
+
+def prep_data(flux, u_flux):
+    """Prepare flux and weights, handling NaNs."""
+    weights = 1.0 / (u_flux**2)
+    Y, W = flux.copy(), weights.copy()
+    mask = nans_mask([Y, W])
+    Y[~mask] = 0.0
+    W[~mask] = 0.0
+    Y = np.nan_to_num(Y)
+    W = np.nan_to_num(W)
+    return Y, W
+
+
+# === Results dataclass === #
+
+
+@dataclass(frozen=True)
+class Results:
+    K: int
+    Q: float
+    state: RHMFState
+
+
+# === Load data and rebuild bins === #
+
+print("Loading data...")
+data = MatchedData()
+
+bp_rp = data["bp_rp"]
+abs_mag_G = compute_abs_mag(data["phot_g_mean_mag"], data["parallax"])
+
+# Bin parameters (from training.py)
+n_bins = 14
+bp_rp_min, bp_rp_max = -0.1, 3.0
+abs_mag_G_min, abs_mag_G_max = 0, 11
+
+bp_rp_bin_centres = np.linspace(bp_rp_min, bp_rp_max, n_bins)
+abs_mag_G_bin_centres = np.linspace(abs_mag_G_min, abs_mag_G_max, n_bins)
+abs_mag_G_offsets = np.exp(-0.5 * ((bp_rp_bin_centres - 1.5) / 0.6) ** 2) * 1.5
+abs_mag_G_bin_centres += abs_mag_G_offsets
+
+bp_rp_width = (bp_rp_max - bp_rp_min) / (n_bins - 1) * 1.5
+abs_mag_G_width = (abs_mag_G_max - abs_mag_G_min) / (n_bins - 1) * 2.8
+
+print("Building bins...")
+bins = build_all_bins(
+    data,
+    bp_rp,
+    abs_mag_G,
+    bp_rp_bin_centres,
+    abs_mag_G_bin_centres,
+    bp_rp_width,
+    abs_mag_G_width,
+)
+
+print(f"Bin {i_bin} has {bins[i_bin].n_spectra} spectra")
+
+# === Get train/test split === #
+
+train_idx, test_idx = get_test_train_split_idx(
+    bins[i_bin].n_spectra,
+    n_train_frac=0.8,
+    seed=rng_seed,
+)
+
+print(f"Train: {len(train_idx)}, Test: {len(test_idx)}")
+
+# Load train data
+print("Loading train spectra...")
+train_flux, train_u_flux = clip_edge_pix(
+    *data.get_flux_batch(bins[i_bin].idx[train_idx]), n_clip=n_clip_pix
+)
+train_Y, train_W = prep_data(train_flux, train_u_flux)
+
+# Load test data
+print("Loading test spectra...")
+test_flux, test_u_flux = clip_edge_pix(
+    *data.get_flux_batch(bins[i_bin].idx[test_idx]), n_clip=n_clip_pix
+)
+test_Y, test_W = prep_data(test_flux, test_u_flux)
+
+# Wavelength grid (clipped)
+λ_grid = data.λ_grid[n_clip_pix:-n_clip_pix]
+
+# === Load saved results === #
+
+print("Loading saved states...")
+results_dir = Path("./gaia_rvs_results")
+
+Q_grid, Rank_grid = np.meshgrid(Q_VALS, RANKS)
+Q_vals = Q_grid.flatten()
+K_vals = Rank_grid.flatten()
+
+results = []
+for Q, rank in tqdm(zip(Q_vals, K_vals), total=len(Q_vals)):
+    state_file = results_dir / f"converged_state_R{rank}_Q{Q:.2f}_bin_{i_bin}.npz"
+    state = load_state_from_npz(state_file)
+    results.append(Results(K=rank, Q=Q, state=state))
+
+# Create Robusta objects with loaded states
+rhmf_objs = [Robusta(rank=r.K, robust_scale=r.Q) for r in results]
+for obj, res in zip(rhmf_objs, results):
+    obj._state = res.state
+
+# === ANALYSIS === #
+
+# Pick a specific (Q, K) for single-model plots
+plot_Q = 4.0
+plot_K = 5
+
+result_ind = np.where(
+    (np.array([r.Q for r in results]) == plot_Q) & (np.array([r.K for r in results]) == plot_K)
+)[0][0]
+plot_rhmf: Robusta = rhmf_objs[result_ind]
+
+# === Plot: Spectra and reconstructions === #
+
+print("Plotting spectra and reconstructions...")
+plot_inds = rng.choice(train_Y.shape[0], size=5, replace=False)
+predictions = plot_rhmf.synthesize(indices=plot_inds)
+
+fig, ax = plt.subplots(1, 1, figsize=(12, 8), dpi=100)
+for i, i_off in zip(plot_inds, range(5)):
+    ax.plot(λ_grid, train_Y[i, :] + i_off * 1.0, color=f"C{i_off}", alpha=1.0, lw=1)
+    ax.plot(λ_grid, predictions[i_off, :] + i_off * 1.0, color="k", alpha=1, lw=0.5)
+ax.set_xlabel("Wavelength [nm]")
+ax.set_ylabel("Flux + offset")
+ax.set_title(f"Spectra and Reconstructions (Q={plot_Q}, K={plot_K})")
+plt.savefig("spectra_and_reconstructions.pdf", bbox_inches="tight")
+plt.show()
+
+# === Plot: Basis functions === #
+
+print("Plotting basis functions...")
+basis = plot_rhmf.basis_vectors()
+
+fig, ax = plt.subplots(figsize=(12, 8), dpi=100)
+for k in range(basis.shape[1]):
+    ax.plot(λ_grid, basis[:, k] + k * 0.1, color=f"C{k}", alpha=1.0, lw=1)
+ax.set_xlabel("Wavelength [nm]")
+ax.set_ylabel("Flux + offset")
+ax.set_title(f"Basis Functions (Q={plot_Q}, K={plot_K})")
+plt.savefig("basis_functions.pdf", bbox_inches="tight")
+plt.show()
+
+# === Plot: Robust weights histogram === #
+
+print("Plotting robust weights histogram...")
+weights = plot_rhmf.robust_weights(train_Y, train_W)
+
+fig, ax = plt.subplots(figsize=(10, 6), dpi=100)
+ax.hist(weights.flatten(), bins=50, alpha=0.7, color="C0", density=True)
+ax.set_xlabel("Robust Weight")
+ax.set_ylabel("Density")
+ax.set_title(f"Robust Weights Histogram (Q={plot_Q}, K={plot_K})")
+plt.savefig("robust_weights_histogram.pdf", bbox_inches="tight")
+plt.show()
+
+# === Plot: Robust weights heatmap === #
+
+print("Plotting robust weights heatmap...")
+plt.figure(figsize=(12, 6), dpi=100)
+plt.imshow(weights, aspect="auto", origin="lower", interpolation="nearest")
+plt.colorbar(label="Robust Weights")
+plt.xlabel("Pixel Index")
+plt.ylabel("Spectrum Index")
+plt.title(f"Robust Weights Heatmap (Q={plot_Q}, K={plot_K})")
+plt.savefig("robust_weights_heatmap.pdf", bbox_inches="tight")
+plt.show()
+
+# === Plot: Lowest-weight spectra (potential outliers) === #
+
+print("Plotting potential outlier spectra...")
+object_weights = np.median(weights, axis=1)
+n_weird = 5
+
+weird_spectra_idx = np.argsort(object_weights)[:n_weird]
+normal_spectra_idx = rng.choice(
+    np.setdiff1d(np.arange(train_Y.shape[0]), weird_spectra_idx),
+    size=n_weird,
+    replace=False,
+)
+
+predictions_weird = plot_rhmf.synthesize(indices=weird_spectra_idx)
+
+fig, ax = plt.subplots(figsize=(12, 8), dpi=100)
+for i, (idx, i_off) in enumerate(zip(weird_spectra_idx, range(n_weird))):
+    ax.plot(λ_grid, train_Y[idx, :] + i_off * 1.0, color="C1", alpha=1.0, lw=1)
+    ax.plot(λ_grid, predictions_weird[i, :] + i_off * 1.0, color="k", alpha=1, lw=0.5)
+for i, (idx, i_off) in enumerate(zip(normal_spectra_idx, range(n_weird, 2 * n_weird))):
+    ax.plot(λ_grid, train_Y[idx, :] + i_off * 1.0, color="C0", alpha=1.0, lw=1)
+ax.set_xlabel("Wavelength [nm]")
+ax.set_ylabel("Flux + offset")
+ax.set_title(f"Low-weight (orange) vs Normal (blue) Spectra (Q={plot_Q}, K={plot_K})")
+plt.savefig("outlier_spectra.pdf", bbox_inches="tight")
+plt.show()
+
+# === CV: Infer on test set for all models === #
+
+print("Inferring on test set for all models...")
+test_states = []
+
+for rhmf in tqdm(rhmf_objs):
+    test_set_state, _ = rhmf.infer(
+        Y_infer=test_Y,
+        W_infer=test_W,
+        max_iter=1000,
+        conv_tol=1e-4,
+        conv_check_cadence=5,
+    )
+    test_states.append(test_set_state)
+
+# === Plot: Test set score heatmap === #
+
+print("Computing CV scores...")
+scores = []
+for rhmf, state in zip(rhmf_objs, test_states):
+    residuals = rhmf.residuals(Y=test_Y, state=state)
+    robust_weights = rhmf.robust_weights(test_Y, test_W, state=state)
+    z_scores = residuals * np.sqrt(test_W) * np.sqrt(robust_weights)
+    score = np.std(z_scores)
+    scores.append(score)
+
+scores = np.array(scores)
+scores = scores.reshape(len(RANKS), len(Q_VALS))
+
+plt.figure(figsize=(10, 6), dpi=100)
+plt.pcolormesh(
+    np.arange(len(Q_VALS)),
+    RANKS,
+    np.log(np.abs(scores - 1)),
+    shading="auto",
+    cmap="viridis",
+)
+plt.xticks(np.arange(len(Q_VALS)))
+plt.gca().set_xticklabels([str(q) for q in Q_VALS])
+plt.yticks(RANKS)
+plt.colorbar(label="log(|score - 1|)")
+plt.xlabel("Robust Scale Q")
+plt.ylabel("Rank K")
+plt.title(f"Test Set Calibration Score (Bin {i_bin})")
+plt.savefig("test_set_score_heatmap.pdf", bbox_inches="tight")
+plt.show()
+
+# === Plot: Coefficient scatter plots === #
+
+print("Plotting coefficient scatter plots...")
+train_state = plot_rhmf._state
+test_state = test_states[result_ind]
+train_coeffs = train_state.A
+test_coeffs = test_state.A
+
+fig, axes = plt.subplots(
+    plot_rhmf.rank, plot_rhmf.rank, figsize=(15, 15), dpi=100, layout="compressed"
+)
+for i in range(plot_rhmf.rank):
+    for j in range(plot_rhmf.rank):
+        ax = axes[i, j]
+        if i == j:
+            ax.hist(
+                np.concatenate([train_coeffs[:, i], test_coeffs[:, i]]),
+                bins=30,
+                color="gray",
+                alpha=0.7,
+                density=True,
+            )
+        else:
+            ax.scatter(
+                train_coeffs[:, j],
+                train_coeffs[:, i],
+                color="C0",
+                alpha=0.5,
+                label="Train",
+                s=5,
+            )
+            ax.scatter(
+                test_coeffs[:, j],
+                test_coeffs[:, i],
+                color="C1",
+                alpha=0.5,
+                label="Test",
+                s=5,
+            )
+        if i < plot_rhmf.rank - 1:
+            ax.set_xticklabels([])
+        if j > 0:
+            ax.set_yticklabels([])
+        if i == plot_rhmf.rank - 1:
+            ax.set_xlabel(f"Coeff {j}")
+        if j == 0:
+            ax.set_ylabel(f"Coeff {i}")
+
+axes[0, plot_rhmf.rank - 1].legend(loc="upper right")
+plt.suptitle(f"Coefficient Scatter Plots (Q={plot_Q}, K={plot_K}, Bin {i_bin})")
+plt.savefig("coefficient_scatter_plots.pdf", bbox_inches="tight")
+plt.show()
+
+print("Done!")
+data.close()
