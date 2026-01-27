@@ -263,7 +263,7 @@ class Robusta:
         conv_strategy: str = "max_frac_A",
         conv_tol: float = 1e-3,
         conv_check_cadence: int = 10,
-    ) -> tuple[Array, Array, Array]:
+    ) -> tuple[Array, Array]:
         """
         Predict coefficients and reconstruction for new observation(s). Always uses least-squares not gradient descent.
         """
