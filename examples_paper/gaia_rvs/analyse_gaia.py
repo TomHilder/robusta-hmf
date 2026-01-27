@@ -1,8 +1,9 @@
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import mpl_drip
+import mpl_drip  # noqa: F401
 import numpy as np
+import jax.numpy as jnp
 from bins import build_all_bins
 from dataclasses import dataclass
 from collect import MatchedData, compute_abs_mag
@@ -173,7 +174,7 @@ plot_rhmf: Robusta = rhmf_objs[result_ind]
 
 print("Plotting spectra and reconstructions...")
 plot_inds = rng.choice(train_Y.shape[0], size=5, replace=False)
-predictions = plot_rhmf.synthesize(indices=plot_inds)
+predictions = plot_rhmf.synthesize(indices=jnp.array(plot_inds))
 
 fig, ax = plt.subplots(1, 1, figsize=(12, 8), dpi=100)
 for i, i_off in zip(plot_inds, range(5)):
@@ -238,7 +239,7 @@ normal_spectra_idx = rng.choice(
     replace=False,
 )
 
-predictions_weird = plot_rhmf.synthesize(indices=weird_spectra_idx)
+predictions_weird = plot_rhmf.synthesize(indices=jnp.array(weird_spectra_idx))
 
 fig, ax = plt.subplots(figsize=(12, 8), dpi=100)
 for i, (idx, i_off) in enumerate(zip(weird_spectra_idx, range(n_weird))):
@@ -399,6 +400,7 @@ plt.show()
 print("Plotting coefficient scatter plots...")
 train_state = plot_rhmf._state
 test_state = test_states[result_ind]
+assert train_state is not None
 train_coeffs = train_state.A
 test_coeffs = test_state.A
 
