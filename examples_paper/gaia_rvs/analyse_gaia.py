@@ -8,6 +8,7 @@ from bins import build_all_bins
 from dataclasses import dataclass
 from collect import MatchedData, compute_abs_mag
 from tqdm import tqdm
+from rvs_plot_utils import add_line_markers, load_linelists
 
 from robusta_hmf import Robusta
 from robusta_hmf.state import RHMFState, load_state_from_npz
@@ -247,6 +248,7 @@ for i, (idx, i_off) in enumerate(zip(weird_spectra_idx, range(n_weird))):
     ax.plot(λ_grid, predictions_weird[i, :] + i_off * 1.0, color="k", alpha=1, lw=0.5)
 for i, (idx, i_off) in enumerate(zip(normal_spectra_idx, range(n_weird, 2 * n_weird))):
     ax.plot(λ_grid, train_Y[idx, :] + i_off * 1.0, color="C0", alpha=1.0, lw=1)
+add_line_markers(ax=ax, lines=load_linelists())
 ax.set_xlabel("Wavelength [nm]")
 ax.set_ylabel("Flux + offset")
 ax.set_title(f"Low-weight (orange) vs Normal (blue) Spectra (Q={plot_Q}, K={plot_K})")
