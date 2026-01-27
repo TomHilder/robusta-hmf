@@ -58,7 +58,7 @@ bins = build_all_bins(
     abs_mag_G_width,
 )
 
-i_bin = 12
+i_bin = 0
 print(f"Number of spectra in bin {i_bin}: {bins[i_bin].n_spectra}")
 
 rng_seed = 42
