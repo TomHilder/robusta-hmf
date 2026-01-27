@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import mpl_drip
 import numpy as np
 from bins import build_all_bins
-from chex import dataclass
+from dataclasses import dataclass
 from collect import MatchedData, compute_abs_mag
 from tqdm import tqdm
 
