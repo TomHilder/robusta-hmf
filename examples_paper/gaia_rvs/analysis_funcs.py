@@ -309,9 +309,20 @@ def compute_all_cv_scores(bin_results, Y_test, W_test, Y_all, W_all, verbose=Tru
     return cv_scores, inferred_states
 
 
-def find_best_model(cv_scores):
+def find_best_model(cv_scores, metric="std_z"):
     """
-    Find best (K, Q) based on std(z) closest to 1.0.
+    Find best (K, Q) based on a chosen CV metric.
+
+    Parameters
+    ----------
+    cv_scores : CVScores
+        Container with all metric arrays
+    metric : str
+        Which metric to use for selection. Options:
+        - "std_z": std of z-scores, target 1.0 (default)
+        - "chi2_red": reduced chi-squared, target 1.0
+        - "rmse": weighted RMSE, lower is better
+        - "mad_z": median absolute z-score, target 0.6745
 
     Returns
     -------
@@ -320,12 +331,29 @@ def find_best_model(cv_scores):
     best_idx : int
         Flat index into the model list
     """
-    # Find model with std(z) closest to 1.0
-    deviation = np.abs(cv_scores.std_z - 1.0)
+    # Get the metric array and compute deviation from target
+    if metric == "std_z":
+        values = cv_scores.std_z
+        deviation = np.abs(values - 1.0)
+    elif metric == "chi2_red":
+        values = cv_scores.chi2_red
+        deviation = np.abs(values - 1.0)
+    elif metric == "rmse":
+        values = cv_scores.rmse
+        deviation = values  # Lower is better, no target
+    elif metric == "mad_z":
+        values = cv_scores.mad_z
+        deviation = np.abs(values - 0.6745)  # Theoretical target for Gaussian
+    else:
+        raise ValueError(
+            f"Unknown metric: {metric}. "
+            f"Options: std_z, chi2_red, rmse, mad_z"
+        )
+
     best_flat_idx = np.argmin(deviation)
 
     # Convert to (rank_idx, q_idx)
-    rank_idx, q_idx = np.unravel_index(best_flat_idx, cv_scores.std_z.shape)
+    rank_idx, q_idx = np.unravel_index(best_flat_idx, values.shape)
 
     best_rank = cv_scores.ranks[rank_idx]
     best_q = cv_scores.q_vals[q_idx]
@@ -661,6 +689,227 @@ def plot_best_model_vs_bin(best_models, save_path, show=False):
     return save_path
 
 
+def plot_random_spectra_reconstructions(
+    λ_grid,
+    Y,
+    reconstructions,
+    i_bin,
+    best_K,
+    best_Q,
+    save_dir,
+    n_spectra=10,
+    seed=42,
+    show=False,
+):
+    """
+    Plot random spectra with their reconstructions for sanity checking.
+
+    Parameters
+    ----------
+    λ_grid : array
+        Wavelength grid
+    Y : array
+        All flux data (n_spectra x n_pixels)
+    reconstructions : array
+        Model reconstructions
+    i_bin : int
+    best_K, best_Q : int, float
+    save_dir : Path
+    n_spectra : int
+        Number of random spectra to plot
+    seed : int
+        Random seed for reproducibility
+    show : bool
+    """
+    save_dir = Path(save_dir)
+    rng = np.random.default_rng(seed)
+
+    plot_inds = rng.choice(Y.shape[0], size=min(n_spectra, Y.shape[0]), replace=False)
+
+    fig, ax = plt.subplots(figsize=(14, 10), dpi=100)
+    for i, (idx, offset) in enumerate(zip(plot_inds, range(len(plot_inds)))):
+        ax.plot(λ_grid, Y[idx, :] + offset * 0.5, color=f"C{i % 10}", alpha=0.8, lw=0.8)
+        ax.plot(λ_grid, reconstructions[idx, :] + offset * 0.5, color="k", alpha=0.8, lw=0.5)
+
+    ax.set_xlabel("Wavelength [nm]")
+    ax.set_ylabel("Flux + offset")
+    ax.set_title(f"Random Spectra (colored) vs Reconstructions (black) | Bin {i_bin}, K={best_K}, Q={best_Q:.2f}")
+
+    save_path = save_dir / f"spectra_reconstructions_bin_{i_bin:02d}.pdf"
+    plt.savefig(save_path, bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close()
+
+    return save_path
+
+
+def plot_basis_functions(
+    λ_grid,
+    basis,
+    i_bin,
+    best_K,
+    best_Q,
+    save_dir,
+    show=False,
+):
+    """
+    Plot the learned basis functions (G matrix columns).
+
+    Parameters
+    ----------
+    λ_grid : array
+        Wavelength grid
+    basis : array
+        Basis vectors (n_pixels x K)
+    i_bin : int
+    best_K, best_Q : int, float
+    save_dir : Path
+    show : bool
+    """
+    save_dir = Path(save_dir)
+
+    fig, ax = plt.subplots(figsize=(14, 8), dpi=100)
+    for k in range(basis.shape[1]):
+        offset = k * 0.15
+        ax.plot(λ_grid, basis[:, k] + offset, color=f"C{k % 10}", alpha=0.9, lw=1, label=f"Component {k}")
+
+    ax.set_xlabel("Wavelength [nm]")
+    ax.set_ylabel("Basis + offset")
+    ax.set_title(f"Learned Basis Functions | Bin {i_bin}, K={best_K}, Q={best_Q:.2f}")
+    ax.legend(loc="upper right", fontsize=8)
+
+    save_path = save_dir / f"basis_functions_bin_{i_bin:02d}.pdf"
+    plt.savefig(save_path, bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close()
+
+    return save_path
+
+
+def plot_weights_heatmap(
+    all_robust_weights,
+    λ_grid,
+    i_bin,
+    best_K,
+    best_Q,
+    save_dir,
+    show=False,
+):
+    """
+    Plot 2D heatmap of robust weights (spectra x pixels).
+
+    Parameters
+    ----------
+    all_robust_weights : array
+        Robust weights (n_spectra x n_pixels)
+    λ_grid : array
+        Wavelength grid
+    i_bin : int
+    best_K, best_Q : int, float
+    save_dir : Path
+    show : bool
+    """
+    save_dir = Path(save_dir)
+
+    fig, ax = plt.subplots(figsize=(14, 8), dpi=100)
+
+    # Subsample if too many spectra for visualization
+    max_spectra = 500
+    if all_robust_weights.shape[0] > max_spectra:
+        step = all_robust_weights.shape[0] // max_spectra
+        weights_to_plot = all_robust_weights[::step, :]
+        ylabel = f"Spectrum Index (subsampled 1/{step})"
+    else:
+        weights_to_plot = all_robust_weights
+        ylabel = "Spectrum Index"
+
+    im = ax.imshow(
+        weights_to_plot,
+        aspect="auto",
+        origin="lower",
+        interpolation="nearest",
+        cmap="viridis",
+        vmin=0,
+        vmax=1,
+        extent=[λ_grid[0], λ_grid[-1], 0, weights_to_plot.shape[0]],
+    )
+    plt.colorbar(im, ax=ax, label="Robust Weight")
+    ax.set_xlabel("Wavelength [nm]")
+    ax.set_ylabel(ylabel)
+    ax.set_title(f"Robust Weights Heatmap | Bin {i_bin}, K={best_K}, Q={best_Q:.2f}")
+
+    save_path = save_dir / f"weights_heatmap_bin_{i_bin:02d}.pdf"
+    plt.savefig(save_path, bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close()
+
+    return save_path
+
+
+def plot_residuals_summary(
+    λ_grid,
+    Y,
+    reconstructions,
+    i_bin,
+    best_K,
+    best_Q,
+    save_dir,
+    show=False,
+):
+    """
+    Plot summary statistics of residuals across all spectra.
+
+    Parameters
+    ----------
+    λ_grid : array
+    Y : array
+        All flux data
+    reconstructions : array
+    i_bin : int
+    best_K, best_Q : int, float
+    save_dir : Path
+    show : bool
+    """
+    save_dir = Path(save_dir)
+
+    residuals = Y - reconstructions
+
+    fig, axes = plt.subplots(2, 1, figsize=(14, 8), dpi=100, sharex=True)
+
+    # Top: median and percentiles of residuals per pixel
+    ax = axes[0]
+    median_resid = np.median(residuals, axis=0)
+    p16 = np.percentile(residuals, 16, axis=0)
+    p84 = np.percentile(residuals, 84, axis=0)
+
+    ax.fill_between(λ_grid, p16, p84, alpha=0.3, color="C0", label="16-84 percentile")
+    ax.plot(λ_grid, median_resid, color="C0", lw=1, label="Median")
+    ax.axhline(0, color="k", ls="--", lw=0.5)
+    ax.set_ylabel("Residual")
+    ax.legend(loc="upper right")
+    ax.set_title(f"Residuals Summary | Bin {i_bin}, K={best_K}, Q={best_Q:.2f}")
+
+    # Bottom: RMS of residuals per pixel
+    ax = axes[1]
+    rms_resid = np.sqrt(np.mean(residuals**2, axis=0))
+    ax.plot(λ_grid, rms_resid, color="C1", lw=1)
+    ax.set_xlabel("Wavelength [nm]")
+    ax.set_ylabel("RMS Residual")
+
+    plt.tight_layout()
+
+    save_path = save_dir / f"residuals_summary_bin_{i_bin:02d}.pdf"
+    plt.savefig(save_path, bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close()
+
+    return save_path
+
+
 def plot_outliers_on_hr(
     outliers_df,
     bp_rp_all,
@@ -697,7 +946,7 @@ def plot_outliers_on_hr(
 
     fig, ax = plt.subplots(figsize=(12, 10), dpi=150)
 
-    # Plot all sources as background
+    # Plot all sources as background (rasterized for smaller file size)
     ax.scatter(
         bp_rp_all,
         abs_mag_G_all,
@@ -706,6 +955,7 @@ def plot_outliers_on_hr(
         c="grey",
         zorder=0,
         marker=".",
+        rasterized=True,
     )
 
     if len(outliers_df) == 0:
@@ -841,18 +1091,11 @@ def plot_spectrum_residual(
         f"K={best_K} Q={best_Q:.2f} | median weight={per_object_weight:.3f}"
     )
 
-    # Bottom panel: residual and robust weights
+    # Bottom panel: residual
     ax_resid = axes[1]
     ax_resid.plot(λ_grid, residual, c="k", lw=0.5, label="Residual")
     ax_resid.set_ylabel("Residual")
     ax_resid.set_xlabel("Wavelength [nm]")
-
-    # Overlay robust weights on secondary y-axis
-    ax_weights = ax_resid.twinx()
-    ax_weights.plot(λ_grid, robust_weights, c="r", lw=0.5, alpha=0.7, label="Robust weights")
-    ax_weights.set_ylabel("Robust weight", color="r")
-    ax_weights.tick_params(axis="y", labelcolor="r")
-    ax_weights.set_ylim(0, 1.1)
 
     # Add spectral line markers (strong lines only)
     try:

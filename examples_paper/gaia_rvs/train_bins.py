@@ -7,6 +7,7 @@ Bin geometry and data processing parameters are imported from gaia_config.py.
 
 from pathlib import Path
 
+import gaia_config as cfg
 import numpy as np
 from bins import build_all_bins
 from collect import MatchedData, compute_abs_mag
@@ -14,17 +15,16 @@ from tqdm import tqdm
 
 from robusta_hmf import Robusta, save_state_to_npz
 
-import gaia_config as cfg
-
 # ============================================================================ #
 # CONFIGURATION - Modify these to control what gets trained
 # ============================================================================ #
 
 # Which bins to train (by index, 0-13 for 14 bins)
-BINS_TO_RUN = [7, 8, 9, 10, 11, 12, 13]
+# BINS_TO_RUN = [7, 8, 9, 10, 11, 12, 13]
+BINS_TO_RUN = [0, 1, 2, 6]
 
 # Rank (K) values to try
-RANKS = [3, 4, 5, 6, 7, 8, 9, 10]
+RANKS = [2, 3, 4, 5, 6, 7, 8, 9, 10]
 
 # Robustness scale (Q) values to try
 # Q_VALS = [0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0]
@@ -95,9 +95,7 @@ def build_bins():
     return data, bins
 
 
-def train_bin(
-    data, bin_data, i_bin, ranks, q_vals, max_iter, train_frac, results_dir
-):
+def train_bin(data, bin_data, i_bin, ranks, q_vals, max_iter, train_frac, results_dir):
     """Train models for a single bin over the rank/Q grid."""
     print(f"\n{'=' * 60}")
     print(f"Training bin {i_bin} | N spectra: {bin_data.n_spectra}")
@@ -120,9 +118,7 @@ def train_bin(
     )
 
     # Get the train spectra (uses cfg.N_CLIP_PIX)
-    train_flux, train_u_flux = clip_edge_pix(
-        *data.get_flux_batch(bin_data.idx[train_idx])
-    )
+    train_flux, train_u_flux = clip_edge_pix(*data.get_flux_batch(bin_data.idx[train_idx]))
     train_weights = 1.0 / (train_u_flux**2)
 
     Y, W = train_flux, train_weights

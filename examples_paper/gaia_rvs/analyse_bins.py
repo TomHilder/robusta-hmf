@@ -32,6 +32,10 @@ from analysis_funcs import (
     plot_weights_histograms,
     plot_all_spectra_hr_by_weight,
     plot_best_model_vs_bin,
+    plot_random_spectra_reconstructions,
+    plot_basis_functions,
+    plot_weights_heatmap,
+    plot_residuals_summary,
     default_outlier_score,
 )
 
@@ -42,17 +46,25 @@ plt.style.use("mpl_drip.custom")
 # ============================================================================ #
 
 # Which bins to analyse (None = all bins with results, or list like [7, 8, 9])
-BINS_TO_ANALYSE = [7, 8]
+BINS_TO_ANALYSE = [0, 7, 8, 9, 10, 11, 12, 13]
 
 # Model grid (must match what was trained)
-RANKS = [3, 4, 5, 6, 7, 8, 9, 10]
+RANKS = [2, 3, 4, 5, 6, 7, 8, 9, 10]
 Q_VALS = [3.0]
 
 # Train/test split (from shared config to ensure consistency)
 TRAIN_FRAC = cfg.TRAIN_FRAC
 
 # Outlier detection
-WEIGHT_THRESHOLD = 0.5
+WEIGHT_THRESHOLD = 0.9
+
+# Best model selection metric
+# Options: "std_z" (default), "chi2_red", "rmse", "mad_z"
+#   - std_z: std of z-scores, target 1.0
+#   - chi2_red: reduced chi-squared, target 1.0
+#   - rmse: weighted RMSE, lower is better
+#   - mad_z: median absolute z-score, target 0.6745
+BEST_MODEL_METRIC = "mad_z"
 
 # Custom outlier scoring function (optional)
 # Takes per-pixel weights (1D array) and returns a scalar score.
@@ -85,6 +97,7 @@ def analyse_bin(
     train_frac=TRAIN_FRAC,
     weight_threshold=WEIGHT_THRESHOLD,
     outlier_score_func=OUTLIER_SCORE_FUNC,
+    best_model_metric=BEST_MODEL_METRIC,
     results_dir=RESULTS_DIR,
     plots_dir=PLOTS_DIR,
     verbose=True,
@@ -171,9 +184,15 @@ def analyse_bin(
     plot_cv_heatmaps(cv_scores, i_bin, bin_plots_dir)
 
     # Find best model
-    best_K, best_Q, best_idx = find_best_model(cv_scores)
+    best_K, best_Q, best_idx = find_best_model(cv_scores, metric=best_model_metric)
     if verbose:
-        print(f"Best model: K={best_K}, Q={best_Q:.2f} (std_z={cv_scores.std_z.flatten()[best_idx]:.4f})")
+        metric_values = {
+            "std_z": cv_scores.std_z.flatten()[best_idx],
+            "chi2_red": cv_scores.chi2_red.flatten()[best_idx],
+            "rmse": cv_scores.rmse.flatten()[best_idx],
+            "mad_z": cv_scores.mad_z.flatten()[best_idx],
+        }
+        print(f"Best model: K={best_K}, Q={best_Q:.2f} ({best_model_metric}={metric_values[best_model_metric]:.4f})")
 
     # Get best model and its inferred state
     best_rhmf = bin_results.rhmf_objs[best_idx]
@@ -197,6 +216,53 @@ def analyse_bin(
         print("Plotting outlier spectra...")
 
     all_reconstructions = best_rhmf.synthesize(state=best_state)
+
+    # Diagnostic plots
+    if verbose:
+        print("Plotting diagnostic plots...")
+
+    # Random spectra vs reconstructions
+    plot_random_spectra_reconstructions(
+        λ_grid=λ_grid,
+        Y=all_Y,
+        reconstructions=all_reconstructions,
+        i_bin=i_bin,
+        best_K=best_K,
+        best_Q=best_Q,
+        save_dir=bin_plots_dir,
+    )
+
+    # Basis functions
+    basis = best_rhmf.basis_vectors(state=best_state)
+    plot_basis_functions(
+        λ_grid=λ_grid,
+        basis=basis,
+        i_bin=i_bin,
+        best_K=best_K,
+        best_Q=best_Q,
+        save_dir=bin_plots_dir,
+    )
+
+    # Weights heatmap
+    plot_weights_heatmap(
+        all_robust_weights=all_robust_weights,
+        λ_grid=λ_grid,
+        i_bin=i_bin,
+        best_K=best_K,
+        best_Q=best_Q,
+        save_dir=bin_plots_dir,
+    )
+
+    # Residuals summary
+    plot_residuals_summary(
+        λ_grid=λ_grid,
+        Y=all_Y,
+        reconstructions=all_reconstructions,
+        i_bin=i_bin,
+        best_K=best_K,
+        best_Q=best_Q,
+        save_dir=bin_plots_dir,
+    )
 
     # Plot weight histograms
     if verbose:
@@ -267,6 +333,7 @@ def analyse_all_bins(
     train_frac=TRAIN_FRAC,
     weight_threshold=WEIGHT_THRESHOLD,
     outlier_score_func=OUTLIER_SCORE_FUNC,
+    best_model_metric=BEST_MODEL_METRIC,
     results_dir=RESULTS_DIR,
     plots_dir=PLOTS_DIR,
 ):
@@ -285,7 +352,7 @@ def analyse_all_bins(
     all_outliers_df : pd.DataFrame
         Combined outlier summary across all bins
     """
-    plots_dir = Path(plots_dir)
+    plots_dir = Path(plots_dir) / best_model_metric
     plots_dir.mkdir(parents=True, exist_ok=True)
 
     # Load data and bins
@@ -300,6 +367,7 @@ def analyse_all_bins(
     print(f"Bins to analyse: {bins_to_analyse}")
     print(f"Ranks: {ranks}")
     print(f"Q values: {q_vals}")
+    print(f"Best model metric: {best_model_metric}")
     print(f"Weight threshold: {weight_threshold}")
 
     # Analyse each bin
@@ -320,6 +388,7 @@ def analyse_all_bins(
             train_frac=train_frac,
             weight_threshold=weight_threshold,
             outlier_score_func=outlier_score_func,
+            best_model_metric=best_model_metric,
             results_dir=results_dir,
             plots_dir=plots_dir,
         )
@@ -356,6 +425,16 @@ def analyse_all_bins(
     print("\nBest models per bin:")
     for i_bin, (K, Q) in sorted(best_models.items()):
         print(f"  Bin {i_bin:2d}: K={K}, Q={Q:.2f}")
+
+    # Save best models to CSV
+    if best_models:
+        best_models_df = pd.DataFrame([
+            {"bin": i_bin, "best_K": K, "best_Q": Q}
+            for i_bin, (K, Q) in sorted(best_models.items())
+        ])
+        best_models_csv = plots_dir / "best_models.csv"
+        best_models_df.to_csv(best_models_csv, index=False)
+        print(f"Saved best models to {best_models_csv}")
 
     # Plot best model parameters vs bin
     if len(best_models) > 0:
@@ -401,6 +480,7 @@ def main():
         train_frac=TRAIN_FRAC,
         weight_threshold=WEIGHT_THRESHOLD,
         outlier_score_func=OUTLIER_SCORE_FUNC,
+        best_model_metric=BEST_MODEL_METRIC,
         results_dir=RESULTS_DIR,
         plots_dir=PLOTS_DIR,
     )
