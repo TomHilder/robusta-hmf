@@ -28,7 +28,7 @@ if __name__ == "__main__":
 
     # Apply UMAP for dimensionality reduction
     # reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, n_components=2, random_state=42)
-    reducer = umap.UMAP()
+    reducer = umap.UMAP(random_state=0)
     embedding = reducer.fit_transform(all_residuals)
     # embedding = reducer.fit_transform(all_residuals_scaled)
     print("UMAP embedding shape:", embedding.shape)
