@@ -10,9 +10,9 @@ authors = [
 requires-python = ">=3.10"
 dependencies = [
     "equinox>=0.13.0",
- "jax>=0.6.0",
- "optax>=0.2.0",
- "pandas>=2.3.3",
+    "jax>=0.6.0",
+    "optax>=0.2.0",
+    "pandas>=2.3.3",
 ]
 
 [build-system]
@@ -51,4 +51,5 @@ examples = [
     "scipy>=1.15.0",
     "seaborn>=0.13.2",
     "tqdm>=4.67.0",
+    "umap-learn>=0.5.11",
 ]

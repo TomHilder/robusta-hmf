@@ -12,32 +12,30 @@ This script:
 
 from pathlib import Path
 
+import gaia_config as cfg
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
-
-import gaia_config as cfg
 from analysis_funcs import (
     build_bins_from_config,
-    load_all_spectra_for_bin,
-    load_bin_results,
     compute_all_cv_scores,
     compute_outlier_scores,
-    get_outlier_indices,
     find_best_model,
-    plot_cv_heatmaps,
-    plot_spectrum_residual,
-    plot_outliers_on_hr,
-    plot_weights_histograms,
+    get_outlier_indices,
+    load_all_spectra_for_bin,
+    load_bin_results,
     plot_all_spectra_hr_by_weight,
-    plot_best_model_vs_bin,
-    plot_random_spectra_reconstructions,
     plot_basis_functions,
-    plot_weights_heatmap,
+    plot_best_model_vs_bin,
+    plot_cv_heatmaps,
+    plot_outliers_on_hr,
+    plot_random_spectra_reconstructions,
     plot_residuals_summary,
-    default_outlier_score,
+    plot_spectrum_residual,
+    plot_weights_heatmap,
+    plot_weights_histograms,
 )
+from tqdm import tqdm
 
 plt.style.use("mpl_drip.custom")
 
@@ -45,11 +43,19 @@ plt.style.use("mpl_drip.custom")
 # CONFIGURATION
 # ============================================================================ #
 
+# Whether to save residuals?
+SAVE_RESIDUALS = True
+
 # Which bins to analyse (None = all bins with results, or list like [7, 8, 9])
+# BINS_TO_ANALYSE = [0]
+# BINS_TO_ANALYSE = [7, 8, 9, 10, 11, 12, 13]
 BINS_TO_ANALYSE = [0, 7, 8, 9, 10, 11, 12, 13]
+# BINS_TO_ANALYSE = [7]
 
 # Model grid (must match what was trained)
-RANKS = [2, 3, 4, 5, 6, 7, 8, 9, 10]
+# Note: bin 0 was trained with ranks 2-10, bins 7-13 with ranks 3-10
+RANKS = [3, 4, 5, 6, 7, 8, 9, 10]
+# RANKS = [3]
 Q_VALS = [3.0]
 
 # Train/test split (from shared config to ensure consistency)
@@ -64,7 +70,8 @@ WEIGHT_THRESHOLD = 0.9
 #   - chi2_red: reduced chi-squared, target 1.0
 #   - rmse: weighted RMSE, lower is better
 #   - mad_z: median absolute z-score, target 0.6745
-BEST_MODEL_METRIC = "mad_z"
+# BEST_MODEL_METRIC = "std_z"
+BEST_MODEL_METRIC = "std_z"
 
 # Custom outlier scoring function (optional)
 # Takes per-pixel weights (1D array) and returns a scalar score.
@@ -84,6 +91,7 @@ OUTLIER_SCORE_FUNC = None  # None = default (median)
 # Directories
 RESULTS_DIR = Path("./gaia_rvs_results")
 PLOTS_DIR = Path("./plots_analysis")
+RESIDUALS_DIR = Path("./residuals")
 
 # ============================================================================ #
 
@@ -192,7 +200,9 @@ def analyse_bin(
             "rmse": cv_scores.rmse.flatten()[best_idx],
             "mad_z": cv_scores.mad_z.flatten()[best_idx],
         }
-        print(f"Best model: K={best_K}, Q={best_Q:.2f} ({best_model_metric}={metric_values[best_model_metric]:.4f})")
+        print(
+            f"Best model: K={best_K}, Q={best_Q:.2f} ({best_model_metric}={metric_values[best_model_metric]:.4f})"
+        )
 
     # Get best model and its inferred state
     best_rhmf = bin_results.rhmf_objs[best_idx]
@@ -209,7 +219,7 @@ def analyse_bin(
         print(f"Found {len(outlier_indices)} outliers with score < {weight_threshold}")
 
     # Get wavelength grid
-    λ_grid = data.λ_grid[cfg.N_CLIP_PIX:-cfg.N_CLIP_PIX]
+    λ_grid = data.λ_grid[cfg.N_CLIP_PIX : -cfg.N_CLIP_PIX]
 
     # Get reconstructions
     if verbose and len(outlier_indices) > 0:
@@ -293,7 +303,9 @@ def analyse_bin(
     )
 
     outliers_data = []
-    for idx in tqdm(outlier_indices, desc=f"Plotting outliers for bin {i_bin}", disable=not verbose):
+    for idx in tqdm(
+        outlier_indices, desc=f"Plotting outliers for bin {i_bin}", disable=not verbose
+    ):
         source_id = source_ids[idx]
         score = outlier_scores[idx]
 
@@ -312,15 +324,23 @@ def analyse_bin(
             save_dir=bin_plots_dir,
         )
 
-        outliers_data.append({
-            "bin": i_bin,
-            "idx": idx,
-            "source_id": source_id,
-            "score": score,
-            "best_K": best_K,
-            "best_Q": best_Q,
-            "in_train": idx in train_idx,
-        })
+        outliers_data.append(
+            {
+                "bin": i_bin,
+                "idx": idx,
+                "source_id": source_id,
+                "score": score,
+                "best_K": best_K,
+                "best_Q": best_Q,
+                "in_train": idx in train_idx,
+            }
+        )
+
+        if SAVE_RESIDUALS:
+            np.save(
+                file=RESIDUALS_DIR / f"{source_id}_residual.npy",
+                arr=all_Y[idx] - all_reconstructions[idx],
+            )
 
     outliers_df = pd.DataFrame(outliers_data)
     return outliers_df, best_K, best_Q
@@ -428,10 +448,12 @@ def analyse_all_bins(
 
     # Save best models to CSV
     if best_models:
-        best_models_df = pd.DataFrame([
-            {"bin": i_bin, "best_K": K, "best_Q": Q}
-            for i_bin, (K, Q) in sorted(best_models.items())
-        ])
+        best_models_df = pd.DataFrame(
+            [
+                {"bin": i_bin, "best_K": K, "best_Q": Q}
+                for i_bin, (K, Q) in sorted(best_models.items())
+            ]
+        )
         best_models_csv = plots_dir / "best_models.csv"
         best_models_df.to_csv(best_models_csv, index=False)
         print(f"Saved best models to {best_models_csv}")

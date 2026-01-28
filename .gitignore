@@ -2,6 +2,7 @@
 *.hdf5
 *.csv
 *.zip
+*.npy
 
 # vscode
 .vscode/
