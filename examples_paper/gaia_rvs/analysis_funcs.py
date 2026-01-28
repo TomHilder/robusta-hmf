@@ -1,0 +1,883 @@
+"""
+Reusable analysis functions for Gaia RVS robust matrix factorization.
+"""
+
+from dataclasses import dataclass
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+from bins import build_all_bins
+from collect import MatchedData, compute_abs_mag
+from rvs_plot_utils import add_line_markers, load_linelists
+from tqdm import tqdm
+
+from robusta_hmf import Robusta
+from robusta_hmf.state import RHMFState, load_state_from_npz
+
+import gaia_config as cfg
+
+
+# === Data structures === #
+
+
+@dataclass
+class BinResults:
+    """Container for loaded model results for a single bin."""
+
+    i_bin: int
+    ranks: list
+    q_vals: list
+    states: list  # List of RHMFState
+    rhmf_objs: list  # List of Robusta objects with states attached
+
+
+@dataclass
+class CVScores:
+    """Container for cross-validation scores across (K, Q) grid."""
+
+    std_z: np.ndarray  # std of z-scores (target: 1.0)
+    chi2_red: np.ndarray  # reduced chi-squared (target: 1.0)
+    rmse: np.ndarray  # weighted RMSE (lower is better)
+    mad_z: np.ndarray  # median absolute z-score (target: 0.6745)
+    ranks: list
+    q_vals: list
+
+
+# === Data loading and preparation === #
+
+
+def build_bins_from_config():
+    """Build all bins using shared config parameters."""
+    data = MatchedData()
+
+    bp_rp = data["bp_rp"]
+    abs_mag_G = compute_abs_mag(data["phot_g_mean_mag"], data["parallax"])
+
+    bp_rp_bin_centres, abs_mag_G_bin_centres = cfg.get_bin_centres()
+    bp_rp_width, abs_mag_G_width = cfg.get_bin_widths()
+
+    bins = build_all_bins(
+        data,
+        bp_rp,
+        abs_mag_G,
+        bp_rp_bin_centres,
+        abs_mag_G_bin_centres,
+        bp_rp_width,
+        abs_mag_G_width,
+    )
+
+    return data, bins, bp_rp, abs_mag_G
+
+
+def get_test_train_split_idx(n_spectra, train_frac, seed=None):
+    """Split indices into train and test sets."""
+    if seed is None:
+        seed = cfg.RNG_SEED
+    indices = np.arange(n_spectra)
+    rng = np.random.default_rng(seed)
+    rng.shuffle(indices)
+    n_train = int(n_spectra * train_frac)
+    train_indices = indices[:n_train]
+    test_indices = indices[n_train:]
+    return train_indices, test_indices
+
+
+def clip_edge_pix(flux, u_flux, n_clip=None):
+    """Clip edge pixels from spectra."""
+    if n_clip is None:
+        n_clip = cfg.N_CLIP_PIX
+    if isinstance(n_clip, int):
+        n_clip_l = n_clip_r = n_clip
+    elif isinstance(n_clip, (list, tuple)) and len(n_clip) == 2:
+        n_clip_l, n_clip_r = n_clip
+    else:
+        raise ValueError("n_clip must be an int or a tuple/list of two ints.")
+    return flux[:, n_clip_l:-n_clip_r], u_flux[:, n_clip_l:-n_clip_r]
+
+
+def nans_mask(arrs):
+    """Create mask for non-NaN values across multiple arrays."""
+    nans = np.isnan(np.array(arrs))
+    return np.logical_not(np.any(nans, axis=0))
+
+
+def prep_data(flux, u_flux):
+    """Prepare flux and weights, handling NaNs."""
+    weights = 1.0 / (u_flux**2)
+    Y, W = flux.copy(), weights.copy()
+    mask = nans_mask([Y, W])
+    Y[~mask] = 0.0
+    W[~mask] = 0.0
+    Y = np.nan_to_num(Y)
+    W = np.nan_to_num(W)
+    return Y, W
+
+
+def load_all_spectra_for_bin(data, bin_data, train_frac, n_clip=None):
+    """
+    Load and prepare all spectra (train + test) for a bin.
+
+    Returns
+    -------
+    all_Y, all_W : arrays
+        Combined train+test flux and weights
+    train_idx, test_idx : arrays
+        Indices into all_Y/all_W for train and test sets
+    source_ids : array
+        Gaia source IDs for all spectra (in same order as all_Y)
+    """
+    if n_clip is None:
+        n_clip = cfg.N_CLIP_PIX
+
+    train_idx, test_idx = get_test_train_split_idx(bin_data.n_spectra, train_frac)
+
+    # Load all spectra
+    all_flux, all_u_flux = clip_edge_pix(
+        *data.get_flux_batch(bin_data.idx), n_clip=n_clip
+    )
+    all_Y, all_W = prep_data(all_flux, all_u_flux)
+
+    # Source IDs in same order
+    source_ids = bin_data.ids
+
+    return all_Y, all_W, train_idx, test_idx, source_ids
+
+
+# === Model loading === #
+
+
+def load_bin_results(i_bin, ranks, q_vals, results_dir):
+    """
+    Load saved model states for a bin.
+
+    Parameters
+    ----------
+    i_bin : int
+        Bin index
+    ranks : list of int
+        Rank (K) values to load
+    q_vals : list of float
+        Q values to load
+    results_dir : Path
+        Directory containing saved states
+
+    Returns
+    -------
+    BinResults
+        Container with loaded states and Robusta objects
+    """
+    results_dir = Path(results_dir)
+    Q_grid, Rank_grid = np.meshgrid(q_vals, ranks)
+
+    states = []
+    rhmf_objs = []
+    missing = []
+
+    for Q, rank in zip(Q_grid.flatten(), Rank_grid.flatten()):
+        state_file = results_dir / f"converged_state_R{rank}_Q{Q:.2f}_bin_{i_bin}.npz"
+        if not state_file.exists():
+            missing.append((rank, Q))
+            continue
+
+        state = load_state_from_npz(state_file)
+        states.append(state)
+
+        rhmf = Robusta(rank=rank, robust_scale=Q)
+        rhmf._state = state
+        rhmf_objs.append(rhmf)
+
+    if missing:
+        print(f"Warning: Missing {len(missing)} state files for bin {i_bin}: {missing[:5]}...")
+
+    return BinResults(
+        i_bin=i_bin,
+        ranks=ranks,
+        q_vals=q_vals,
+        states=states,
+        rhmf_objs=rhmf_objs,
+    )
+
+
+# === Cross-validation metrics === #
+
+
+def compute_std_z(rhmf, state, Y, W):
+    """Compute std of z-scores. Target: 1.0"""
+    residuals = rhmf.residuals(Y=Y, state=state)
+    robust_weights = rhmf.robust_weights(Y, W, state=state)
+    z_scores = residuals * np.sqrt(W) * np.sqrt(robust_weights)
+    return np.std(z_scores)
+
+
+def compute_chi2_red(rhmf, state, Y, W):
+    """Compute reduced chi-squared. Target: 1.0"""
+    residuals = rhmf.residuals(Y=Y, state=state)
+    chi2 = (residuals * np.sqrt(W)) ** 2
+    return np.mean(chi2)
+
+
+def compute_rmse(rhmf, state, Y, W):
+    """Compute weighted RMSE. Lower is better."""
+    residuals = rhmf.residuals(Y=Y, state=state)
+    wmse = np.mean(W * residuals**2)
+    return np.sqrt(wmse)
+
+
+def compute_mad_z(rhmf, state, Y, W):
+    """Compute median absolute z-score. Target: 0.6745"""
+    residuals = rhmf.residuals(Y=Y, state=state)
+    robust_weights = rhmf.robust_weights(Y, W, state=state)
+    z_scores = residuals * np.sqrt(W) * np.sqrt(robust_weights)
+    return np.median(np.abs(z_scores))
+
+
+def compute_all_cv_scores(bin_results, Y_test, W_test, Y_all, W_all, verbose=True):
+    """
+    Compute all CV scores for a bin across the (K, Q) grid.
+
+    Parameters
+    ----------
+    bin_results : BinResults
+        Loaded model results
+    Y_test, W_test : arrays
+        Test set data (for CV scores)
+    Y_all, W_all : arrays
+        All data (for inference)
+    verbose : bool
+        Show progress bar
+
+    Returns
+    -------
+    CVScores
+        Container with all metric arrays
+    inferred_states : list
+        States after inference on all data (for outlier detection)
+    """
+    n_models = len(bin_results.rhmf_objs)
+    std_z_scores = []
+    chi2_red_scores = []
+    rmse_scores = []
+    mad_z_scores = []
+    inferred_states = []
+
+    iterator = bin_results.rhmf_objs
+    if verbose:
+        iterator = tqdm(iterator, desc=f"Computing CV scores for bin {bin_results.i_bin}")
+
+    for rhmf in iterator:
+        # Infer on all data (needed for outlier detection later)
+        inferred_state, _ = rhmf.infer(
+            Y_infer=Y_all,
+            W_infer=W_all,
+            max_iter=1000,
+            conv_tol=1e-4,
+            conv_check_cadence=5,
+        )
+        inferred_states.append(inferred_state)
+
+        # Compute CV scores on test set using inferred state
+        # But we need the state for test set specifically
+        # Actually, we compute scores on test set portion of all_Y
+        # For simplicity, re-infer on test set only for CV scoring
+        test_state, _ = rhmf.infer(
+            Y_infer=Y_test,
+            W_infer=W_test,
+            max_iter=1000,
+            conv_tol=1e-4,
+            conv_check_cadence=5,
+        )
+
+        std_z_scores.append(compute_std_z(rhmf, test_state, Y_test, W_test))
+        chi2_red_scores.append(compute_chi2_red(rhmf, test_state, Y_test, W_test))
+        rmse_scores.append(compute_rmse(rhmf, test_state, Y_test, W_test))
+        mad_z_scores.append(compute_mad_z(rhmf, test_state, Y_test, W_test))
+
+    # Reshape to (n_ranks, n_q_vals)
+    n_ranks = len(bin_results.ranks)
+    n_q_vals = len(bin_results.q_vals)
+
+    cv_scores = CVScores(
+        std_z=np.array(std_z_scores).reshape(n_ranks, n_q_vals),
+        chi2_red=np.array(chi2_red_scores).reshape(n_ranks, n_q_vals),
+        rmse=np.array(rmse_scores).reshape(n_ranks, n_q_vals),
+        mad_z=np.array(mad_z_scores).reshape(n_ranks, n_q_vals),
+        ranks=bin_results.ranks,
+        q_vals=bin_results.q_vals,
+    )
+
+    return cv_scores, inferred_states
+
+
+def find_best_model(cv_scores):
+    """
+    Find best (K, Q) based on std(z) closest to 1.0.
+
+    Returns
+    -------
+    best_rank : int
+    best_q : float
+    best_idx : int
+        Flat index into the model list
+    """
+    # Find model with std(z) closest to 1.0
+    deviation = np.abs(cv_scores.std_z - 1.0)
+    best_flat_idx = np.argmin(deviation)
+
+    # Convert to (rank_idx, q_idx)
+    rank_idx, q_idx = np.unravel_index(best_flat_idx, cv_scores.std_z.shape)
+
+    best_rank = cv_scores.ranks[rank_idx]
+    best_q = cv_scores.q_vals[q_idx]
+
+    return best_rank, best_q, best_flat_idx
+
+
+# === Outlier detection === #
+
+
+def default_outlier_score(pixel_weights):
+    """Default outlier scoring: median of per-pixel weights."""
+    return np.median(pixel_weights)
+
+
+def compute_outlier_scores(rhmf, Y, W, state, score_func=None):
+    """
+    Compute outlier score per spectrum using a custom scoring function.
+
+    Parameters
+    ----------
+    rhmf : Robusta
+        Model object
+    Y, W : arrays
+        Data and weights
+    state : RHMFState
+        Model state
+    score_func : callable, optional
+        Function that takes per-pixel weights (1D array) and returns a scalar score.
+        Lower score = more outlier-y. Default: np.median
+
+    Returns
+    -------
+    scores : array
+        Outlier score per spectrum
+    all_pixel_weights : array
+        Full per-pixel weights (n_spectra x n_pixels)
+    """
+    if score_func is None:
+        score_func = default_outlier_score
+
+    all_pixel_weights = rhmf.robust_weights(Y, W, state=state)
+    scores = np.array([score_func(all_pixel_weights[i]) for i in range(len(Y))])
+
+    return scores, all_pixel_weights
+
+
+def get_outlier_indices(scores, threshold):
+    """Get indices of spectra with score below threshold."""
+    return np.where(scores < threshold)[0]
+
+
+# Legacy function for backwards compatibility
+def compute_per_object_weights(rhmf, Y, W, state):
+    """Compute median robust weight per object (spectrum). Legacy wrapper."""
+    scores, _ = compute_outlier_scores(rhmf, Y, W, state, score_func=default_outlier_score)
+    return scores
+
+
+def get_low_weight_indices(per_object_weights, threshold):
+    """Get indices of spectra with score below threshold. Legacy wrapper."""
+    return get_outlier_indices(per_object_weights, threshold)
+
+
+# === Plotting === #
+
+
+def plot_cv_heatmaps(cv_scores, i_bin, save_dir, show=False):
+    """
+    Plot all 4 CV metric heatmaps.
+
+    Parameters
+    ----------
+    cv_scores : CVScores
+    i_bin : int
+    save_dir : Path
+    show : bool
+    """
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 12), dpi=100)
+
+    metrics = [
+        ("std_z", cv_scores.std_z, "std(z)", 1.0, "|std(z) - 1|"),
+        ("chi2_red", cv_scores.chi2_red, "Reduced Chi-Squared", 1.0, "|chi2_red - 1|"),
+        ("rmse", cv_scores.rmse, "Weighted RMSE", None, "RMSE"),
+        ("mad_z", cv_scores.mad_z, "Median |z|", 0.6745, "|median|z| - 0.6745|"),
+    ]
+
+    for ax, (name, scores, title, target, cbar_label) in zip(axes.flatten(), metrics):
+        if target is not None:
+            plot_data = np.log(np.abs(scores - target) + 1e-10)
+            cbar_label = f"log({cbar_label})"
+        else:
+            plot_data = scores
+
+        im = ax.pcolormesh(
+            np.arange(len(cv_scores.q_vals)),
+            cv_scores.ranks,
+            plot_data,
+            shading="auto",
+            cmap="viridis",
+        )
+        ax.set_xticks(np.arange(len(cv_scores.q_vals)))
+        ax.set_xticklabels([f"{q:.1f}" for q in cv_scores.q_vals])
+        ax.set_yticks(cv_scores.ranks)
+        ax.set_xlabel("Robust Scale Q")
+        ax.set_ylabel("Rank K")
+        ax.set_title(title)
+        plt.colorbar(im, ax=ax, label=cbar_label)
+
+    plt.suptitle(f"Cross-Validation Scores (Bin {i_bin})", fontsize=14)
+    plt.tight_layout()
+
+    save_path = save_dir / f"cv_heatmaps_bin_{i_bin:02d}.pdf"
+    plt.savefig(save_path, bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close()
+
+    return save_path
+
+
+def plot_weights_histograms(
+    per_object_weights,
+    all_pixel_weights,
+    weight_threshold,
+    i_bin,
+    best_K,
+    best_Q,
+    save_dir,
+    show=False,
+):
+    """
+    Plot histograms of robust weights.
+
+    Parameters
+    ----------
+    per_object_weights : array
+        Median robust weight per spectrum (1D)
+    all_pixel_weights : array
+        All per-pixel robust weights (2D: n_spectra x n_pixels)
+    weight_threshold : float
+        Threshold used for outlier detection (shown as vertical line)
+    i_bin : int
+        Bin index
+    best_K, best_Q : int, float
+        Model parameters
+    save_dir : Path
+    show : bool
+    """
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5), dpi=100)
+
+    # Left: per-object weights (median per spectrum)
+    ax = axes[0]
+    ax.hist(per_object_weights, bins=50, alpha=0.7, color="C0", density=False)
+    ax.axvline(weight_threshold, color="r", linestyle="--", lw=2, label=f"Threshold = {weight_threshold}")
+    ax.set_xlabel("Per-Object Weight (median)")
+    ax.set_ylabel("Count")
+    ax.set_yscale("log")
+    ax.set_title(f"Per-Object Weights (K={best_K}, Q={best_Q:.2f})")
+    ax.legend()
+
+    # Right: per-pixel weights (all data points)
+    ax = axes[1]
+    ax.hist(all_pixel_weights.flatten(), bins=50, alpha=0.7, color="C1", density=False)
+    ax.set_xlabel("Per-Pixel Robust Weight")
+    ax.set_ylabel("Count")
+    ax.set_yscale("log")
+    ax.set_title(f"Per-Pixel Weights (K={best_K}, Q={best_Q:.2f})")
+
+    plt.suptitle(f"Robust Weights Distribution (Bin {i_bin})", fontsize=12)
+    plt.tight_layout()
+
+    save_path = save_dir / f"weights_histograms_bin_{i_bin:02d}.pdf"
+    plt.savefig(save_path, bbox_inches="tight")
+
+    if show:
+        plt.show()
+    plt.close()
+
+    return save_path
+
+
+def plot_all_spectra_hr_by_weight(
+    per_object_weights,
+    bp_rp,
+    abs_mag_G,
+    bin_indices,
+    weight_threshold,
+    i_bin,
+    best_K,
+    best_Q,
+    save_dir,
+    show=False,
+):
+    """
+    Plot HR diagram with ALL spectra in a bin colored by per-object weight.
+
+    Parameters
+    ----------
+    per_object_weights : array
+        Median robust weight per spectrum
+    bp_rp : array
+        BP-RP colors for spectra in this bin
+    abs_mag_G : array
+        Absolute G magnitudes for spectra in this bin
+    bin_indices : array
+        Indices into full dataset (for this bin)
+    weight_threshold : float
+        Threshold for outlier detection (for reference)
+    i_bin : int
+        Bin index
+    best_K, best_Q : int, float
+        Model parameters
+    save_dir : Path
+    show : bool
+    """
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=(10, 8), dpi=150)
+
+    # Plot all spectra colored by weight
+    scatter = ax.scatter(
+        bp_rp,
+        abs_mag_G,
+        c=per_object_weights,
+        cmap="viridis",
+        s=5,
+        alpha=0.7,
+        vmin=0,
+        vmax=1,
+    )
+    cbar = plt.colorbar(scatter, ax=ax, label="Per-object robust weight")
+
+    # Mark outliers with red edge
+    outlier_mask = per_object_weights < weight_threshold
+    if np.any(outlier_mask):
+        ax.scatter(
+            bp_rp[outlier_mask],
+            abs_mag_G[outlier_mask],
+            c=per_object_weights[outlier_mask],
+            cmap="viridis",
+            s=20,
+            alpha=1.0,
+            vmin=0,
+            vmax=1,
+            edgecolors="red",
+            linewidths=1,
+        )
+
+    n_outliers = np.sum(outlier_mask)
+    ax.set_ylim(15, -5)
+    ax.set_xlim(-0.5, 3.5)
+    ax.set_xlabel("Color (BP - RP)")
+    ax.set_ylabel("G-Band Absolute Magnitude")
+    ax.set_title(
+        f"Bin {i_bin} | K={best_K}, Q={best_Q:.2f} | "
+        f"N={len(per_object_weights)}, outliers={n_outliers} (threshold={weight_threshold})"
+    )
+
+    plt.tight_layout()
+
+    save_path = save_dir / f"hr_by_weight_bin_{i_bin:02d}.pdf"
+    plt.savefig(save_path, bbox_inches="tight")
+
+    if show:
+        plt.show()
+    plt.close()
+
+    return save_path
+
+
+def plot_best_model_vs_bin(best_models, save_path, show=False):
+    """
+    Plot optimal K and Q as a function of bin index.
+
+    Parameters
+    ----------
+    best_models : dict
+        {bin_index: (best_K, best_Q)} mapping
+    save_path : Path
+    show : bool
+    """
+    save_path = Path(save_path)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if len(best_models) == 0:
+        print("No best models to plot")
+        return None
+
+    bins = sorted(best_models.keys())
+    Ks = [best_models[b][0] for b in bins]
+    Qs = [best_models[b][1] for b in bins]
+
+    fig, axes = plt.subplots(2, 1, figsize=(10, 8), dpi=100, sharex=True)
+
+    # Top: K vs bin
+    ax = axes[0]
+    ax.plot(bins, Ks, "o-", color="C0", markersize=8, linewidth=2)
+    ax.set_ylabel("Optimal Rank (K)")
+    ax.set_ylim(min(Ks) - 0.5, max(Ks) + 0.5)
+    ax.yaxis.set_major_locator(plt.MaxNLocator(integer=True))
+    ax.grid(True, alpha=0.3)
+
+    # Bottom: Q vs bin
+    ax = axes[1]
+    ax.plot(bins, Qs, "s-", color="C1", markersize=8, linewidth=2)
+    ax.set_ylabel("Optimal Robust Scale (Q)")
+    ax.set_xlabel("Bin Index")
+    ax.grid(True, alpha=0.3)
+
+    # If Q values are all the same, note it
+    if len(set(Qs)) == 1:
+        ax.set_title(f"(Q fixed at {Qs[0]:.2f} during training)", fontsize=10)
+
+    plt.suptitle("Optimal Model Parameters vs Bin", fontsize=12)
+    plt.tight_layout()
+
+    plt.savefig(save_path, bbox_inches="tight")
+
+    if show:
+        plt.show()
+    plt.close()
+
+    return save_path
+
+
+def plot_outliers_on_hr(
+    outliers_df,
+    bp_rp_all,
+    abs_mag_G_all,
+    source_ids_all,
+    save_path,
+    color_by="score",
+    show=False,
+):
+    """
+    Plot detected outliers on the HR diagram.
+
+    Parameters
+    ----------
+    outliers_df : pd.DataFrame
+        Outlier summary with columns: bin, idx, source_id, score, ...
+    bp_rp_all : array
+        BP-RP colors for all sources in the dataset
+    abs_mag_G_all : array
+        Absolute G magnitudes for all sources
+    source_ids_all : array
+        Source IDs for all sources (to match outliers)
+    save_path : Path
+        Where to save the plot
+    color_by : str
+        "score" to color by outlier score, "bin" to color by bin index
+    show : bool
+        Whether to display the plot
+    """
+    import pandas as pd
+
+    save_path = Path(save_path)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=(12, 10), dpi=150)
+
+    # Plot all sources as background
+    ax.scatter(
+        bp_rp_all,
+        abs_mag_G_all,
+        s=0.5,
+        alpha=0.1,
+        c="grey",
+        zorder=0,
+        marker=".",
+    )
+
+    if len(outliers_df) == 0:
+        ax.set_title("No outliers detected")
+    else:
+        # Match outliers to their positions
+        # Create lookup from source_id to position
+        source_id_to_idx = {sid: i for i, sid in enumerate(source_ids_all)}
+
+        outlier_bp_rp = []
+        outlier_abs_mag = []
+        outlier_scores = []
+        outlier_bins = []
+
+        for _, row in outliers_df.iterrows():
+            sid = row["source_id"]
+            if sid in source_id_to_idx:
+                idx = source_id_to_idx[sid]
+                outlier_bp_rp.append(bp_rp_all[idx])
+                outlier_abs_mag.append(abs_mag_G_all[idx])
+                outlier_scores.append(row["score"])
+                outlier_bins.append(row["bin"])
+
+        outlier_bp_rp = np.array(outlier_bp_rp)
+        outlier_abs_mag = np.array(outlier_abs_mag)
+        outlier_scores = np.array(outlier_scores)
+        outlier_bins = np.array(outlier_bins)
+
+        if color_by == "score":
+            scatter = ax.scatter(
+                outlier_bp_rp,
+                outlier_abs_mag,
+                c=outlier_scores,
+                cmap="viridis_r",
+                s=20,
+                alpha=0.8,
+                zorder=5,
+                edgecolors="black",
+                linewidths=0.5,
+            )
+            cbar = plt.colorbar(scatter, ax=ax, label="Outlier score (lower = more anomalous)")
+        elif color_by == "bin":
+            scatter = ax.scatter(
+                outlier_bp_rp,
+                outlier_abs_mag,
+                c=outlier_bins,
+                cmap="tab20",
+                s=20,
+                alpha=0.8,
+                zorder=5,
+                edgecolors="black",
+                linewidths=0.5,
+            )
+            cbar = plt.colorbar(scatter, ax=ax, label="Bin index")
+
+        # Count duplicates (same source in multiple bins)
+        n_unique = outliers_df["source_id"].nunique()
+        n_total = len(outliers_df)
+        ax.set_title(
+            f"Detected Outliers on HR Diagram\n"
+            f"{n_total} detections from {n_unique} unique sources"
+        )
+
+    ax.set_ylim(15, -5)
+    ax.set_xlim(-0.5, 3.5)
+    ax.set_xlabel("Color (BP - RP)")
+    ax.set_ylabel("G-Band Absolute Magnitude")
+
+    plt.tight_layout()
+    plt.savefig(save_path, bbox_inches="tight")
+
+    if show:
+        plt.show()
+    plt.close()
+
+    return save_path
+
+
+def plot_spectrum_residual(
+    λ_grid,
+    flux,
+    reconstruction,
+    robust_weights,
+    source_id,
+    i_bin,
+    idx,
+    per_object_weight,
+    best_K,
+    best_Q,
+    save_dir,
+    show=False,
+):
+    """
+    Plot spectrum with reconstruction and residuals.
+
+    Parameters
+    ----------
+    λ_grid : array
+        Wavelength grid
+    flux : array
+        Observed flux (1D)
+    reconstruction : array
+        Model reconstruction (1D)
+    robust_weights : array
+        Per-pixel robust weights (1D)
+    source_id : int
+        Gaia source ID
+    i_bin : int
+        Bin index
+    idx : int
+        Spectrum index within bin
+    per_object_weight : float
+        Median robust weight for this spectrum
+    best_K, best_Q : int, float
+        Model parameters
+    save_dir : Path
+    show : bool
+    """
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    residual = flux - reconstruction
+
+    fig, axes = plt.subplots(2, 1, figsize=(12, 8), dpi=150, sharex=True)
+
+    # Top panel: spectrum and reconstruction
+    axes[0].plot(λ_grid, flux, c="k", lw=0.8, label="Observed", alpha=0.8)
+    axes[0].plot(λ_grid, reconstruction, c="C2", lw=0.8, label="Reconstruction", alpha=0.8)
+    axes[0].set_ylabel("Normalised flux")
+    axes[0].legend(loc="upper right")
+    axes[0].set_title(
+        f"Bin {i_bin} | idx {idx} | source_id {source_id} | "
+        f"K={best_K} Q={best_Q:.2f} | median weight={per_object_weight:.3f}"
+    )
+
+    # Bottom panel: residual and robust weights
+    ax_resid = axes[1]
+    ax_resid.plot(λ_grid, residual, c="k", lw=0.5, label="Residual")
+    ax_resid.set_ylabel("Residual")
+    ax_resid.set_xlabel("Wavelength [nm]")
+
+    # Overlay robust weights on secondary y-axis
+    ax_weights = ax_resid.twinx()
+    ax_weights.plot(λ_grid, robust_weights, c="r", lw=0.5, alpha=0.7, label="Robust weights")
+    ax_weights.set_ylabel("Robust weight", color="r")
+    ax_weights.tick_params(axis="y", labelcolor="r")
+    ax_weights.set_ylim(0, 1.1)
+
+    # Add spectral line markers (strong lines only)
+    try:
+        lines = load_linelists()
+        add_line_markers(
+            ax=ax_resid,
+            lines=lines,
+            show_strong=True,
+            show_abundance=False,
+            show_cn=False,
+            show_dib=False,
+        )
+    except Exception as e:
+        print(f"Warning: Could not add line markers: {e}")
+
+    plt.tight_layout()
+
+    # Filename with all relevant info
+    filename = (
+        f"bin_{i_bin:02d}_K{best_K}_Q{best_Q:.2f}_"
+        f"idx_{idx:05d}_srcid_{source_id}_weight_{per_object_weight:.3f}.pdf"
+    )
+    save_path = save_dir / filename
+    plt.savefig(save_path, bbox_inches="tight")
+
+    if show:
+        plt.show()
+    plt.close()
+
+    return save_path

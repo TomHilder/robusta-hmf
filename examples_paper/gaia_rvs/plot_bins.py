@@ -1,34 +1,29 @@
+"""
+Plot the Gaia RVS bins on an HR diagram with bin indices and spectra counts.
+
+Bin geometry is imported from gaia_config.py.
+"""
+
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 from bins import build_all_bins
 from collect import MatchedData, compute_abs_mag
 
+import gaia_config as cfg
+
 plt.style.use("mpl_drip.custom")
 
 
 def build_bins():
-    """Build all 14 bins from the Gaia data."""
+    """Build all bins from the Gaia data using shared config."""
     data = MatchedData()
 
     bp_rp = data["bp_rp"]
     abs_mag_G = compute_abs_mag(data["phot_g_mean_mag"], data["parallax"])
 
-    n_bins = 14
-
-    bp_rp_min = -0.1
-    bp_rp_max = 3.0
-    bp_rp_bin_centres = np.linspace(bp_rp_min, bp_rp_max, n_bins)
-
-    abs_mag_G_min = 0
-    abs_mag_G_max = 11
-    abs_mag_G_bin_centres = np.linspace(abs_mag_G_min, abs_mag_G_max, n_bins)
-
-    abs_mag_G_offsets = np.exp(-0.5 * ((bp_rp_bin_centres - 1.5) / 0.6) ** 2) * 1.5
-    abs_mag_G_bin_centres += abs_mag_G_offsets
-
-    bp_rp_width = (bp_rp_max - bp_rp_min) / (n_bins - 1) * 1.5
-    abs_mag_G_width = (abs_mag_G_max - abs_mag_G_min) / (n_bins - 1) * 2.8
+    bp_rp_bin_centres, abs_mag_G_bin_centres = cfg.get_bin_centres()
+    bp_rp_width, abs_mag_G_width = cfg.get_bin_widths()
 
     bins = build_all_bins(
         data,
