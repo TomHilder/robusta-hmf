@@ -295,17 +295,17 @@ ax[1].plot(λ_grid, residual_i, c="k", lw=0.5)
 
 ax[0].legend()
 
-# add_line_markers(
-#     ax=ax[1],
-#     show_strong=True,
-#     show_abundance=False,
-#     show_cn=False,
-#     show_dib=False,
-#     lines=load_linelists(),
-#     label_fontsize=14,
-# )
+add_line_markers(
+    ax=ax[1],
+    show_strong=True,
+    show_abundance=False,
+    show_cn=False,
+    show_dib=False,
+    lines=load_linelists(),
+    label_fontsize=14,
+)
 # Optionally plot the robust weights per-point too
-ax[-1].plot(λ_grid, weights[weird_idx_i], c="r", lw=0.5)
+# ax[-1].plot(λ_grid, weights[weird_idx_i], c="r", lw=0.5)
 ax[-1].set_xlabel("Wavelength [nm]")
 ax[1].set_ylabel("Residual normalised flux")
 plt.show()
