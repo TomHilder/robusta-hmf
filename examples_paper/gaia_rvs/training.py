@@ -12,8 +12,9 @@ plt.style.use("mpl_drip.custom")
 rng = np.random.default_rng(0)
 
 # Fit parameters
-RANKS = [3, 4, 5, 6, 7]
-Q_VALS = [0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0]
+RANKS = [3, 4, 5, 6, 7, 8, 9, 10]
+# Q_VALS = [0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0]
+Q_VALS = [3.0]
 
 # Create a grid over q and rank values
 Q_grid, Rank_grid = np.meshgrid(Q_VALS, RANKS)

@@ -1,14 +1,14 @@
+from dataclasses import dataclass
 from pathlib import Path
 
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import mpl_drip  # noqa: F401
 import numpy as np
-import jax.numpy as jnp
 from bins import build_all_bins
-from dataclasses import dataclass
 from collect import MatchedData, compute_abs_mag
-from tqdm import tqdm
 from rvs_plot_utils import add_line_markers, load_linelists
+from tqdm import tqdm
 
 from robusta_hmf import Robusta
 from robusta_hmf.state import RHMFState, load_state_from_npz
@@ -163,8 +163,8 @@ for obj, res in zip(rhmf_objs, results):
 # === ANALYSIS === #
 
 # Pick a specific (Q, K) for single-model plots
-plot_Q = 3.0
-plot_K = 5
+plot_Q = 5.0
+plot_K = 3
 
 result_ind = np.where(
     (np.array([r.Q for r in results]) == plot_Q) & (np.array([r.K for r in results]) == plot_K)
@@ -203,8 +203,21 @@ plt.show()
 
 # === Plot: Robust weights histogram === #
 
+all_Y = np.concatenate([train_Y, test_Y])
+all_W = np.concatenate([train_W, test_W])
+plot_test_state, _ = plot_rhmf.infer(
+    Y_infer=all_Y,
+    W_infer=all_W,
+    max_iter=1000,
+    conv_tol=1e-4,
+    conv_check_cadence=5,
+)
+plot_rhmf_all = plot_rhmf.set_state(plot_test_state)
+
 print("Plotting robust weights histogram...")
-weights = plot_rhmf.robust_weights(train_Y, train_W)
+
+# weights = plot_rhmf.robust_weights(train_Y, train_W)
+weights = plot_rhmf_all.robust_weights(all_Y, all_W)
 
 fig, ax = plt.subplots(figsize=(10, 6), dpi=100)
 ax.hist(weights.flatten(), bins=50, alpha=0.7, color="C0", density=False)
@@ -235,25 +248,68 @@ n_weird = 5
 
 weird_spectra_idx = np.argsort(object_weights)[:n_weird]
 normal_spectra_idx = rng.choice(
-    np.setdiff1d(np.arange(train_Y.shape[0]), weird_spectra_idx),
+    np.setdiff1d(np.arange(all_Y.shape[0]), weird_spectra_idx),
     size=n_weird,
     replace=False,
 )
 
-predictions_weird = plot_rhmf.synthesize(indices=jnp.array(weird_spectra_idx))
+# predictions_weird = plot_rhmf.synthesize(indices=jnp.array(weird_spectra_idx))
+# predictions_weird = plot_rhmf_all.synthesize(indices=jnp.array(weird_spectra_idx))
+predictions_all = plot_rhmf_all.synthesize()
 
 fig, ax = plt.subplots(figsize=(12, 8), dpi=100)
+
 for i, (idx, i_off) in enumerate(zip(weird_spectra_idx, range(n_weird))):
-    ax.plot(λ_grid, train_Y[idx, :] + i_off * 1.0, color="C1", alpha=1.0, lw=1)
-    ax.plot(λ_grid, predictions_weird[i, :] + i_off * 1.0, color="k", alpha=1, lw=0.5)
+    # ax.plot(λ_grid, train_Y[idx, :] + i_off * 1.0, color="C1", alpha=1.0, lw=1)
+    ax.plot(λ_grid, all_Y[idx, :] + i_off * 1.0, color="C1", alpha=1.0, lw=1)
+    # ax.plot(λ_grid, predictions_weird[i, :] + i_off * 1.0, color="k", alpha=1, lw=0.5)
+    ax.plot(λ_grid, predictions_all[idx, :] + i_off * 1.0, color="k", alpha=1, lw=0.5)
+
 for i, (idx, i_off) in enumerate(zip(normal_spectra_idx, range(n_weird, 2 * n_weird))):
-    ax.plot(λ_grid, train_Y[idx, :] + i_off * 1.0, color="C0", alpha=1.0, lw=1)
+    ax.plot(λ_grid, all_Y[idx, :] + i_off * 1.0, color="C0", alpha=1.0, lw=1)
+
 add_line_markers(ax=ax, lines=load_linelists())
 ax.set_xlabel("Wavelength [nm]")
 ax.set_ylabel("Flux + offset")
 ax.set_title(f"Low-weight (orange) vs Normal (blue) Spectra (Q={plot_Q}, K={plot_K})")
 plt.savefig(plots_dir / "outlier_spectra.pdf", bbox_inches="tight")
 plt.show()
+
+# Plot of just the residuals
+# Pick just one weird spec for now
+print(f"{len(weird_spectra_idx)} weird spectra total (this was set by hand in case you forgot)")
+weird_idx_i = weird_spectra_idx[0]
+# weird_idx_i = 1067  # Sanity check with random ass spectrum
+residual_i = all_Y[weird_idx_i, :] - predictions_all[weird_idx_i, :]
+
+fig, ax = plt.subplots(2, 1, figsize=[12, 8], dpi=300)
+
+# Top panel: spectrum and reconstruction
+ax[0].plot(λ_grid, all_Y[weird_idx_i, :], c="k", lw=1, label="Observed")
+ax[0].plot(
+    λ_grid, predictions_all[weird_idx_i, :], c="C2", lw=1, label="Reconstruction", alpha=0.8
+)
+ax[0].set_ylabel("Normalised flux")
+
+ax[1].plot(λ_grid, residual_i, c="k", lw=0.5)
+
+ax[0].legend()
+
+# add_line_markers(
+#     ax=ax[1],
+#     show_strong=True,
+#     show_abundance=False,
+#     show_cn=False,
+#     show_dib=False,
+#     lines=load_linelists(),
+#     label_fontsize=14,
+# )
+# Optionally plot the robust weights per-point too
+ax[-1].plot(λ_grid, weights[weird_idx_i], c="r", lw=0.5)
+ax[-1].set_xlabel("Wavelength [nm]")
+ax[1].set_ylabel("Residual normalised flux")
+plt.show()
+
 
 # === CV: Infer on test set for all models === #
 
