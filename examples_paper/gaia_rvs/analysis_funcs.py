@@ -423,12 +423,14 @@ def plot_cv_heatmaps(cv_scores, i_bin, save_dir, show=False):
         else:
             plot_data = scores
 
-        im = ax.pcolormesh(
-            np.arange(len(cv_scores.q_vals)),
-            cv_scores.ranks,
+        # Use imshow instead of pcolormesh (handles single row/column better)
+        im = ax.imshow(
             plot_data,
-            shading="auto",
+            aspect="auto",
+            origin="lower",
             cmap="viridis",
+            extent=[-0.5, len(cv_scores.q_vals) - 0.5,
+                    min(cv_scores.ranks) - 0.5, max(cv_scores.ranks) + 0.5],
         )
         ax.set_xticks(np.arange(len(cv_scores.q_vals)))
         ax.set_xticklabels([f"{q:.1f}" for q in cv_scores.q_vals])
