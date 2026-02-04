@@ -42,6 +42,7 @@ line-length = 99 # Sorry PEP8 I'm a rebel
 dev = ["mypy>=1.18.0", "pytest>=8.4.0", "pytest-cov>=7.0.0"]
 examples = [
     "astropy>=6.1.0",
+    "cmasher>=1.9.2",
     "h5py>=3.15.1",
     "ipykernel>=7.1.0",
     "matplotlib>=3.10.0",

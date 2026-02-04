@@ -32,9 +32,12 @@ def save_state_to_npz(state: RHMFState, filepath: Path):
 rng = default_rng(202012345)
 plt.style.use("mpl_drip.custom")
 
+# Script directory for relative paths
+SCRIPT_DIR = Path(__file__).parent
+
 # Configuration
-N_SPECTRA = 4000
-N_TRAIN = 3500
+N_SPECTRA = 8000
+N_TRAIN = 4000  # 50/50 split
 assert N_TRAIN < N_SPECTRA
 N_TEST = N_SPECTRA - N_TRAIN
 MAX_ITER = 1000
@@ -50,7 +53,7 @@ NOISE_WAVELENGTH_SCALE = 2.0
 NOISE_RANDOM_SCALE = 0.06
 
 # Outlier spectra parameters
-OUTLIER_N = 20
+OUTLIER_N = 40
 OUTLIER_FREQ_RANGE = (10, 30)
 OUTLIER_AMP_RANGE = (0.1, 0.3)
 
@@ -74,10 +77,10 @@ AL_OUTLIER_WIDTH = 2.0
 AL_OUTLIER_AMP_RANGE = (0.3, 0.6)
 
 # Missing segment parameters
-MISSING_FRAC_SPECTRA = 0.1
+MISSING_FRAC_SPECTRA = 0.5
 MISSING_N_SEGMENTS_PER_SPECTRUM = 1
-MISSING_MIN_LENGTH = 10
-MISSING_MAX_LENGTH = 50
+MISSING_MIN_LENGTH = 50
+MISSING_MAX_LENGTH = 200
 
 # Fit parameters
 RANKS = [3, 4, 5, 6, 7]
@@ -274,7 +277,7 @@ if __name__ == "__main__":
         prev_rank = rank
 
     # Save everything to disk
-    results_dir = Path("./toy_model_results")
+    results_dir = SCRIPT_DIR / "toy_model_results"
     results_dir.mkdir(parents=True, exist_ok=True)
 
     # Save the data

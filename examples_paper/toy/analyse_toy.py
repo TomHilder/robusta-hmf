@@ -1,30 +1,31 @@
+from dataclasses import dataclass
 from pathlib import Path
 
+import cmasher as cmr
 import matplotlib.pyplot as plt
 import mpl_drip
 import numpy as np
-from chex import dataclass
+import seaborn as sns
 from numpy.random import default_rng
 
 # Get the rank and Q vals from other script
-from run_toy_gen_and_fits import N_SPECTRA, Q_VALS, RANKS
+from run_toy_gen_and_fits import M_PIXELS, N_SPECTRA, N_TRAIN, Q_VALS, RANKS
 from tqdm import tqdm
 
 from robusta_hmf import Robusta
 from robusta_hmf.state import RHMFState, load_state_from_npz
 
-rng = default_rng(202012345)
+rng = default_rng(99202012345)
 plt.style.use("mpl_drip.custom")
 
-# Smaller and potentially shit results
-# N_SPECTRA = 100
-# M_PIXELS = 300
-# Larger results
-N_SPECTRA = 4000
-M_PIXELS = 1200
+# Output directory for plots (same directory as this script)
+SCRIPT_DIR = Path(__file__).parent
+PLOT_DIR = SCRIPT_DIR
+
+# N_SPECTRA and M_PIXELS are imported from run_toy_gen_and_fits
 
 # Load the data itself
-results_dir = Path("./toy_model_results")
+results_dir = SCRIPT_DIR / "toy_model_results"
 data_file = results_dir / f"data_N{N_SPECTRA}_M{M_PIXELS}.npz"
 data = np.load(data_file)
 
@@ -63,10 +64,12 @@ for obj, res in zip(rhmf_objs, results):
 # === Plots of the toy spectra (NOT outlier spectra) and reconstructions for some Q, K === #
 
 # spectra = data["clean_spectra"]
-noisy_spectra = data["train_spectra"]
+# Use noisy_spectra (with NaN for missing) for plotting, train_spectra (NaN->0) for fitting
+noisy_spectra = data["noisy_spectra"][:N_TRAIN]  # Training portion with NaN preserved
+train_spectra_for_fit = data["train_spectra"]  # NaN replaced with 0 for fitting
 grid = data["grid"]
 
-plot_Q = 4
+plot_Q = 5
 plot_K = 5
 
 result_ind = np.where(
@@ -79,15 +82,16 @@ plot_inds = rng.choice(noisy_spectra.shape[0], size=5, replace=False)
 predictions = plot_rhmf.synthesize(indices=plot_inds)
 predictions[3, :]
 
-fig, ax = plt.subplots(1, 1, figsize=(12, 8), dpi=100)
+fig, ax = plt.subplots(1, 1, figsize=(12, 7), dpi=100)
 for i, i_off in zip(plot_inds, range(5)):
     # ax.plot(grid / 10, spectra[i, :] + i_off * 1.0, color=f"C{i_off}", alpha=1.0, lw=2)
-    ax.plot(grid / 10, noisy_spectra[i, :] + i_off * 1.0, color=f"C{i_off}", alpha=1.0, lw=2)
-    ax.plot(grid / 10, predictions[i_off, :] + i_off * 1.0, color="k", alpha=1, lw=0.5)
+    ax.plot(grid / 10, noisy_spectra[i, :] + i_off * 1.0, color="k", alpha=1.0, lw=2)
+    ax.plot(grid / 10, predictions[i_off, :] + i_off * 1.0, color="C3", alpha=1, lw=2.0)
     # ax.plot(grid / 10, predictions[i_off, :], color="k", alpha=1, lw=0.5)
 ax.set_xlabel("Wavelength [nm]")
 ax.set_ylabel("Flux + offset")
-plt.savefig("spectra_and_reconstructions.pdf", bbox_inches="tight")
+ax.set_xlim(grid.min() / 10 - 3, grid.max() / 10 + 3)
+plt.savefig(PLOT_DIR / "spectra_and_reconstructions.pdf", bbox_inches="tight")
 plt.show()
 
 # === Plot of the inferred basis functions for some Q, K === #
@@ -95,12 +99,16 @@ plt.show()
 basis = plot_rhmf.basis_vectors()
 basis.shape
 
-fig, ax = plt.subplots(figsize=(12, 8), dpi=100)
+# 5 colors from cmasher colormap
+cols = cmr.get_sub_cmap("viridis", 0.15, 0.85, N=plot_rhmf.rank)
+
+fig, ax = plt.subplots(figsize=(12, 6), dpi=100)
 for k in range(basis.shape[1]):
-    ax.plot(grid / 10, basis[:, k] + k * 0.2, color=f"C{k}", alpha=1.0, lw=1)
+    # ax.plot(grid / 10, basis[:, k] + k * 0.4, color=cols.colors[k], alpha=1.0, lw=2)
+    ax.plot(grid / 10, basis[:, k] + k * 0.4, color=f"C{k}", alpha=1.0, lw=2)
 ax.set_xlabel("Wavelength [nm]")
 ax.set_ylabel("Flux + offset")
-plt.savefig("basis_functions.pdf", bbox_inches="tight")
+plt.savefig(PLOT_DIR / "basis_functions.pdf", bbox_inches="tight")
 plt.show()
 
 # === Plot histogram of robust weights grouped by outlier type === #
@@ -112,7 +120,7 @@ op_mask = data["op_mask"][: noisy_spectra.shape[0]]
 oc_mask = data["oc_mask"][: noisy_spectra.shape[0]]
 al_mask = data["al_mask"][: noisy_spectra.shape[0]]
 
-weights = plot_rhmf.robust_weights(noisy_spectra, ivar)
+weights = plot_rhmf.robust_weights(train_spectra_for_fit, ivar)
 
 # Segregate weights by outlier type
 clean_weights = weights[~outlier_mask]
@@ -129,9 +137,109 @@ ax.hist(oc_weights, bins=50, alpha=0.7, label="Outlier Columns", color="C3", den
 ax.hist(al_weights, bins=50, alpha=0.7, label="Outlier Lines", color="C4", density=True)
 ax.set_xlabel("Robust Weight")
 ax.set_ylabel("Density")
-# ax.set_yscale("log")
 ax.legend()
-plt.savefig("robust_weights_histogram.pdf", bbox_inches="tight")
+plt.savefig(PLOT_DIR / "robust_weights_histogram.pdf", bbox_inches="tight")
+plt.show()
+
+# === Simple clean vs outlier histogram === #
+
+# Combine all outlier pixels (total_outlier_mask already combines them)
+all_outlier_weights = weights[outlier_mask]
+
+fig, ax = plt.subplots(figsize=(10, 5), dpi=100)
+bins = np.linspace(0, 1, 26)
+ax.hist(clean_weights, bins=bins, alpha=0.7, label="Clean Pixels", color="C0", density=True)
+ax.hist(
+    all_outlier_weights, bins=bins, alpha=0.7, label="Outlier Pixels", color="C1", density=True
+)
+ax.set_xlabel("Robust Weight")
+ax.set_ylabel("Density")
+ax.legend()
+plt.savefig(PLOT_DIR / "robust_weights_clean_vs_outlier.pdf", bbox_inches="tight")
+plt.show()
+
+# === Per-object vs per-pixel weights histogram (like Gaia example) === #
+
+# Compute per-object weights (median per spectrum)
+per_object_weights = np.median(weights, axis=1)
+
+fig, axes = plt.subplots(1, 2, figsize=(14, 5), dpi=100)
+
+# Left: per-object weights (median per spectrum)
+ax = axes[0]
+ax.hist(per_object_weights, bins=50, alpha=0.7, color="C0", density=False)
+ax.axvline(0.9, color="r", linestyle="--", lw=2, label="Threshold = 0.9")
+ax.set_xlabel("Per-Object Weight (median)")
+ax.set_ylabel("Count")
+ax.set_yscale("log")
+ax.set_title(f"Per-Object Weights (K={plot_K}, Q={plot_Q})")
+ax.legend()
+
+# Right: per-pixel weights (all data points)
+ax = axes[1]
+ax.hist(weights.flatten(), bins=50, alpha=0.7, color="C1", density=False)
+ax.axvline(0.5, color="r", linestyle="--", lw=2, label="Threshold = 0.5")
+ax.set_xlabel("Per-Pixel Robust Weight")
+ax.set_ylabel("Count")
+ax.set_yscale("log")
+ax.set_title(f"Per-Pixel Weights (K={plot_K}, Q={plot_Q})")
+ax.legend()
+
+plt.suptitle("Robust Weights Distribution", fontsize=12)
+plt.tight_layout()
+plt.savefig(PLOT_DIR / "weights_per_object_vs_pixel.pdf", bbox_inches="tight")
+plt.show()
+
+# === Per-object vs per-pixel weights: clean vs outlier === #
+
+# Use os_mask to identify outlier spectra (the weird sinusoidal ones)
+outlier_spectra_mask = os_mask.any(axis=1)
+clean_spectra_mask = ~outlier_spectra_mask
+
+# Per-object weights split by clean/outlier spectra
+per_object_weights_clean = per_object_weights[clean_spectra_mask]
+per_object_weights_outlier = per_object_weights[outlier_spectra_mask]
+
+fig, axes = plt.subplots(1, 2, figsize=(14, 5), dpi=100)
+
+# Left: per-object weights - clean vs outlier spectra
+ax = axes[0]
+bins = np.linspace(0, 1, 50)
+ax.hist(per_object_weights_clean, bins=bins, alpha=0.7, color="C0", label="Clean Spectra")
+ax.hist(
+    per_object_weights_outlier,
+    bins=bins,
+    alpha=0.7,
+    color="C1",
+    label="Outlier Spectra",
+)
+ax.set_yscale("log")
+ax.set_xlabel("Per-Object Weight (median)")
+ax.set_ylabel("Density")
+ax.set_title(f"Per-Object Weights (K={plot_K}, Q={plot_Q})")
+ax.legend()
+
+# Right: per-pixel weights - clean vs outlier pixels (excluding outlier spectra)
+ax = axes[1]
+# Exclude outlier spectra from per-pixel analysis
+non_os_weights = weights[clean_spectra_mask, :]
+non_os_outlier_mask = outlier_mask[clean_spectra_mask, :]
+non_os_os_mask = os_mask[clean_spectra_mask, :]  # Should be all False
+# Clean pixels: not in any outlier mask, from non-outlier spectra
+non_os_clean_weights = non_os_weights[~non_os_outlier_mask]
+# Outlier pixels: in outlier mask but not os_mask (pixel/column/line outliers only)
+non_os_outlier_pixel_mask = non_os_outlier_mask & ~non_os_os_mask
+non_os_outlier_weights = non_os_weights[non_os_outlier_pixel_mask]
+ax.hist(non_os_clean_weights, bins=bins, alpha=0.7, color="C0", label="Clean Pixels")
+ax.hist(non_os_outlier_weights, bins=bins, alpha=0.7, color="C1", label="Outlier Pixels")
+ax.set_yscale("log")
+ax.set_xlabel("Per-Pixel Robust Weight")
+ax.set_ylabel("Density")
+ax.set_title(f"Per-Pixel Weights (K={plot_K}, Q={plot_Q})")
+ax.legend()
+
+plt.tight_layout()
+plt.savefig(PLOT_DIR / "weights_clean_vs_outlier_object_pixel.pdf", bbox_inches="tight")
 plt.show()
 
 
@@ -174,14 +282,16 @@ al_mask = data["al_mask"][: noisy_spectra.shape[0]]
 al_spectra_idx = np.where(np.any(al_mask, axis=1))[0]
 al_mask_al_spectra = al_mask[al_spectra_idx, :]
 
+i_al_spec = 0
+
 # Split grid into chunks where absorption lines are present
-al_line_chunks = split_by_near_uniform(grid[al_mask_al_spectra[0]], factor=2.0)
+al_line_chunks = split_by_near_uniform(grid[al_mask_al_spectra[i_al_spec]], factor=2.0)
 
 # Mask of outlier pixels
 op_mask = data["op_mask"][: noisy_spectra.shape[0]]
 op_mask_al_spectra = op_mask[al_spectra_idx, :]
 # Get the residuals for these spectra
-residuals = plot_rhmf.A[al_spectra_idx, :] @ plot_rhmf.G.T - noisy_spectra[al_spectra_idx, :]
+residuals = noisy_spectra[al_spectra_idx, :] - plot_rhmf.A[al_spectra_idx, :] @ plot_rhmf.G.T
 # residuals /= np.sqrt(1.0 / data["train_ivar"][al_spectra_idx, :])
 
 # Mask of outlier columns
@@ -190,36 +300,66 @@ oc_mask_al_spectra = oc_mask[al_spectra_idx, :]
 
 # Plot the residuals for all these spectra with offset trick again
 # Plot grey bands where the absorption lines are
-fig, ax = plt.subplots(figsize=(12, 8), dpi=100)
-# for i, i_off in zip(al_spectra_idx, range(len(al_spectra_idx))):
-ax.plot(grid, residuals[0, :], color=f"C{0}", alpha=1.0, lw=2)
-
-# ax.vlines(grid[al_mask_al_spectra[0]], ymin=-1, ymax=1, color="C1", alpha=0.3, lw=4, zorder=-2)
-ax.fill_betweenx(
-    y=[-1, 1],
-    x1=[al_line_chunks[0].min()],
-    x2=[al_line_chunks[0].max()],
-    color="C1",
-    alpha=0.3,
-    zorder=-2,
+fig, ax = plt.subplots(
+    3, 1, figsize=(12, 8), dpi=100, sharex=True, gridspec_kw={"height_ratios": [3, 1, 1]}
 )
-ax.fill_betweenx(
-    y=[-1, 1],
-    x1=[al_line_chunks[1].min()],
-    x2=[al_line_chunks[1].max()],
-    color="C1",
-    alpha=0.3,
-    zorder=-2,
-)
-ax.vlines(grid[op_mask_al_spectra[0]], ymin=-1, ymax=1, color="C2", alpha=0.3, lw=4, zorder=-2)
-ax.vlines(grid[oc_mask_al_spectra[0]], ymin=-1, ymax=1, color="C3", alpha=0.3, lw=4, zorder=-2)
-
-ax.set_ylim(-1, 1)
-
-ax.set_xlabel("Wavelength [Å]")
-ax.set_ylabel("Residual")
-ax.set_title("Outlier Spectrum with Extra Absorption Lines and Pixel Outliers")
-plt.savefig("absorption_line_residuals.pdf", bbox_inches="tight")
+ax[0].plot(grid / 10, noisy_spectra[al_spectra_idx, :][i_al_spec], c="k", lw=2.0)
+ax[0].plot(grid / 10, (plot_rhmf.A[al_spectra_idx, :] @ plot_rhmf.G.T)[i_al_spec], c="C3", lw=2.0)
+ax[1].plot(grid / 10, residuals[i_al_spec, :], color="k", alpha=1.0, lw=2.0)
+mask = np.isnan(residuals[i_al_spec, :])
+ax[2].plot(grid / 10, weights[al_spectra_idx, :][i_al_spec], color="k", alpha=1.0, lw=2.0)
+alpha = 0.5
+for j in range(3):
+    ax[j].set_xlim(grid.min() / 10 - 2, grid.max() / 10 + 2)
+    if j == 0:
+        ymin = np.nanmin(noisy_spectra[al_spectra_idx, :][i_al_spec]) - 0.1
+        ymax = np.nanmax(noisy_spectra[al_spectra_idx, :][i_al_spec]) + 0.1
+        ax[j].set_ylabel("Flux")
+    elif j == 2:
+        ymin = -0.05
+        ymax = 1.05
+    else:
+        ymin = -0.6
+        ymax = 0.6
+    ax[j].set_ylim(ymin, ymax)
+    for i in range(3):
+        ax[j].fill_betweenx(
+            y=[ymin, ymax],
+            x1=[al_line_chunks[i].min() / 10 - 0.1],
+            x2=[al_line_chunks[i].max() / 10 + 0.1],
+            color="C0",
+            alpha=alpha,
+            zorder=-2,
+            linewidth=0,
+            label="Outlier Lines" if i == 0 and j == 0 else None,
+        )
+    ax[j].vlines(
+        grid[op_mask_al_spectra[i_al_spec]] / 10,
+        ymin=ymin,
+        ymax=ymax,
+        color="C1",
+        alpha=alpha,
+        lw=5,
+        zorder=-2,
+        label="Outlier Pixels",
+    )
+    ax[j].vlines(
+        grid[oc_mask_al_spectra[i_al_spec]] / 10,
+        ymin=ymin,
+        ymax=ymax,
+        color="C2",
+        alpha=alpha,
+        lw=5,
+        zorder=-2,
+        label="Outlier Column",
+    )
+ax[-1].set_xlabel("Wavelength [nm]")
+ax[1].set_ylabel("Residual")
+ax[2].set_ylabel("Robust Weight")
+ax[0].legend(loc=(0.3, 0.7))
+fig.align_ylabels()
+plt.tight_layout()
+plt.savefig(PLOT_DIR / "absorption_line_residuals.pdf", bbox_inches="tight")
 plt.show()
 
 # === Heatmap of the robust weights for === #
@@ -230,7 +370,7 @@ plt.colorbar(label="Robust Weights")
 plt.xlabel("Pixel Index")
 plt.ylabel("Spectrum Index")
 plt.title("Heatmap of Robust Weights for All Spectra and Pixels")
-plt.savefig("robust_weights_heatmap.pdf", bbox_inches="tight")
+plt.savefig(PLOT_DIR / "robust_weights_heatmap.pdf", bbox_inches="tight")
 plt.show()
 
 # === The outlier spectra themselves and their reconstructions === #
@@ -238,13 +378,14 @@ plt.show()
 weird_spectra_idx = np.where(np.any(os_mask, axis=1))[0]
 predictions_weird = plot_rhmf.synthesize(indices=weird_spectra_idx)
 
-fig, ax = plt.subplots(figsize=(12, 8), dpi=100)
+fig, ax = plt.subplots(figsize=(12, 7), dpi=100)
 for i, i_off in zip(weird_spectra_idx[:5], range(5)):
-    ax.plot(grid, noisy_spectra[i, :] + i_off * 1.0, color=f"C{i_off}", alpha=1.0, lw=1)
-    ax.plot(grid, predictions_weird[i_off, :] + i_off * 1.0, color="k", alpha=1, lw=0.5)
-ax.set_xlabel("Wavelength [Å]")
+    ax.plot(grid / 10, noisy_spectra[i, :] + i_off * 1.0, color="k", alpha=1.0, lw=2)
+    ax.plot(grid / 10, predictions_weird[i_off, :] + i_off * 1.0, color="C3", alpha=1, lw=2.0)
+# ax.set_xlabel("Wavelength [Å]")
+ax.set_xlabel("Wavelength [nm]")
 ax.set_ylabel("Flux + offset")
-plt.savefig("weird_outlier_spectra_and_reconstructions.pdf", bbox_inches="tight")
+plt.savefig(PLOT_DIR / "weird_outlier_spectra_and_reconstructions.pdf", bbox_inches="tight")
 plt.show()
 
 # === Infer on the test set for each model and calculate an error metric of some kind to plot === #
@@ -265,35 +406,118 @@ for rhmf in rhmf_objs:
     test_states.append(test_set_state)
 
 
-# Calculate median z-score for each model
+# Calculate z-score metric and outlier detection metrics for each model
+from sklearn.metrics import f1_score
+
+# Get test set outlier masks (ground truth)
+test_outlier_mask = data["total_outlier_mask"][N_TRAIN:]  # per-pixel
+# Per-object: only count "spectrum outliers" (weird sinusoidal spectra), not every spectrum with a pixel outlier
+test_os_mask = data["os_mask"][N_TRAIN:]
+test_outlier_object = test_os_mask.any(axis=1)
+
 scores = []
+f1_pixel_scores = []
+f1_object_scores = []
 for rhmf, state in zip(rhmf_objs, test_states):
     residuals = rhmf.residuals(Y=test_spectra, state=state)
     robust_weights = rhmf.robust_weights(test_spectra, test_ivar, state=state)
+
+    # Z-score metric (existing) - all pixels
     z_scores = residuals * np.sqrt(test_ivar) * np.sqrt(robust_weights)
-    # z_scores = residuals * np.sqrt(test_ivar)
     score = np.std(z_scores)
     scores.append(score)
 
-scores = np.array(scores)
-scores = scores.reshape(len(RANKS), len(Q_VALS))
+    # Per-pixel F1 score: treat weight < 0.5 as "predicted outlier"
+    y_true_pixel = test_outlier_mask.flatten().astype(int)
+    y_pred_pixel = (robust_weights.flatten() < 0.5).astype(int)
+    f1_pixel = f1_score(y_true_pixel, y_pred_pixel)
+    f1_pixel_scores.append(f1_pixel)
 
-plt.figure(figsize=(10, 6), dpi=100)
-plt.pcolormesh(
+    # Per-object F1 score: median weight per spectrum, threshold 0.9
+    median_weights = np.median(robust_weights, axis=1)
+    y_true_object = test_outlier_object.astype(int)
+    y_pred_object = (median_weights < 0.9).astype(int)
+    f1_object = f1_score(y_true_object, y_pred_object)
+    f1_object_scores.append(f1_object)
+
+scores = np.array(scores).reshape(len(RANKS), len(Q_VALS))
+f1_pixel_scores = np.array(f1_pixel_scores).reshape(len(RANKS), len(Q_VALS))
+f1_object_scores = np.array(f1_object_scores).reshape(len(RANKS), len(Q_VALS))
+
+# Three-panel figure
+fig, axes = plt.subplots(1, 3, figsize=(18, 5), dpi=100)
+
+# Left panel: CV score (z-score std)
+im0 = axes[0].pcolormesh(
     np.arange(len(Q_VALS)),
     RANKS,
     np.log(np.abs(scores - 1)),
     shading="auto",
     cmap="viridis",
 )
-plt.xticks(np.arange(len(Q_VALS)))
-# override the xtick labels
-plt.gca().set_xticklabels([str(q) for q in Q_VALS])
+axes[0].set_xticks(np.arange(len(Q_VALS)))
+axes[0].set_xticklabels([str(q) for q in Q_VALS])
+axes[0].set_yticks(RANKS)
+axes[0].set_xlabel("Robust Scale Q")
+axes[0].set_ylabel("Rank K")
+axes[0].set_title("CV Score: log|std(z) - 1|")
+plt.colorbar(im0, ax=axes[0], label="Score")
+
+# Middle panel: Per-pixel F1 score (threshold 0.5)
+im1 = axes[1].pcolormesh(
+    np.arange(len(Q_VALS)),
+    RANKS,
+    f1_pixel_scores,
+    shading="auto",
+    cmap="viridis",
+    vmin=0,
+    vmax=1,
+)
+axes[1].set_xticks(np.arange(len(Q_VALS)))
+axes[1].set_xticklabels([str(q) for q in Q_VALS])
+axes[1].set_yticks(RANKS)
+axes[1].set_xlabel("Robust Scale Q")
+axes[1].set_ylabel("Rank K")
+axes[1].set_title("Per-Pixel F1 (threshold=0.5)")
+plt.colorbar(im1, ax=axes[1], label="F1")
+
+# Right panel: Per-object F1 score (median weight, threshold 0.9)
+im2 = axes[2].pcolormesh(
+    np.arange(len(Q_VALS)),
+    RANKS,
+    f1_object_scores,
+    shading="auto",
+    cmap="viridis",
+    vmin=0,
+    vmax=1,
+)
+axes[2].set_xticks(np.arange(len(Q_VALS)))
+axes[2].set_xticklabels([str(q) for q in Q_VALS])
+axes[2].set_yticks(RANKS)
+axes[2].set_xlabel("Robust Scale Q")
+axes[2].set_ylabel("Rank K")
+axes[2].set_title("Per-Object F1 (threshold=0.9)")
+plt.colorbar(im2, ax=axes[2], label="F1")
+
+plt.tight_layout()
+plt.savefig(PLOT_DIR / "test_set_score_heatmap.pdf", bbox_inches="tight")
+plt.show()
+
+# Single panel CV plot
+plt.figure(figsize=(8, 4.5), dpi=100)
+im = plt.pcolormesh(
+    np.arange(len(Q_VALS)),
+    RANKS,
+    np.log(np.abs(scores - 1)),
+    shading="auto",
+    cmap="viridis",
+)
+plt.xticks(np.arange(len(Q_VALS)), [str(q) for q in Q_VALS])
 plt.yticks(RANKS)
-plt.colorbar(label="Score")
 plt.xlabel("Robust Scale Q")
 plt.ylabel("Rank K")
-plt.savefig("test_set_score_heatmap.pdf", bbox_inches="tight")
+plt.colorbar(im, label="Score")
+plt.savefig(PLOT_DIR / "test_set_cv_score_heatmap.pdf", bbox_inches="tight")
 plt.show()
 
 # === Scatter plot of coefficients for fitted and inferred coefficients for some model === #
