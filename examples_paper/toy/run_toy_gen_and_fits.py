@@ -8,6 +8,7 @@ from gen_data import (
     column_outliers,
     gen_clean_spectra,
     generate_noise,
+    missing_segments,
     pixel_outliers,
     spectrum_outliers,
 )
@@ -71,6 +72,12 @@ N_AL_OUTLIER_SPECTRA = 10
 N_AL_LINES_PER_SPECTRUM = 3
 AL_OUTLIER_WIDTH = 2.0
 AL_OUTLIER_AMP_RANGE = (0.3, 0.6)
+
+# Missing segment parameters
+MISSING_FRAC_SPECTRA = 0.1
+MISSING_N_SEGMENTS_PER_SPECTRUM = 1
+MISSING_MIN_LENGTH = 10
+MISSING_MAX_LENGTH = 50
 
 # Fit parameters
 RANKS = [3, 4, 5, 6, 7]
@@ -176,6 +183,22 @@ if __name__ == "__main__":
     )
     noisy_spectra = spectra + noise
 
+    # Inject missing data segments (NaN in spectra, ivar=0)
+    noisy_spectra, missing_mask, missing_segment_info = missing_segments(
+        noisy_spectra,
+        op_mask,
+        al_mask,
+        frac_spectra=MISSING_FRAC_SPECTRA,
+        n_segments_per_spectrum=MISSING_N_SEGMENTS_PER_SPECTRUM,
+        min_length=MISSING_MIN_LENGTH,
+        max_length=MISSING_MAX_LENGTH,
+    )
+    ivar[missing_mask] = 0.0
+    print(
+        f"Injected {len(missing_segment_info)} missing segments "
+        f"in {int(MISSING_FRAC_SPECTRA * N_SPECTRA)} spectra."
+    )
+
     # Plot 5 random spectra with a vertical offset for clarity
     # Top panel is noiselss, bottom panel is noisy
     fig, ax = plt.subplots(2, 1, figsize=(12, 16), dpi=100)
@@ -209,9 +232,10 @@ if __name__ == "__main__":
     plt.show()
 
     # Segregate into training and test sets
-    train_spectra = noisy_spectra[:N_TRAIN, :]
+    # Replace NaN with 0 for fitting (ivar=0 means these are ignored anyway)
+    train_spectra = np.nan_to_num(noisy_spectra[:N_TRAIN, :], nan=0.0)
     train_ivar = ivar[:N_TRAIN, :]
-    test_spectra = noisy_spectra[N_TRAIN:, :]
+    test_spectra = np.nan_to_num(noisy_spectra[N_TRAIN:, :], nan=0.0)
     test_ivar = ivar[N_TRAIN:, :]
 
     # Create a grid over q and rank values
@@ -270,12 +294,14 @@ if __name__ == "__main__":
         oc_mask=oc_mask,
         op_mask=op_mask,
         al_mask=al_mask,
+        missing_mask=missing_mask,
         total_outlier_mask=total_outlier_mask,
         # Outlier indices
         weird_spectra_idx=weird_spectra_idx,
         outlier_column_idx=outlier_column_idx,
         outlier_pixel_idx=outlier_pixel_idx,
         absorption_line_idx=absorption_line_idx,
+        missing_segment_info=np.array(missing_segment_info),
         # Train/test split
         train_spectra=train_spectra,
         train_ivar=train_ivar,

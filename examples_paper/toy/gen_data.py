@@ -210,3 +210,115 @@ def absorption_line_outliers(
                 outlier_mask[i_spectrum, pixel] = True
                 outlier_idx.append((i_spectrum, pixel))
     return spectra, outlier_idx, outlier_mask
+
+
+def missing_segments(
+    spectra,
+    op_mask,
+    al_mask,
+    frac_spectra=0.1,
+    n_segments_per_spectrum=1,
+    min_length=5,
+    max_length=50,
+):
+    """
+    Inject missing data segments into spectra as NaN values.
+
+    Missing segments are placed in contiguous regions that don't overlap with
+    pixel outliers (op_mask) or absorption line outliers (al_mask).
+
+    Parameters
+    ----------
+    spectra : ndarray (N, M)
+        Input spectra array (modified in place).
+    op_mask : ndarray (N, M)
+        Boolean mask of pixel outliers to avoid.
+    al_mask : ndarray (N, M)
+        Boolean mask of absorption line outliers to avoid.
+    frac_spectra : float
+        Fraction of spectra to add missing segments to.
+    n_segments_per_spectrum : int
+        Number of missing segments per affected spectrum.
+    min_length : int
+        Minimum segment length in pixels.
+    max_length : int
+        Maximum segment length in pixels.
+
+    Returns
+    -------
+    spectra : ndarray (N, M)
+        Spectra with NaN values where data is missing.
+    missing_mask : ndarray (N, M)
+        Boolean mask indicating missing pixels.
+    missing_segment_info : list
+        List of (spectrum_idx, start_pixel, end_pixel) tuples.
+    """
+    N, M = spectra.shape
+    n_affected = int(frac_spectra * N)
+
+    missing_mask = np.zeros_like(spectra, dtype=bool)
+    missing_segment_info = []
+
+    # Combined mask of pixels to avoid
+    avoid_mask = op_mask | al_mask
+
+    # Select spectra to affect (can include outlier spectra)
+    affected_spectra_idx = rng.choice(N, size=n_affected, replace=False)
+
+    for i_spectrum in affected_spectra_idx:
+        # Find valid regions for this spectrum (not in avoid_mask)
+        valid_pixels = ~avoid_mask[i_spectrum, :]
+
+        # Find contiguous valid regions
+        # Pad with False to detect edges
+        padded = np.concatenate([[False], valid_pixels, [False]])
+        diffs = np.diff(padded.astype(int))
+        starts = np.where(diffs == 1)[0]
+        ends = np.where(diffs == -1)[0]
+
+        # Filter regions that are large enough for a segment
+        valid_regions = [
+            (s, e) for s, e in zip(starts, ends) if (e - s) >= min_length
+        ]
+
+        if len(valid_regions) == 0:
+            continue
+
+        # Place n_segments_per_spectrum segments
+        for _ in range(n_segments_per_spectrum):
+            if len(valid_regions) == 0:
+                break
+
+            # Pick a random region
+            region_idx = rng.integers(0, len(valid_regions))
+            region_start, region_end = valid_regions[region_idx]
+            region_length = region_end - region_start
+
+            # Pick a random segment length (uniform)
+            seg_length = rng.integers(min_length, min(max_length, region_length) + 1)
+
+            # Pick a random start position within the region
+            max_start = region_end - seg_length
+            seg_start = rng.integers(region_start, max_start + 1)
+            seg_end = seg_start + seg_length
+
+            # Mark as missing
+            spectra[i_spectrum, seg_start:seg_end] = np.nan
+            missing_mask[i_spectrum, seg_start:seg_end] = True
+            missing_segment_info.append((i_spectrum, seg_start, seg_end))
+
+            # Update valid_regions to exclude the placed segment
+            # Split the region if segment is in the middle, or shrink it
+            new_regions = []
+            for s, e in valid_regions:
+                if s == region_start and e == region_end:
+                    # This is the region we placed in - split it
+                    if seg_start - s >= min_length:
+                        new_regions.append((s, seg_start))
+                    if e - seg_end >= min_length:
+                        new_regions.append((seg_end, e))
+                else:
+                    new_regions.append((s, e))
+            valid_regions = new_regions
+
+    return spectra, missing_mask, missing_segment_info
