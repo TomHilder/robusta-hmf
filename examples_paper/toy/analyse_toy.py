@@ -60,14 +60,21 @@ for obj, res in zip(rhmf_objs, results):
 
 # ==== ANALYSIS ==== #
 
+# Load all spectra (train + test combined) for visualizations
+# NaN replaced with 0 for inference, NaN preserved for plotting
+all_noisy_spectra = data["noisy_spectra"]  # With NaN for plotting
+all_spectra_for_fit = np.nan_to_num(data["noisy_spectra"], nan=0.0)  # NaN->0 for inference
+all_ivar = data["ivar"]
+grid = data["grid"]
+
+# Full masks for all data (not just training portion)
+outlier_mask = data["total_outlier_mask"]
+os_mask = data["os_mask"]
+op_mask = data["op_mask"]
+oc_mask = data["oc_mask"]
+al_mask = data["al_mask"]
 
 # === Plots of the toy spectra (NOT outlier spectra) and reconstructions for some Q, K === #
-
-# spectra = data["clean_spectra"]
-# Use noisy_spectra (with NaN for missing) for plotting, train_spectra (NaN->0) for fitting
-noisy_spectra = data["noisy_spectra"][:N_TRAIN]  # Training portion with NaN preserved
-train_spectra_for_fit = data["train_spectra"]  # NaN replaced with 0 for fitting
-grid = data["grid"]
 
 plot_Q = 5
 plot_K = 5
@@ -77,17 +84,24 @@ result_ind = np.where(
 )[0][0]
 plot_rhmf: Robusta = rhmf_objs[result_ind]
 
-plot_inds = rng.choice(noisy_spectra.shape[0], size=5, replace=False)
+# Infer on all data for visualizations
+print("Inferring on all data for visualizations...")
+all_state, _ = plot_rhmf.infer(
+    Y_infer=all_spectra_for_fit,
+    W_infer=all_ivar,
+    max_iter=1000,
+    conv_tol=1e-2,
+    conv_check_cadence=1,
+)
 
-predictions = plot_rhmf.synthesize(indices=plot_inds)
-predictions[3, :]
+plot_inds = rng.choice(all_noisy_spectra.shape[0], size=5, replace=False)
+
+predictions = plot_rhmf.synthesize(indices=plot_inds, state=all_state)
 
 fig, ax = plt.subplots(1, 1, figsize=(12, 7), dpi=100)
 for i, i_off in zip(plot_inds, range(5)):
-    # ax.plot(grid / 10, spectra[i, :] + i_off * 1.0, color=f"C{i_off}", alpha=1.0, lw=2)
-    ax.plot(grid / 10, noisy_spectra[i, :] + i_off * 1.0, color="k", alpha=1.0, lw=2)
+    ax.plot(grid / 10, all_noisy_spectra[i, :] + i_off * 1.0, color="k", alpha=1.0, lw=2)
     ax.plot(grid / 10, predictions[i_off, :] + i_off * 1.0, color="C3", alpha=1, lw=2.0)
-    # ax.plot(grid / 10, predictions[i_off, :], color="k", alpha=1, lw=0.5)
 ax.set_xlabel("Wavelength [nm]")
 ax.set_ylabel("Flux + offset")
 ax.set_xlim(grid.min() / 10 - 3, grid.max() / 10 + 3)
@@ -96,8 +110,7 @@ plt.show()
 
 # === Plot of the inferred basis functions for some Q, K === #
 
-basis = plot_rhmf.basis_vectors()
-basis.shape
+basis = plot_rhmf.basis_vectors(state=all_state)
 
 # 5 colors from cmasher colormap
 cols = cmr.get_sub_cmap("viridis", 0.15, 0.85, N=plot_rhmf.rank)
@@ -108,19 +121,14 @@ for k in range(basis.shape[1]):
     ax.plot(grid / 10, basis[:, k] + k * 0.4, color=f"C{k}", alpha=1.0, lw=2)
 ax.set_xlabel("Wavelength [nm]")
 ax.set_ylabel("Flux + offset")
+ax.set_xlim(grid.min() / 10 - 3, grid.max() / 10 + 3)
 plt.savefig(PLOT_DIR / "basis_functions.pdf", bbox_inches="tight")
 plt.show()
 
 # === Plot histogram of robust weights grouped by outlier type === #
 
-ivar = data["train_ivar"]
-outlier_mask = data["total_outlier_mask"][: noisy_spectra.shape[0]]
-os_mask = data["os_mask"][: noisy_spectra.shape[0]]
-op_mask = data["op_mask"][: noisy_spectra.shape[0]]
-oc_mask = data["oc_mask"][: noisy_spectra.shape[0]]
-al_mask = data["al_mask"][: noisy_spectra.shape[0]]
-
-weights = plot_rhmf.robust_weights(train_spectra_for_fit, ivar)
+# Compute weights on all data using the inferred state
+weights = plot_rhmf.robust_weights(all_spectra_for_fit, all_ivar, state=all_state)
 
 # Segregate weights by outlier type
 clean_weights = weights[~outlier_mask]
@@ -161,7 +169,8 @@ plt.show()
 # === Per-object vs per-pixel weights histogram (like Gaia example) === #
 
 # Compute per-object weights (median per spectrum)
-per_object_weights = np.median(weights, axis=1)
+# per_object_weights = np.median(weights, axis=1)
+per_object_weights = np.mean(weights, axis=1)
 
 fig, axes = plt.subplots(1, 2, figsize=(14, 5), dpi=100)
 
@@ -169,7 +178,7 @@ fig, axes = plt.subplots(1, 2, figsize=(14, 5), dpi=100)
 ax = axes[0]
 ax.hist(per_object_weights, bins=50, alpha=0.7, color="C0", density=False)
 ax.axvline(0.9, color="r", linestyle="--", lw=2, label="Threshold = 0.9")
-ax.set_xlabel("Per-Object Weight (median)")
+ax.set_xlabel("Per-Object Weight (mean)")
 ax.set_ylabel("Count")
 ax.set_yscale("log")
 ax.set_title(f"Per-Object Weights (K={plot_K}, Q={plot_Q})")
@@ -214,7 +223,7 @@ ax.hist(
     label="Outlier Spectra",
 )
 ax.set_yscale("log")
-ax.set_xlabel("Per-Object Weight (median)")
+ax.set_xlabel("Per-Object Weight (mean)")
 ax.set_ylabel("Density")
 ax.set_title(f"Per-Object Weights (K={plot_K}, Q={plot_Q})")
 ax.legend()
@@ -240,6 +249,26 @@ ax.legend()
 
 plt.tight_layout()
 plt.savefig(PLOT_DIR / "weights_clean_vs_outlier_object_pixel.pdf", bbox_inches="tight")
+plt.show()
+
+# Just the left panel
+fig, ax = plt.subplots(1, 1, figsize=(7, 5), dpi=100)
+bins = np.linspace(0, 1, 50)
+ax.hist(per_object_weights_clean, bins=bins, alpha=0.7, color="C0", label="Clean Spectra")
+ax.hist(
+    per_object_weights_outlier,
+    bins=bins,
+    alpha=0.7,
+    color="C1",
+    label="Outlier Spectra",
+)
+ax.set_yscale("log")
+ax.set_xlabel("Mean Robust Weight per Spectrum")
+ax.set_ylabel("Count")
+# ax.set_title(f"Per-Object Weights (K={plot_K}, Q={plot_Q})")
+ax.legend()
+plt.tight_layout()
+plt.savefig(PLOT_DIR / "weights_per_object_clean_vs_outlier.pdf", bbox_inches="tight")
 plt.show()
 
 
@@ -275,10 +304,7 @@ def split_by_near_uniform(x, *, factor=3.0, step=None, return_breaks=False):
 
 # We injected absorption lines as outliers in some spectra. Let's see if we can recover them in the residuals.
 
-# Mask of all pixels with absorption lines
-al_mask = data["al_mask"][: noisy_spectra.shape[0]]
-
-# Find the spectra idx with absorption lines
+# Find the spectra idx with absorption lines (using al_mask defined at top)
 al_spectra_idx = np.where(np.any(al_mask, axis=1))[0]
 al_mask_al_spectra = al_mask[al_spectra_idx, :]
 
@@ -287,24 +313,21 @@ i_al_spec = 0
 # Split grid into chunks where absorption lines are present
 al_line_chunks = split_by_near_uniform(grid[al_mask_al_spectra[i_al_spec]], factor=2.0)
 
-# Mask of outlier pixels
-op_mask = data["op_mask"][: noisy_spectra.shape[0]]
+# Get masks for this spectrum
 op_mask_al_spectra = op_mask[al_spectra_idx, :]
-# Get the residuals for these spectra
-residuals = noisy_spectra[al_spectra_idx, :] - plot_rhmf.A[al_spectra_idx, :] @ plot_rhmf.G.T
-# residuals /= np.sqrt(1.0 / data["train_ivar"][al_spectra_idx, :])
-
-# Mask of outlier columns
-oc_mask = data["oc_mask"][: noisy_spectra.shape[0]]
 oc_mask_al_spectra = oc_mask[al_spectra_idx, :]
+
+# Get the residuals for these spectra using all_state
+reconstructions_al = all_state.A[al_spectra_idx, :] @ all_state.G.T
+residuals = all_noisy_spectra[al_spectra_idx, :] - reconstructions_al
 
 # Plot the residuals for all these spectra with offset trick again
 # Plot grey bands where the absorption lines are
 fig, ax = plt.subplots(
     3, 1, figsize=(12, 8), dpi=100, sharex=True, gridspec_kw={"height_ratios": [3, 1, 1]}
 )
-ax[0].plot(grid / 10, noisy_spectra[al_spectra_idx, :][i_al_spec], c="k", lw=2.0)
-ax[0].plot(grid / 10, (plot_rhmf.A[al_spectra_idx, :] @ plot_rhmf.G.T)[i_al_spec], c="C3", lw=2.0)
+ax[0].plot(grid / 10, all_noisy_spectra[al_spectra_idx, :][i_al_spec], c="k", lw=2.0)
+ax[0].plot(grid / 10, reconstructions_al[i_al_spec], c="C3", lw=2.0)
 ax[1].plot(grid / 10, residuals[i_al_spec, :], color="k", alpha=1.0, lw=2.0)
 mask = np.isnan(residuals[i_al_spec, :])
 ax[2].plot(grid / 10, weights[al_spectra_idx, :][i_al_spec], color="k", alpha=1.0, lw=2.0)
@@ -312,8 +335,8 @@ alpha = 0.5
 for j in range(3):
     ax[j].set_xlim(grid.min() / 10 - 2, grid.max() / 10 + 2)
     if j == 0:
-        ymin = np.nanmin(noisy_spectra[al_spectra_idx, :][i_al_spec]) - 0.1
-        ymax = np.nanmax(noisy_spectra[al_spectra_idx, :][i_al_spec]) + 0.1
+        ymin = np.nanmin(all_noisy_spectra[al_spectra_idx, :][i_al_spec]) - 0.1
+        ymax = np.nanmax(all_noisy_spectra[al_spectra_idx, :][i_al_spec]) + 0.1
         ax[j].set_ylabel("Flux")
     elif j == 2:
         ymin = -0.05
@@ -376,15 +399,16 @@ plt.show()
 # === The outlier spectra themselves and their reconstructions === #
 
 weird_spectra_idx = np.where(np.any(os_mask, axis=1))[0]
-predictions_weird = plot_rhmf.synthesize(indices=weird_spectra_idx)
+predictions_weird = plot_rhmf.synthesize(indices=weird_spectra_idx, state=all_state)
 
 fig, ax = plt.subplots(figsize=(12, 7), dpi=100)
 for i, i_off in zip(weird_spectra_idx[:5], range(5)):
-    ax.plot(grid / 10, noisy_spectra[i, :] + i_off * 1.0, color="k", alpha=1.0, lw=2)
+    ax.plot(grid / 10, all_noisy_spectra[i, :] + i_off * 1.0, color="k", alpha=1.0, lw=2)
     ax.plot(grid / 10, predictions_weird[i_off, :] + i_off * 1.0, color="C3", alpha=1, lw=2.0)
 # ax.set_xlabel("Wavelength [Å]")
 ax.set_xlabel("Wavelength [nm]")
 ax.set_ylabel("Flux + offset")
+ax.set_xlim(grid.min() / 10 - 3, grid.max() / 10 + 3)
 plt.savefig(PLOT_DIR / "weird_outlier_spectra_and_reconstructions.pdf", bbox_inches="tight")
 plt.show()
 
@@ -525,19 +549,16 @@ plt.show()
 # Specifically we are going to make a 5 x 5 grid of scatter plots, each showing the coefficients for two basis functions
 # over all the spectra. Training spectra in blue, test spectra in orange.
 
-# result_ind = np.where(
-# (np.array([r.Q for r in results]) == plot_Q) & (np.array([r.K for r in results]) == plot_K)
-# )[0][0]
-# plot_rhmf: Robusta = rhmf_objs[result_ind]
-train_state = plot_rhmf._state
-test_state = test_states[result_ind]
-train_coeffs = train_state.A
-test_coeffs = test_state.A
+# Use all_state to get coefficients for all spectra, then split by train/test
+all_coeffs = all_state.A
+train_coeffs = all_coeffs[:N_TRAIN, :]
+test_coeffs = all_coeffs[N_TRAIN:, :]
 
 # We'll also plot the coefficients from the outlier spectra in a different colour
-os_mask_test = data["os_mask"][noisy_spectra.shape[0] :]
-train_os_coeffs = train_coeffs[os_mask.any(axis=1), :]
-train_clean_coeffs = train_coeffs[~os_mask.any(axis=1), :]
+os_mask_train = os_mask[:N_TRAIN, :]
+os_mask_test = os_mask[N_TRAIN:, :]
+train_os_coeffs = train_coeffs[os_mask_train.any(axis=1), :]
+train_clean_coeffs = train_coeffs[~os_mask_train.any(axis=1), :]
 test_os_coeffs = test_coeffs[os_mask_test.any(axis=1), :]
 test_clean_coeffs = test_coeffs[~os_mask_test.any(axis=1), :]
 
