@@ -4,13 +4,12 @@ Plot the Gaia RVS bins on an HR diagram with bin indices and spectra counts.
 Bin geometry is imported from gaia_config.py.
 """
 
+import gaia_config as cfg
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 from bins import build_all_bins
 from collect import MatchedData, compute_abs_mag
-
-import gaia_config as cfg
 
 plt.style.use("mpl_drip.custom")
 
@@ -123,4 +122,4 @@ def plot_bins(save_path=None):
 
 
 if __name__ == "__main__":
-    plot_bins()
+    plot_bins(save_path="plots_analysis/hr_bins.png")

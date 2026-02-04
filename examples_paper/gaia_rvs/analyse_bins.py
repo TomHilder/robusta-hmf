@@ -338,7 +338,7 @@ def analyse_bin(
 
         if SAVE_RESIDUALS:
             np.save(
-                file=RESIDUALS_DIR / f"{source_id}_residual.npy",
+                file=RESIDUALS_DIR / f"{source_id}_residual_bin_{i_bin:02d}.npy",
                 arr=all_Y[idx] - all_reconstructions[idx],
             )
 

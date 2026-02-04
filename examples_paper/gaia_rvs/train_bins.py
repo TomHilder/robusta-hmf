@@ -21,7 +21,7 @@ from robusta_hmf import Robusta, save_state_to_npz
 
 # Which bins to train (by index, 0-13 for 14 bins)
 # BINS_TO_RUN = [7, 8, 9, 10, 11, 12, 13]
-BINS_TO_RUN = [0, 1, 2, 6]
+BINS_TO_RUN = [1, 2, 6]
 
 # Rank (K) values to try
 RANKS = [2, 3, 4, 5, 6, 7, 8, 9, 10]
@@ -128,14 +128,21 @@ def train_bin(data, bin_data, i_bin, ranks, q_vals, max_iter, train_frac, result
     Y = np.nan_to_num(Y)
     W = np.nan_to_num(W)
 
-    # Fit models over the grid
-    states = []
-    losses = []
+    # Fit models over the grid, saving each immediately
+    results_dir.mkdir(parents=True, exist_ok=True)
+    n_trained = 0
+    n_skipped = 0
     for Q, rank in tqdm(
         zip(Q_grid.flatten(), Rank_grid.flatten()),
         total=len(Q_grid.flatten()),
         desc=f"Bin {i_bin}",
     ):
+        state_file = results_dir / f"converged_state_R{rank}_Q{Q:.2f}_bin_{i_bin}.npz"
+
+        if state_file.exists():
+            n_skipped += 1
+            continue
+
         model = Robusta(
             rank=rank,
             robust_scale=Q,
@@ -152,16 +159,10 @@ def train_bin(data, bin_data, i_bin, ranks, q_vals, max_iter, train_frac, result
             max_iter=max_iter,
             conv_check_cadence=5,
         )
-        states.append(state)
-        losses.append(loss)
+        save_state_to_npz(state, state_file)
+        n_trained += 1
 
-    # Save results
-    results_dir.mkdir(parents=True, exist_ok=True)
-    for i, (Q, rank) in enumerate(zip(Q_grid.flatten(), Rank_grid.flatten())):
-        state_file = results_dir / f"converged_state_R{rank}_Q{Q:.2f}_bin_{i_bin}.npz"
-        save_state_to_npz(states[i], state_file)
-
-    print(f"Saved {len(states)} models for bin {i_bin}")
+    print(f"Bin {i_bin}: trained {n_trained}, skipped {n_skipped} (already exist)")
 
 
 def main(
