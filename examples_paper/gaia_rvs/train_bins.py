@@ -9,6 +9,7 @@ from pathlib import Path
 
 import gaia_config as cfg
 import numpy as np
+from analysis_funcs import clip_edge_pix, get_test_train_split_idx, nans_mask
 from bins import build_all_bins
 from collect import MatchedData, compute_abs_mag
 from tqdm import tqdm
@@ -40,38 +41,6 @@ TRAIN_FRAC = cfg.TRAIN_FRAC  # From shared config
 RESULTS_DIR = Path("./gaia_rvs_results")
 
 # ============================================================================ #
-
-
-def get_test_train_split_idx(n_spectra, n_train_frac, seed=None):
-    """Split indices into train and test sets."""
-    if seed is None:
-        seed = cfg.RNG_SEED
-    indices = np.arange(n_spectra)
-    rng = np.random.default_rng(seed)
-    rng.shuffle(indices)
-    n_train = int(n_spectra * n_train_frac)
-    train_indices = indices[:n_train]
-    test_indices = indices[n_train:]
-    return train_indices, test_indices
-
-
-def clip_edge_pix(flux, u_flux, n_clip=None):
-    """Clip edge pixels from spectra."""
-    if n_clip is None:
-        n_clip = cfg.N_CLIP_PIX
-    if isinstance(n_clip, int):
-        n_clip_l = n_clip_r = n_clip
-    elif isinstance(n_clip, (list, tuple)) and len(n_clip) == 2:
-        n_clip_l, n_clip_r = n_clip
-    else:
-        raise ValueError("n_clip must be an int or a tuple/list of two ints.")
-    return flux[:, n_clip_l:-n_clip_r], u_flux[:, n_clip_l:-n_clip_r]
-
-
-def nans_mask(arrs):
-    """Create mask for non-NaN values across multiple arrays."""
-    nans = np.isnan(np.array(arrs))
-    return np.logical_not(np.any(nans, axis=0))
 
 
 def build_bins():
@@ -116,7 +85,7 @@ def train_bin(data, bin_data, i_bin, ranks, q_vals, max_iter, train_frac, result
     # Train/test split (uses cfg.RNG_SEED)
     train_idx, test_idx = get_test_train_split_idx(
         bin_data.n_spectra,
-        n_train_frac=train_frac,
+        train_frac=train_frac,
     )
 
     # Get the train spectra (uses cfg.N_CLIP_PIX)

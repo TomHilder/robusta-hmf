@@ -47,15 +47,11 @@ plt.style.use("mpl_drip.custom")
 SAVE_RESIDUALS = True
 
 # Which bins to analyse (None = all bins with results, or list like [7, 8, 9])
-# BINS_TO_ANALYSE = [0]
-# BINS_TO_ANALYSE = [7, 8, 9, 10, 11, 12, 13]
-BINS_TO_ANALYSE = [0, 7, 8, 9, 10, 11, 12, 13]
-# BINS_TO_ANALYSE = [7]
+BINS_TO_ANALYSE = list(range(14))
 
 # Model grid (must match what was trained)
-# Note: bin 0 was trained with ranks 2-10, bins 7-13 with ranks 3-10
-RANKS = [3, 4, 5, 6, 7, 8, 9, 10]
-# RANKS = [3]
+# For CV grid searches, use e.g. RANKS = [3, 4, 5, 6, 7, 8, 9, 10]
+RANKS = [5]
 Q_VALS = [3.0]
 
 # Train/test split (from shared config to ensure consistency)

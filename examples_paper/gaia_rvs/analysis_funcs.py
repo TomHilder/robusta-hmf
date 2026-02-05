@@ -406,18 +406,6 @@ def get_outlier_indices(scores, threshold):
     return np.where(scores < threshold)[0]
 
 
-# Legacy function for backwards compatibility
-def compute_per_object_weights(rhmf, Y, W, state):
-    """Compute median robust weight per object (spectrum). Legacy wrapper."""
-    scores, _ = compute_outlier_scores(rhmf, Y, W, state, score_func=default_outlier_score)
-    return scores
-
-
-def get_low_weight_indices(per_object_weights, threshold):
-    """Get indices of spectra with score below threshold. Legacy wrapper."""
-    return get_outlier_indices(per_object_weights, threshold)
-
-
 # === Plotting === #
 
 
