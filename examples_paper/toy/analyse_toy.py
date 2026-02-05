@@ -23,6 +23,12 @@ plt.style.use("mpl_drip.custom")
 SCRIPT_DIR = Path(__file__).parent
 PLOT_DIR = SCRIPT_DIR
 
+PAPER_PLOTS_DIR = (
+    Path(__file__).parent.parent.parent.parent.parent
+    / "papers/robust-hmf/687e0587c45a59bcc4a3fe3e/documents/figs"
+)
+assert PAPER_PLOTS_DIR.exists(), "PAPER_PLOTS_DIR does not exist, please update the path."
+
 # N_SPECTRA and M_PIXELS are imported from run_toy_gen_and_fits
 
 # Load the data itself
@@ -105,7 +111,7 @@ pca_basis = V[:, :plot_K]
 # Do Robust PCA for comparison
 print("Running Robust PCA (this may take a while)...")
 rpca = RobustPCA(all_spectra_for_fit)
-rpca_L, rpca_S = rpca.fit(max_iter=1000, iter_print=1, tol=1e-4)
+rpca_L, rpca_S = rpca.fit(max_iter=500, iter_print=1, tol=1e-4)
 print("Robust PCA complete.")
 
 plot_inds = rng.choice(all_noisy_spectra.shape[0], size=5, replace=False)
@@ -123,12 +129,34 @@ plt.show()
 
 fig, ax = plt.subplots(1, 1, figsize=(12, 7), dpi=100)
 for i, i_off in zip(plot_inds, range(5)):
-    ax.plot(grid / 10, all_noisy_spectra[i, :] + i_off * 1.0, color="k", alpha=1.0, lw=2)
-    ax.plot(grid / 10, predictions[i_off, :] + i_off * 1.0, color="tab:green", alpha=1, lw=2.0)
+    ax.plot(
+        grid / 10,
+        all_noisy_spectra[i, :] + i_off * 1.0,
+        color="k",
+        alpha=1.0,
+        lw=2,
+        label="Toy Data" if i_off == 0 else None,
+    )
+    ax.plot(
+        grid / 10,
+        predictions[i_off, :] + i_off * 1.0,
+        color="tab:green",
+        alpha=1,
+        lw=2.0,
+        label="RHMF Fit" if i_off == 0 else None,
+        ls="-",
+    )
     # ax.plot(grid / 10, pca_recon_plot[i_off, :] + i_off * 1.0, color="tab:red", alpha=1, lw=2.0)
 ax.set_xlabel("Wavelength [nm]")
 ax.set_ylabel("Flux + offset")
 ax.set_xlim(grid.min() / 10 - 3, grid.max() / 10 + 3)
+fig.suptitle(
+    r"$\textsf{\textbf{Toy Example: Random Spectra}}$",
+    fontsize="24",
+    c="dimgrey",
+    y=1.015,
+)
+ax.legend(ncols=2, loc="lower center", bbox_to_anchor=(0.5, 1.02), borderaxespad=0)
 plt.savefig(PLOT_DIR / "spectra_and_reconstructions.pdf", bbox_inches="tight")
 plt.show()
 
@@ -292,8 +320,8 @@ plt.show()
 
 # Just the left panel
 fig, ax = plt.subplots(1, 1, figsize=(7, 5), dpi=100)
-bins = np.linspace(0, 1, 50)
-ax.hist(per_object_weights_clean, bins=bins, alpha=0.7, color="C0", label="Clean Spectra")
+bins = np.linspace(0, 1, 51)
+ax.hist(per_object_weights_clean, bins=bins, alpha=0.7, color="C0", label="Normal Spectra")
 ax.hist(
     per_object_weights_outlier,
     bins=bins,
@@ -305,9 +333,16 @@ ax.set_yscale("log")
 ax.set_xlabel("Mean Robust Weight per Spectrum")
 ax.set_ylabel("Count")
 # ax.set_title(f"Per-Object Weights (K={plot_K}, Q={plot_Q})")
-ax.legend()
+ax.legend(loc="upper left", borderaxespad=1)
+fig.suptitle(
+    r"$\textsf{\textbf{Toy Example: Object Weights}}$",
+    fontsize="24",
+    c="dimgrey",
+    y=0.945,
+)
 plt.tight_layout()
 plt.savefig(PLOT_DIR / "weights_per_object_clean_vs_outlier.pdf", bbox_inches="tight")
+# plt.savefig(PAPER_PLOTS_DIR / "weights_per_object_clean_vs_outlier.pdf", bbox_inches="tight")
 plt.show()
 
 
@@ -482,6 +517,7 @@ fig.suptitle(
 )
 plt.tight_layout()
 plt.savefig(PLOT_DIR / "absorption_line_residuals.pdf", bbox_inches="tight")
+plt.savefig(PAPER_PLOTS_DIR / "absorption_line_residuals.pdf", bbox_inches="tight")
 plt.show()
 
 # === Heatmap of the robust weights for === #
@@ -589,63 +625,115 @@ scores = np.array(scores).reshape(len(RANKS), len(Q_VALS))
 f1_pixel_scores = np.array(f1_pixel_scores).reshape(len(RANKS), len(Q_VALS))
 f1_object_scores = np.array(f1_object_scores).reshape(len(RANKS), len(Q_VALS))
 
-# Three-panel figure
-fig, axes = plt.subplots(1, 3, figsize=(18, 5), dpi=100)
+# Three-panel figure: CV score on top (centred), F1 scores on bottom row
+# Use two separate gridspecs for independent layout control per row
+fig = plt.figure(figsize=(10, 8), dpi=100)
 
-# Left panel: CV score (z-score std)
-im0 = axes[0].pcolormesh(
-    np.arange(len(Q_VALS)),
-    RANKS,
+gs_top = fig.add_gridspec(
+    1, 2, width_ratios=[1, 0.04], left=0.28, right=0.72, top=0.9, bottom=0.54
+)
+gs_bot = fig.add_gridspec(
+    1, 3, width_ratios=[1, 1, 0.04], left=0.08, right=0.92, top=0.44, bottom=0.06, wspace=0.15
+)
+
+ax_cv = fig.add_subplot(gs_top[0, 0])
+cax_cv = fig.add_subplot(gs_top[0, 1])
+ax_f1_pix = fig.add_subplot(gs_bot[0, 0])
+ax_f1_obj = fig.add_subplot(gs_bot[0, 1])
+cax_f1 = fig.add_subplot(gs_bot[0, 2])
+
+# Tick labels
+q_labels = [str(q) for q in Q_VALS]
+rank_labels = [str(r) for r in RANKS]
+
+top_cmap = "viridis"
+
+text_bbox = dict(
+    boxstyle="square",
+    facecolor="white",
+    alpha=0.7,
+    edgecolor="none",
+)
+text_loc = (0.08, 0.85)  # relative to axes
+
+# Top panel: CV score (z-score std)
+im0 = ax_cv.imshow(
     np.log(np.abs(scores - 1)),
-    shading="auto",
-    cmap="viridis",
+    origin="lower",
+    cmap=top_cmap,
+    aspect="auto",
 )
-axes[0].set_xticks(np.arange(len(Q_VALS)))
-axes[0].set_xticklabels([str(q) for q in Q_VALS])
-axes[0].set_yticks(RANKS)
-axes[0].set_xlabel("Robust Scale Q")
-axes[0].set_ylabel("Rank K")
-axes[0].set_title("CV Score: log|std(z) - 1|")
-plt.colorbar(im0, ax=axes[0], label="Score")
+ax_cv.set_xticks(np.arange(len(Q_VALS)), labels=q_labels)
+ax_cv.set_yticks(np.arange(len(RANKS)), labels=rank_labels)
+ax_cv.set_xlabel("Robust Scale Q")
+ax_cv.set_ylabel("Rank K")
+ax_cv.text(
+    *text_loc,
+    r"Cross-Validation",
+    transform=ax_cv.transAxes,
+    ha="left",
+    va="bottom",
+    bbox=text_bbox,
+)
+fig.colorbar(im0, cax=cax_cv, label="CV Score \n(Lower is Better)")
 
-# Middle panel: Per-pixel F1 score (threshold 0.5)
-im1 = axes[1].pcolormesh(
-    np.arange(len(Q_VALS)),
-    RANKS,
+bottom_cmap = "magma_r"
+
+# Bottom left: Per-pixel F1 score (threshold 0.5)
+im1 = ax_f1_pix.imshow(
     f1_pixel_scores,
-    shading="auto",
-    cmap="viridis",
+    origin="lower",
+    cmap=bottom_cmap,
     vmin=0,
     vmax=1,
+    aspect="auto",
 )
-axes[1].set_xticks(np.arange(len(Q_VALS)))
-axes[1].set_xticklabels([str(q) for q in Q_VALS])
-axes[1].set_yticks(RANKS)
-axes[1].set_xlabel("Robust Scale Q")
-axes[1].set_ylabel("Rank K")
-axes[1].set_title("Per-Pixel F1 (threshold=0.5)")
-plt.colorbar(im1, ax=axes[1], label="F1")
+ax_f1_pix.set_xticks(np.arange(len(Q_VALS)), labels=q_labels)
+ax_f1_pix.set_yticks(np.arange(len(RANKS)), labels=rank_labels)
+ax_f1_pix.set_xlabel("Robust Scale Q")
+ax_f1_pix.set_ylabel("Rank K")
+ax_f1_pix.text(
+    *text_loc,
+    r"Per-Pixel Identification",
+    transform=ax_f1_pix.transAxes,
+    ha="left",
+    va="bottom",
+    bbox=text_bbox,
+)
 
-# Right panel: Per-object F1 score (median weight, threshold 0.9)
-im2 = axes[2].pcolormesh(
-    np.arange(len(Q_VALS)),
-    RANKS,
+# Bottom right: Per-object F1 score (median weight, threshold 0.9)
+im2 = ax_f1_obj.imshow(
     f1_object_scores,
-    shading="auto",
-    cmap="viridis",
+    origin="lower",
+    cmap=bottom_cmap,
     vmin=0,
     vmax=1,
+    aspect="auto",
 )
-axes[2].set_xticks(np.arange(len(Q_VALS)))
-axes[2].set_xticklabels([str(q) for q in Q_VALS])
-axes[2].set_yticks(RANKS)
-axes[2].set_xlabel("Robust Scale Q")
-axes[2].set_ylabel("Rank K")
-axes[2].set_title("Per-Object F1 (threshold=0.9)")
-plt.colorbar(im2, ax=axes[2], label="F1")
+ax_f1_obj.set_xticks(np.arange(len(Q_VALS)), labels=q_labels)
+# ax_f1_obj.set_yticks([])
+ax_f1_obj.set_yticklabels([])
+ax_f1_obj.set_xlabel("Robust Scale Q")
+ax_f1_obj.text(
+    *text_loc,
+    r"Per-Object Identification",
+    transform=ax_f1_obj.transAxes,
+    ha="left",
+    va="bottom",
+    bbox=text_bbox,
+)
 
-plt.tight_layout()
+# Shared colorbar for the two F1 panels
+fig.colorbar(im1, cax=cax_f1, label="F1 Score \n(Higher is Better)")
+
+fig.suptitle(
+    r"$\textsf{\textbf{Toy Example: Hyperparameters}}$",
+    fontsize="24",
+    c="dimgrey",
+    y=0.98,
+)
 plt.savefig(PLOT_DIR / "test_set_score_heatmap.pdf", bbox_inches="tight")
+# plt.savefig(PAPER_PLOTS_DIR / "test_set_score_heatmap.pdf", bbox_inches="tight")
 plt.show()
 
 # Single panel CV plot
@@ -750,4 +838,103 @@ axes[0, plot_rhmf.rank - 1].legend(loc="upper right")
 plt.suptitle(f"Coefficient Scatter Plots for Q={plot_Q}, K={plot_K}")
 # plt.tight_layout(rect=[0, 0, 1, 0.96])
 # plt.savefig("coefficient_scatter_plots.pdf", bbox_inches="tight")
+plt.show()
+
+# === Combined plot: normal spectra on top, outlier spectra on bottom === #
+
+N_CLEAN_PLOT = 3
+N_OUTLIER_PLOT = 3
+
+# Randomly select from all data, filtering out very noisy spectra
+is_outlier_spectrum = os_mask.any(axis=1)
+noise_level = np.nanstd(all_noisy_spectra, axis=1)
+noise_threshold = np.nanpercentile(noise_level, 90)
+low_noise = noise_level < noise_threshold
+
+clean_indices = np.where(~is_outlier_spectrum & low_noise)[0]
+outlier_indices = np.where(is_outlier_spectrum & low_noise)[0]
+
+clean_plot_idx = rng.choice(clean_indices, size=N_CLEAN_PLOT, replace=False)
+outlier_plot_idx = rng.choice(outlier_indices, size=N_OUTLIER_PLOT, replace=False)
+
+combined_idx = np.concatenate([clean_plot_idx, outlier_plot_idx])
+combined_predictions = plot_rhmf.synthesize(indices=combined_idx, state=all_state)
+
+fig, ax = plt.subplots(figsize=(12, 10), dpi=100)
+offset = 0.0
+offset_step = 1.0
+
+data_lw = 2.0
+fit_lw = 1.5
+
+# Plot outlier spectra on bottom
+for i_off, idx in enumerate(outlier_plot_idx):
+    pred_i = N_CLEAN_PLOT + i_off  # index into combined_predictions
+    ax.plot(
+        grid / 10,
+        all_noisy_spectra[idx, :] + offset,
+        color="C1",
+        alpha=1.0,
+        lw=data_lw,
+        label="Outlier Spectra" if i_off == 0 else None,
+    )
+    ax.plot(
+        grid / 10,
+        combined_predictions[pred_i, :] + offset,
+        color="k",
+        alpha=1,
+        lw=fit_lw,
+        label="RHMF Fits" if i_off == 0 else None,
+    )
+    offset += offset_step
+
+# Small gap between clean and outlier groups
+offset += offset_step * 0.0
+
+# Plot clean spectra on top
+for i_off, idx in enumerate(clean_plot_idx):
+    pred_i = i_off  # index into combined_predictions
+    ax.plot(
+        grid / 10,
+        all_noisy_spectra[idx, :] + offset,
+        color="C0",
+        alpha=1.0,
+        lw=data_lw,
+        label="Normal Spectra" if i_off == 0 else None,
+    )
+    ax.plot(
+        grid / 10,
+        combined_predictions[pred_i, :] + offset,
+        color="k",
+        alpha=1,
+        lw=fit_lw,
+    )
+    offset += offset_step
+
+ax.set_xlabel("Wavelength [nm]")
+ax.set_ylabel("Flux + offset")
+ax.set_xlim(grid.min() / 10 - 4, grid.max() / 10 + 4)
+# Manual legend order: Clean, Outlier, RHMF
+handles, labels = ax.get_legend_handles_labels()
+order = [
+    labels.index("Normal Spectra"),
+    labels.index("Outlier Spectra"),
+    labels.index("RHMF Fits"),
+]
+ax.legend(
+    [handles[i] for i in order],
+    [labels[i] for i in order],
+    ncols=3,
+    loc="lower center",
+    bbox_to_anchor=(0.5, 1.01),
+    borderaxespad=0,
+)
+fig.suptitle(
+    r"$\textsf{\textbf{Toy Example: Fits to Normal and Outlier Spectra}}$",
+    fontsize="24",
+    c="dimgrey",
+    y=0.97,
+)
+plt.savefig(PLOT_DIR / "normal_vs_outlier_spectra_reconstructions.pdf", bbox_inches="tight")
+plt.savefig(PAPER_PLOTS_DIR / "normal_vs_outlier_spectra_reconstructions.pdf", bbox_inches="tight")
 plt.show()
