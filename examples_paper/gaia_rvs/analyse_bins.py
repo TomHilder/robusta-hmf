@@ -17,23 +17,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from analysis_funcs import (
+    BinAnalysis,
     build_bins_from_config,
-    compute_all_cv_scores,
-    compute_outlier_scores,
-    find_best_model,
-    get_outlier_indices,
-    load_all_spectra_for_bin,
-    load_bin_results,
-    plot_all_spectra_hr_by_weight,
-    plot_basis_functions,
+    compute_bin_analysis,
     plot_best_model_vs_bin,
-    plot_cv_heatmaps,
+    plot_bin_analysis,
     plot_outliers_on_hr,
-    plot_random_spectra_reconstructions,
-    plot_residuals_summary,
-    plot_spectrum_residual,
-    plot_weights_heatmap,
-    plot_weights_histograms,
 )
 from tqdm import tqdm
 
@@ -107,239 +96,40 @@ def analyse_bin(
     verbose=True,
 ):
     """
-    Analyse a single bin: compute CV scores, find best model, identify outliers.
-
-    Parameters
-    ----------
-    i_bin : int
-        Bin index
-    data : MatchedData
-        Data object
-    bins : list
-        List of Bin objects
-    ranks : list of int
-        Rank values to analyse
-    q_vals : list of float
-        Q values to analyse
-    train_frac : float
-        Train fraction (must match training)
-    weight_threshold : float
-        Threshold for outlier detection (score < threshold = outlier)
-    outlier_score_func : callable or None
-        Function taking per-pixel weights (1D array) returning a scalar score.
-        Lower score = more outlier-y. Default (None) uses median.
-    results_dir : Path
-        Directory with saved training results
-    plots_dir : Path
-        Directory for output plots
-    verbose : bool
-        Print progress
+    Analyse a single bin: compute CV scores, find best model, identify outliers,
+    and generate all plots.
 
     Returns
     -------
-    outliers_df : pd.DataFrame
-        DataFrame with outlier info (idx, source_id, score, etc.)
-    best_K : int
-    best_Q : float
+    BinAnalysis or None
+        None if the bin has 0 spectra or no trained models.
     """
-    bin_data = bins[i_bin]
-    bin_plots_dir = plots_dir / f"bin_{i_bin:02d}"
-    bin_plots_dir.mkdir(parents=True, exist_ok=True)
-
-    if verbose:
-        print(f"\n{'=' * 60}")
-        print(f"Analysing bin {i_bin} | N spectra: {bin_data.n_spectra}")
-        print(f"{'=' * 60}")
-
-    if bin_data.n_spectra == 0:
-        print(f"Skipping bin {i_bin}: no spectra")
-        return pd.DataFrame(), None, None
-
-    # Load all spectra
-    if verbose:
-        print("Loading spectra...")
-    all_Y, all_W, train_idx, test_idx, source_ids = load_all_spectra_for_bin(
-        data, bin_data, train_frac
-    )
-
-    # Split for CV scoring
-    Y_train, W_train = all_Y[train_idx], all_W[train_idx]
-    Y_test, W_test = all_Y[test_idx], all_W[test_idx]
-
-    # Load model results
-    if verbose:
-        print("Loading trained models...")
-    bin_results = load_bin_results(i_bin, ranks, q_vals, results_dir)
-
-    if len(bin_results.rhmf_objs) == 0:
-        print(f"No models found for bin {i_bin}, skipping")
-        return pd.DataFrame(), None, None
-
-    # Compute CV scores (also returns inferred states on all data)
-    if verbose:
-        print("Computing CV scores and inferring on all data...")
-    cv_scores, inferred_states = compute_all_cv_scores(
-        bin_results, Y_test, W_test, all_Y, all_W, verbose=verbose
-    )
-
-    # Plot CV heatmaps
-    if verbose:
-        print("Plotting CV heatmaps...")
-    plot_cv_heatmaps(cv_scores, i_bin, bin_plots_dir)
-
-    # Find best model
-    best_K, best_Q, best_idx = find_best_model(cv_scores, metric=best_model_metric)
-    if verbose:
-        metric_values = {
-            "std_z": cv_scores.std_z.flatten()[best_idx],
-            "chi2_red": cv_scores.chi2_red.flatten()[best_idx],
-            "rmse": cv_scores.rmse.flatten()[best_idx],
-            "mad_z": cv_scores.mad_z.flatten()[best_idx],
-        }
-        print(
-            f"Best model: K={best_K}, Q={best_Q:.2f} ({best_model_metric}={metric_values[best_model_metric]:.4f})"
-        )
-
-    # Get best model and its inferred state
-    best_rhmf = bin_results.rhmf_objs[best_idx]
-    best_state = inferred_states[best_idx]
-
-    # Compute outlier scores using custom or default function
-    outlier_scores, all_robust_weights = compute_outlier_scores(
-        best_rhmf, all_Y, all_W, best_state, score_func=outlier_score_func
-    )
-
-    # Find outliers
-    outlier_indices = get_outlier_indices(outlier_scores, weight_threshold)
-    if verbose:
-        print(f"Found {len(outlier_indices)} outliers with score < {weight_threshold}")
-
-    # Get wavelength grid
-    λ_grid = data.λ_grid[cfg.N_CLIP_PIX : -cfg.N_CLIP_PIX]
-
-    # Get reconstructions
-    if verbose and len(outlier_indices) > 0:
-        print("Plotting outlier spectra...")
-
-    all_reconstructions = best_rhmf.synthesize(state=best_state)
-
-    # Diagnostic plots
-    if verbose:
-        print("Plotting diagnostic plots...")
-
-    # Random spectra vs reconstructions
-    plot_random_spectra_reconstructions(
-        λ_grid=λ_grid,
-        Y=all_Y,
-        reconstructions=all_reconstructions,
+    analysis = compute_bin_analysis(
         i_bin=i_bin,
-        best_K=best_K,
-        best_Q=best_Q,
-        save_dir=bin_plots_dir,
-    )
-
-    # Basis functions
-    basis = best_rhmf.basis_vectors(state=best_state)
-    plot_basis_functions(
-        λ_grid=λ_grid,
-        basis=basis,
-        i_bin=i_bin,
-        best_K=best_K,
-        best_Q=best_Q,
-        save_dir=bin_plots_dir,
-    )
-
-    # Weights heatmap
-    plot_weights_heatmap(
-        all_robust_weights=all_robust_weights,
-        λ_grid=λ_grid,
-        i_bin=i_bin,
-        best_K=best_K,
-        best_Q=best_Q,
-        save_dir=bin_plots_dir,
-    )
-
-    # Residuals summary
-    plot_residuals_summary(
-        λ_grid=λ_grid,
-        Y=all_Y,
-        reconstructions=all_reconstructions,
-        i_bin=i_bin,
-        best_K=best_K,
-        best_Q=best_Q,
-        save_dir=bin_plots_dir,
-    )
-
-    # Plot weight histograms
-    if verbose:
-        print("Plotting weight histograms...")
-    plot_weights_histograms(
-        per_object_weights=outlier_scores,
-        all_pixel_weights=all_robust_weights,
+        data=data,
+        bins=bins,
+        ranks=ranks,
+        q_vals=q_vals,
+        train_frac=train_frac,
         weight_threshold=weight_threshold,
-        i_bin=i_bin,
-        best_K=best_K,
-        best_Q=best_Q,
-        save_dir=bin_plots_dir,
+        results_dir=results_dir,
+        best_model_metric=best_model_metric,
+        outlier_score_func=outlier_score_func,
+        verbose=verbose,
     )
 
-    # Plot HR diagram colored by weight for this bin
-    if verbose:
-        print("Plotting HR diagram by weight...")
-    plot_all_spectra_hr_by_weight(
-        per_object_weights=outlier_scores,
-        bp_rp=bin_data.bp_rp,
-        abs_mag_G=bin_data.abs_mag_G,
-        bin_indices=bin_data.idx,
-        weight_threshold=weight_threshold,
-        i_bin=i_bin,
-        best_K=best_K,
-        best_Q=best_Q,
-        save_dir=bin_plots_dir,
+    if analysis is None:
+        return None
+
+    plot_bin_analysis(
+        analysis=analysis,
+        plots_dir=plots_dir,
+        save_residuals=SAVE_RESIDUALS,
+        residuals_dir=RESIDUALS_DIR,
+        verbose=verbose,
     )
 
-    outliers_data = []
-    for idx in tqdm(
-        outlier_indices, desc=f"Plotting outliers for bin {i_bin}", disable=not verbose
-    ):
-        source_id = source_ids[idx]
-        score = outlier_scores[idx]
-
-        # Plot
-        plot_spectrum_residual(
-            λ_grid=λ_grid,
-            flux=all_Y[idx],
-            reconstruction=all_reconstructions[idx],
-            robust_weights=all_robust_weights[idx],
-            source_id=source_id,
-            i_bin=i_bin,
-            idx=idx,
-            per_object_weight=score,
-            best_K=best_K,
-            best_Q=best_Q,
-            save_dir=bin_plots_dir,
-        )
-
-        outliers_data.append(
-            {
-                "bin": i_bin,
-                "idx": idx,
-                "source_id": source_id,
-                "score": score,
-                "best_K": best_K,
-                "best_Q": best_Q,
-                "in_train": idx in train_idx,
-            }
-        )
-
-        if SAVE_RESIDUALS:
-            np.save(
-                file=RESIDUALS_DIR / f"{source_id}_residual_bin_{i_bin:02d}.npy",
-                arr=all_Y[idx] - all_reconstructions[idx],
-            )
-
-    outliers_df = pd.DataFrame(outliers_data)
-    return outliers_df, best_K, best_Q
+    return analysis
 
 
 def analyse_all_bins(
@@ -395,7 +185,7 @@ def analyse_all_bins(
             print(f"Warning: bin {i_bin} out of range, skipping")
             continue
 
-        outliers_df, best_K, best_Q = analyse_bin(
+        analysis = analyse_bin(
             i_bin=i_bin,
             data=data,
             bins=bins,
@@ -409,11 +199,13 @@ def analyse_all_bins(
             plots_dir=plots_dir,
         )
 
-        if len(outliers_df) > 0:
-            all_outliers.append(outliers_df)
+        if analysis is None:
+            continue
 
-        if best_K is not None:
-            best_models[i_bin] = (best_K, best_Q)
+        if len(analysis.outliers_df) > 0:
+            all_outliers.append(analysis.outliers_df)
+
+        best_models[i_bin] = (analysis.best_K, analysis.best_Q)
 
     # Combine and save
     if all_outliers:
