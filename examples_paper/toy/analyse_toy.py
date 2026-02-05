@@ -7,6 +7,7 @@ import mpl_drip
 import numpy as np
 import seaborn as sns
 from numpy.random import default_rng
+from r_pca import RobustPCA
 
 # Get the rank and Q vals from other script
 from run_toy_gen_and_fits import M_PIXELS, N_SPECTRA, N_TRAIN, Q_VALS, RANKS
@@ -63,7 +64,9 @@ for obj, res in zip(rhmf_objs, results):
 # Load all spectra (train + test combined) for visualizations
 # NaN replaced with 0 for inference, NaN preserved for plotting
 all_noisy_spectra = data["noisy_spectra"]  # With NaN for plotting
-all_spectra_for_fit = np.nan_to_num(data["noisy_spectra"], nan=0.0)  # NaN->0 for inference
+# For RHMF, NaN values don't matter since ivar=0 there. For PCA/RPCA, use mean imputation.
+_spectra_mean = 0.0  # np.nanmean(data["noisy_spectra"])
+all_spectra_for_fit = np.nan_to_num(data["noisy_spectra"], nan=_spectra_mean)
 all_ivar = data["ivar"]
 grid = data["grid"]
 
@@ -94,14 +97,35 @@ all_state, _ = plot_rhmf.infer(
     conv_check_cadence=1,
 )
 
+# Do a PCA for comparison
+U, S, Vh = np.linalg.svd(all_spectra_for_fit, full_matrices=False)
+V = Vh.T
+pca_basis = V[:, :plot_K]
+
+# Do Robust PCA for comparison
+print("Running Robust PCA (this may take a while)...")
+rpca = RobustPCA(all_spectra_for_fit)
+rpca_L, rpca_S = rpca.fit(max_iter=1000, iter_print=1, tol=1e-4)
+print("Robust PCA complete.")
+
 plot_inds = rng.choice(all_noisy_spectra.shape[0], size=5, replace=False)
 
 predictions = plot_rhmf.synthesize(indices=plot_inds, state=all_state)
 
+spec_plot = np.nan_to_num(all_noisy_spectra[plot_inds, :], nan=_spectra_mean)
+pca_coeffs_plot = spec_plot @ pca_basis
+pca_recon_plot = pca_coeffs_plot @ pca_basis.T
+
+plt.figure()
+for i in range(5):
+    plt.plot(pca_recon_plot[i, :])
+plt.show()
+
 fig, ax = plt.subplots(1, 1, figsize=(12, 7), dpi=100)
 for i, i_off in zip(plot_inds, range(5)):
     ax.plot(grid / 10, all_noisy_spectra[i, :] + i_off * 1.0, color="k", alpha=1.0, lw=2)
-    ax.plot(grid / 10, predictions[i_off, :] + i_off * 1.0, color="C3", alpha=1, lw=2.0)
+    ax.plot(grid / 10, predictions[i_off, :] + i_off * 1.0, color="tab:green", alpha=1, lw=2.0)
+    # ax.plot(grid / 10, pca_recon_plot[i_off, :] + i_off * 1.0, color="tab:red", alpha=1, lw=2.0)
 ax.set_xlabel("Wavelength [nm]")
 ax.set_ylabel("Flux + offset")
 ax.set_xlim(grid.min() / 10 - 3, grid.max() / 10 + 3)
@@ -123,6 +147,21 @@ ax.set_xlabel("Wavelength [nm]")
 ax.set_ylabel("Flux + offset")
 ax.set_xlim(grid.min() / 10 - 3, grid.max() / 10 + 3)
 plt.savefig(PLOT_DIR / "basis_functions.pdf", bbox_inches="tight")
+plt.show()
+
+# === Plot of the Robust PCA basis functions === #
+
+# Get RPCA basis from SVD of the low-rank matrix L
+U_rpca, S_rpca, Vh_rpca = np.linalg.svd(rpca_L, full_matrices=False)
+rpca_basis = Vh_rpca.T[:, :plot_K]
+
+fig, ax = plt.subplots(figsize=(12, 6), dpi=100)
+for k in range(rpca_basis.shape[1]):
+    ax.plot(grid / 10, rpca_basis[:, k] + k * 0.4, color=f"C{k}", alpha=1.0, lw=2)
+ax.set_xlabel("Wavelength [nm]")
+ax.set_ylabel("Flux + offset")
+ax.set_xlim(grid.min() / 10 - 3, grid.max() / 10 + 3)
+plt.savefig(PLOT_DIR / "rpca_basis_functions.pdf", bbox_inches="tight")
 plt.show()
 
 # === Plot histogram of robust weights grouped by outlier type === #
@@ -321,16 +360,47 @@ oc_mask_al_spectra = oc_mask[al_spectra_idx, :]
 reconstructions_al = all_state.A[al_spectra_idx, :] @ all_state.G.T
 residuals = all_noisy_spectra[al_spectra_idx, :] - reconstructions_al
 
+robust_weights = weights[al_spectra_idx, :]
+ivar_al = all_ivar[al_spectra_idx, :]
+weighted_residuals = residuals / robust_weights**2
+
+plt.figure()
+plt.plot(weighted_residuals[i_al_spec, :])
+plt.show()
+
+spec_i = np.nan_to_num(all_noisy_spectra[al_spectra_idx, :][i_al_spec], nan=_spectra_mean)
+pca_coeffs = spec_i @ pca_basis
+pca_recon = pca_coeffs @ pca_basis.T
+
+# Get Robust PCA reconstruction for this spectrum by projecting onto truncated basis
+# (for fair comparison with PCA and RHMF which use rank-K)
+rpca_coeffs = spec_i @ rpca_basis
+rpca_recon = rpca_coeffs @ rpca_basis.T
+
+plt.figure()
+plt.plot(pca_recon)
+plt.show()
+
 # Plot the residuals for all these spectra with offset trick again
 # Plot grey bands where the absorption lines are
 fig, ax = plt.subplots(
     3, 1, figsize=(12, 8), dpi=100, sharex=True, gridspec_kw={"height_ratios": [3, 1, 1]}
 )
-ax[0].plot(grid / 10, all_noisy_spectra[al_spectra_idx, :][i_al_spec], c="k", lw=2.0)
-ax[0].plot(grid / 10, reconstructions_al[i_al_spec], c="C3", lw=2.0)
+ax[0].plot(
+    grid / 10,
+    all_noisy_spectra[al_spectra_idx, :][i_al_spec],
+    c="k",
+    lw=2.0,
+    zorder=7,
+    label="Toy Data",
+)
+ax[0].plot(
+    grid / 10, reconstructions_al[i_al_spec], c="tab:green", lw=2.0, zorder=10, label="RHMF Fit"
+)
+ax[0].plot(grid / 10, rpca_recon, c="tab:blue", lw=2.0, zorder=9, label="RPCA Fit")
+ax[0].plot(grid / 10, pca_recon, c="tab:red", lw=2.0, zorder=8, label="PCA Fit")
 ax[1].plot(grid / 10, residuals[i_al_spec, :], color="k", alpha=1.0, lw=2.0)
-mask = np.isnan(residuals[i_al_spec, :])
-ax[2].plot(grid / 10, weights[al_spectra_idx, :][i_al_spec], color="k", alpha=1.0, lw=2.0)
+ax[2].plot(grid / 10, robust_weights[i_al_spec], color="k", alpha=1.0, lw=2.0)
 alpha = 0.5
 for j in range(3):
     ax[j].set_xlim(grid.min() / 10 - 2, grid.max() / 10 + 2)
@@ -354,7 +424,7 @@ for j in range(3):
             alpha=alpha,
             zorder=-2,
             linewidth=0,
-            label="Outlier Lines" if i == 0 and j == 0 else None,
+            label="Outlier Lines" if i == 0 and j == 1 else None,
         )
     ax[j].vlines(
         grid[op_mask_al_spectra[i_al_spec]] / 10,
@@ -364,7 +434,7 @@ for j in range(3):
         alpha=alpha,
         lw=5,
         zorder=-2,
-        label="Outlier Pixels",
+        label="Outlier Pixels" if j == 1 else None,
     )
     ax[j].vlines(
         grid[oc_mask_al_spectra[i_al_spec]] / 10,
@@ -374,13 +444,42 @@ for j in range(3):
         alpha=alpha,
         lw=5,
         zorder=-2,
-        label="Outlier Column",
+        label="Outlier Column" if j == 1 else None,
     )
 ax[-1].set_xlabel("Wavelength [nm]")
-ax[1].set_ylabel("Residual")
-ax[2].set_ylabel("Robust Weight")
-ax[0].legend(loc=(0.3, 0.7))
+ax[1].set_ylabel("Residual \nFlux")
+ax[2].set_ylabel("Robust \nWeight")
+ax[0].legend(loc=(0.3, 0.6))
+# Place this legend above the whole figure, centered
+# ax[1].legend(
+#     ncol=3,
+#     loc="lower center",
+#     bbox_to_anchor=(0.5, 1.02),
+#     borderaxespad=0,
+# )
+# ax[0].legend(
+#     *ax[1].get_legend_handles_labels(),
+#     ncol=3,
+#     loc="lower center",
+#     bbox_to_anchor=(0.5, 1.02),
+#     borderaxespad=0,
+# )
+handles, labels = ax[1].get_legend_handles_labels()
+fig.legend(
+    handles,
+    labels,
+    ncol=3,
+    loc="upper center",
+    bbox_to_anchor=(0.5, 0.96),  # figure coordinates
+    borderaxespad=0,
+)
 fig.align_ylabels()
+fig.suptitle(
+    r"$\textsf{\textbf{Toy Example: Spectrum Containing Outliers}}$",
+    fontsize="24",
+    c="dimgrey",
+    y=1.015,
+)
 plt.tight_layout()
 plt.savefig(PLOT_DIR / "absorption_line_residuals.pdf", bbox_inches="tight")
 plt.show()
@@ -401,14 +500,36 @@ plt.show()
 weird_spectra_idx = np.where(np.any(os_mask, axis=1))[0]
 predictions_weird = plot_rhmf.synthesize(indices=weird_spectra_idx, state=all_state)
 
+spec_weird = np.nan_to_num(all_noisy_spectra[weird_spectra_idx[:5], :], nan=_spectra_mean)
+pca_coeffs_weird = spec_weird @ pca_basis
+pca_recon_weird = pca_coeffs_weird @ pca_basis.T
+
 fig, ax = plt.subplots(figsize=(12, 7), dpi=100)
 for i, i_off in zip(weird_spectra_idx[:5], range(5)):
-    ax.plot(grid / 10, all_noisy_spectra[i, :] + i_off * 1.0, color="k", alpha=1.0, lw=2)
-    ax.plot(grid / 10, predictions_weird[i_off, :] + i_off * 1.0, color="C3", alpha=1, lw=2.0)
+    ax.plot(
+        grid / 10,
+        all_noisy_spectra[i, :] + i_off * 1.0,
+        color="k",
+        alpha=1.0,
+        lw=2,
+        label="Outlier Spectra" if i_off == 0 else None,
+    )
+    # ax.plot(grid / 10, pca_recon_weird[0, :] + i_off * 1.0, color="tab:red")
+    ax.plot(
+        grid / 10,
+        predictions_weird[i_off, :] + i_off * 1.0,
+        color="tab:green",
+        alpha=1,
+        lw=2.0,
+        label="RHMF Fit" if i_off == 0 else None,
+    )
 # ax.set_xlabel("Wavelength [Å]")
 ax.set_xlabel("Wavelength [nm]")
 ax.set_ylabel("Flux + offset")
+ax.legend(ncols=2, loc="lower center", bbox_to_anchor=(0.5, 1.02), borderaxespad=0)
 ax.set_xlim(grid.min() / 10 - 3, grid.max() / 10 + 3)
+# plt.suptitle("Outlier Spectra and Reconstructions", fontsize=12)
+fig.suptitle(r"$\textsf{\textbf{Toy Example: Outlier Spectra}}$", fontsize=24, c="dimgrey", y=1.01)
 plt.savefig(PLOT_DIR / "weird_outlier_spectra_and_reconstructions.pdf", bbox_inches="tight")
 plt.show()
 
