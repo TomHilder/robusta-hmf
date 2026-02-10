@@ -18,6 +18,7 @@ To be defined with user.
 | 4 | Explore toy example | done | sub-agent | Included in codebase-report.md |
 | 5 | Explore Gaia RVS example | done | sub-agent | Included in codebase-report.md |
 | 6 | Create CLAUDE.md | done | — | Project conventions, package management, git, project management workflow. |
+| 7 | Set up permissions | done | — | .claude/settings.json with uv, git, WebFetch for docs sites. git push requires confirmation. |
 
 ## Decisions
 
@@ -28,14 +29,16 @@ Record key decisions here as they are made. Append only — do not delete previo
 | 2026-02-10 | Project bootstrapped | — | — | — |
 | 2026-02-10 | Package manager | uv, npm, cargo | uv | Already in use; Python project |
 | 2026-02-10 | Git author | — | Tom Hilder <tom.hilder.dlhp@gmail.com> | From pyproject.toml |
+| 2026-02-10 | git push permission | Auto-allow, require confirmation | Require confirmation | Safer default for shared repo |
+| 2026-02-10 | WebFetch domains | None, standard set, custom | Standard set | github.com, pypi.org, arxiv.org, docs.kidger.site, jax.readthedocs.io |
 
 ## Session State
 
 _Updated at the end of each session or major phase._
 
 **Last updated**: 2026-02-10
-**Status**: Bootstrap in progress (Phase 4 complete).
-**Next steps**: Phase 5 — set up permissions (.claude/settings.json).
+**Status**: Bootstrap in progress (Phase 5 complete).
+**Next steps**: Phase 6 — finalise PLAN.md.
 **Resume instructions**: Read this file top-to-bottom to pick up context.
 
 ## Log
@@ -45,3 +48,4 @@ _Updated at the end of each session or major phase._
 | 2026-02-10 | Bootstrap started. Phase 0: detected existing repo, uv, .gitignore. Phase 1: gathered project info. Phase 2: created PLAN.md and bootstrap state. |
 | 2026-02-10 | Phase 3: Explored Equinox, library source, toy example, Gaia RVS example. Wrote equinox-report.md and codebase-report.md. |
 | 2026-02-10 | Phase 4: Created CLAUDE.md with project conventions, uv usage, git author, project management workflow, and references to reports. |
+| 2026-02-10 | Phase 5: Created .claude/settings.json. git push requires confirmation; WebFetch allowed for github.com, pypi.org, arxiv.org, docs.kidger.site, jax.readthedocs.io. |
