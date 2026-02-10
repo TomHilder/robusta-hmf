@@ -37,9 +37,9 @@ Record key decisions here as they are made. Append only — do not delete previo
 _Updated at the end of each session or major phase._
 
 **Last updated**: 2026-02-10
-**Status**: Bootstrap in progress (Phase 5 complete).
-**Next steps**: Phase 6 — finalise PLAN.md.
-**Resume instructions**: Read this file top-to-bottom to pick up context.
+**Status**: Bootstrap complete.
+**Next steps**: Define project plan with user.
+**Resume instructions**: Read this file top-to-bottom to pick up context. See CLAUDE.md for project conventions. See equinox-report.md and codebase-report.md for technical reference.
 
 ## Log
 
@@ -49,3 +49,5 @@ _Updated at the end of each session or major phase._
 | 2026-02-10 | Phase 3: Explored Equinox, library source, toy example, Gaia RVS example. Wrote equinox-report.md and codebase-report.md. |
 | 2026-02-10 | Phase 4: Created CLAUDE.md with project conventions, uv usage, git author, project management workflow, and references to reports. |
 | 2026-02-10 | Phase 5: Created .claude/settings.json. git push requires confirmation; WebFetch allowed for github.com, pypi.org, arxiv.org, docs.kidger.site, jax.readthedocs.io. |
+| 2026-02-10 | Phase 6: Finalised PLAN.md. All bootstrap tasks verified complete. |
+| 2026-02-10 | Bootstrap complete. |
