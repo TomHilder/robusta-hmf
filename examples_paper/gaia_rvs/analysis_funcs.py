@@ -259,7 +259,7 @@ def compute_mad_z(rhmf, state, Y, W):
     return np.median(np.abs(z_scores))
 
 
-def compute_all_cv_scores(bin_results, Y_test, W_test, Y_all, W_all, verbose=True):
+def compute_all_cv_scores(bin_results, Y_test, W_test, verbose=True):
     """
     Compute all CV scores for a bin across the (K, Q) grid.
 
@@ -269,8 +269,6 @@ def compute_all_cv_scores(bin_results, Y_test, W_test, Y_all, W_all, verbose=Tru
         Loaded model results
     Y_test, W_test : arrays
         Test set data (for CV scores)
-    Y_all, W_all : arrays
-        All data (for inference)
     verbose : bool
         Show progress bar
 
@@ -278,35 +276,18 @@ def compute_all_cv_scores(bin_results, Y_test, W_test, Y_all, W_all, verbose=Tru
     -------
     CVScores
         Container with all metric arrays
-    inferred_states : list
-        States after inference on all data (for outlier detection)
     """
-    n_models = len(bin_results.rhmf_objs)
     std_z_scores = []
     chi2_red_scores = []
     rmse_scores = []
     mad_z_scores = []
-    inferred_states = []
 
     iterator = bin_results.rhmf_objs
     if verbose:
         iterator = tqdm(iterator, desc=f"Computing CV scores for bin {bin_results.i_bin}")
 
     for rhmf in iterator:
-        # Infer on all data (needed for outlier detection later)
-        inferred_state, _ = rhmf.infer(
-            Y_infer=Y_all,
-            W_infer=W_all,
-            max_iter=1000,
-            conv_tol=1e-4,
-            conv_check_cadence=5,
-        )
-        inferred_states.append(inferred_state)
-
-        # Compute CV scores on test set using inferred state
-        # But we need the state for test set specifically
-        # Actually, we compute scores on test set portion of all_Y
-        # For simplicity, re-infer on test set only for CV scoring
+        # Infer on test set for CV scoring
         test_state, _ = rhmf.infer(
             Y_infer=Y_test,
             W_infer=W_test,
@@ -333,7 +314,7 @@ def compute_all_cv_scores(bin_results, Y_test, W_test, Y_all, W_all, verbose=Tru
         q_vals=bin_results.q_vals,
     )
 
-    return cv_scores, inferred_states
+    return cv_scores
 
 
 def find_best_model(cv_scores, metric="std_z"):
@@ -484,11 +465,11 @@ def compute_bin_analysis(
         print(f"No models found for bin {i_bin}, skipping")
         return None
 
-    # Compute CV scores (also returns inferred states on all data)
+    # Compute CV scores on test set
     if verbose:
-        print("Computing CV scores and inferring on all data...")
-    cv_scores, inferred_states = compute_all_cv_scores(
-        bin_results, Y_test, W_test, all_Y, all_W, verbose=verbose
+        print("Computing CV scores...")
+    cv_scores = compute_all_cv_scores(
+        bin_results, Y_test, W_test, verbose=verbose
     )
 
     # Find best model
@@ -505,9 +486,17 @@ def compute_bin_analysis(
             f"({best_model_metric}={metric_values[best_model_metric]:.4f})"
         )
 
-    # Get best model and its inferred state
+    # Infer best model on all data (only the best, not all models)
     best_rhmf = bin_results.rhmf_objs[best_idx]
-    best_state = inferred_states[best_idx]
+    if verbose:
+        print("Inferring best model on all data...")
+    best_state, _ = best_rhmf.infer(
+        Y_infer=all_Y,
+        W_infer=all_W,
+        max_iter=1000,
+        conv_tol=1e-4,
+        conv_check_cadence=5,
+    )
 
     # Compute outlier scores using custom or default function
     outlier_scores, all_robust_weights = compute_outlier_scores(
