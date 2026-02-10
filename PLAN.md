@@ -17,6 +17,7 @@ To be defined with user.
 | 3 | Explore robusta-hmf source code | done | sub-agent | Included in codebase-report.md |
 | 4 | Explore toy example | done | sub-agent | Included in codebase-report.md |
 | 5 | Explore Gaia RVS example | done | sub-agent | Included in codebase-report.md |
+| 6 | Create CLAUDE.md | done | — | Project conventions, package management, git, project management workflow. |
 
 ## Decisions
 
@@ -33,8 +34,8 @@ Record key decisions here as they are made. Append only — do not delete previo
 _Updated at the end of each session or major phase._
 
 **Last updated**: 2026-02-10
-**Status**: Bootstrap in progress (Phase 3 complete).
-**Next steps**: Phase 4 — create CLAUDE.md.
+**Status**: Bootstrap in progress (Phase 4 complete).
+**Next steps**: Phase 5 — set up permissions (.claude/settings.json).
 **Resume instructions**: Read this file top-to-bottom to pick up context.
 
 ## Log
@@ -43,3 +44,4 @@ _Updated at the end of each session or major phase._
 |------|-------|
 | 2026-02-10 | Bootstrap started. Phase 0: detected existing repo, uv, .gitignore. Phase 1: gathered project info. Phase 2: created PLAN.md and bootstrap state. |
 | 2026-02-10 | Phase 3: Explored Equinox, library source, toy example, Gaia RVS example. Wrote equinox-report.md and codebase-report.md. |
+| 2026-02-10 | Phase 4: Created CLAUDE.md with project conventions, uv usage, git author, project management workflow, and references to reports. |
