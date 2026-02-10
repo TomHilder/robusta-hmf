@@ -19,6 +19,8 @@ To be defined with user.
 | 5 | Explore Gaia RVS example | done | sub-agent | Included in codebase-report.md |
 | 6 | Create CLAUDE.md | done | — | Project conventions, package management, git, project management workflow. |
 | 7 | Set up permissions | done | — | .claude/settings.json with uv, git, WebFetch for docs sites. git push requires confirmation. |
+| 8 | Fix double inference in Gaia CV scoring | done | — | Defer all-data inference to best model only. N-1 wasted inferences eliminated. |
+| 9 | Consolidate bin construction across Gaia scripts | done | — | Removed duplicate build_bins() from train_bins.py and plot_bins.py; both now use build_bins_from_config(). |
 
 ## Decisions
 
@@ -37,8 +39,8 @@ Record key decisions here as they are made. Append only — do not delete previo
 _Updated at the end of each session or major phase._
 
 **Last updated**: 2026-02-10
-**Status**: Bootstrap complete.
-**Next steps**: Define project plan with user.
+**Status**: Tasks 8–9 complete (fix double inference + consolidate bin construction).
+**Next steps**: Define broader project plan with user. Potential Gaia RVS cleanup/parity with toy example.
 **Resume instructions**: Read this file top-to-bottom to pick up context. See CLAUDE.md for project conventions. See equinox-report.md and codebase-report.md for technical reference.
 
 ## Log
@@ -51,3 +53,5 @@ _Updated at the end of each session or major phase._
 | 2026-02-10 | Phase 5: Created .claude/settings.json. git push requires confirmation; WebFetch allowed for github.com, pypi.org, arxiv.org, docs.kidger.site, jax.readthedocs.io. |
 | 2026-02-10 | Phase 6: Finalised PLAN.md. All bootstrap tasks verified complete. |
 | 2026-02-10 | Bootstrap complete. |
+| 2026-02-10 | Task 8: Fixed double inference in Gaia CV scoring — compute_all_cv_scores() now only infers on test set; best model inferred on all data once in compute_bin_analysis(). |
+| 2026-02-10 | Task 9: Consolidated bin construction — removed duplicate build_bins() from train_bins.py and plot_bins.py; both now import build_bins_from_config() from analysis_funcs.py. |
