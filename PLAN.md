@@ -13,6 +13,10 @@ To be defined with user.
 | ID | Task | Status | Assigned | Notes |
 |----|------|--------|----------|-------|
 | 1 | Initial project setup (bootstrap Phase 2) | done | — | Repo, uv, .gitignore already existed. Created PLAN.md and bootstrap state. |
+| 2 | Explore Equinox dependency | done | sub-agent | Report: equinox-report.md |
+| 3 | Explore robusta-hmf source code | done | sub-agent | Included in codebase-report.md |
+| 4 | Explore toy example | done | sub-agent | Included in codebase-report.md |
+| 5 | Explore Gaia RVS example | done | sub-agent | Included in codebase-report.md |
 
 ## Decisions
 
@@ -29,8 +33,8 @@ Record key decisions here as they are made. Append only — do not delete previo
 _Updated at the end of each session or major phase._
 
 **Last updated**: 2026-02-10
-**Status**: Bootstrap in progress (Phase 2 complete).
-**Next steps**: Phase 3 — explore Equinox and examples, write reports.
+**Status**: Bootstrap in progress (Phase 3 complete).
+**Next steps**: Phase 4 — create CLAUDE.md.
 **Resume instructions**: Read this file top-to-bottom to pick up context.
 
 ## Log
@@ -38,3 +42,4 @@ _Updated at the end of each session or major phase._
 | Date | Event |
 |------|-------|
 | 2026-02-10 | Bootstrap started. Phase 0: detected existing repo, uv, .gitignore. Phase 1: gathered project info. Phase 2: created PLAN.md and bootstrap state. |
+| 2026-02-10 | Phase 3: Explored Equinox, library source, toy example, Gaia RVS example. Wrote equinox-report.md and codebase-report.md. |
