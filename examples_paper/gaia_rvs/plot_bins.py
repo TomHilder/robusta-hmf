@@ -4,37 +4,12 @@ Plot the Gaia RVS bins on an HR diagram with bin indices and spectra counts.
 Bin geometry is imported from gaia_config.py.
 """
 
-import gaia_config as cfg
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-from bins import build_all_bins
-from collect import MatchedData, compute_abs_mag
+from analysis_funcs import build_bins_from_config
 
 plt.style.use("mpl_drip.custom")
-
-
-def build_bins():
-    """Build all bins from the Gaia data using shared config."""
-    data = MatchedData()
-
-    bp_rp = data["bp_rp"]
-    abs_mag_G = compute_abs_mag(data["phot_g_mean_mag"], data["parallax"])
-
-    bp_rp_bin_centres, abs_mag_G_bin_centres = cfg.get_bin_centres()
-    bp_rp_width, abs_mag_G_width = cfg.get_bin_widths()
-
-    bins = build_all_bins(
-        data,
-        bp_rp,
-        abs_mag_G,
-        bp_rp_bin_centres,
-        abs_mag_G_bin_centres,
-        bp_rp_width,
-        abs_mag_G_width,
-    )
-
-    return data, bins, bp_rp, abs_mag_G
 
 
 def plot_bins(save_path=None):
@@ -47,7 +22,7 @@ def plot_bins(save_path=None):
         If provided, save the figure to this path instead of showing.
     """
     print("Loading data and building bins...")
-    data, bins, bp_rp, abs_mag_G = build_bins()
+    data, bins, bp_rp, abs_mag_G = build_bins_from_config()
 
     fig, ax = plt.subplots(dpi=100, figsize=[10, 8], layout="compressed")
 

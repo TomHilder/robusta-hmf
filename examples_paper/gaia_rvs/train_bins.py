@@ -9,9 +9,12 @@ from pathlib import Path
 
 import gaia_config as cfg
 import numpy as np
-from analysis_funcs import clip_edge_pix, get_test_train_split_idx, nans_mask
-from bins import build_all_bins
-from collect import MatchedData, compute_abs_mag
+from analysis_funcs import (
+    build_bins_from_config,
+    clip_edge_pix,
+    get_test_train_split_idx,
+    nans_mask,
+)
 from tqdm import tqdm
 
 from robusta_hmf import Robusta, save_state_to_npz
@@ -41,29 +44,6 @@ TRAIN_FRAC = cfg.TRAIN_FRAC  # From shared config
 RESULTS_DIR = Path("./gaia_rvs_results")
 
 # ============================================================================ #
-
-
-def build_bins():
-    """Build all bins from the Gaia data using shared config."""
-    data = MatchedData()
-
-    bp_rp = data["bp_rp"]
-    abs_mag_G = compute_abs_mag(data["phot_g_mean_mag"], data["parallax"])
-
-    bp_rp_bin_centres, abs_mag_G_bin_centres = cfg.get_bin_centres()
-    bp_rp_width, abs_mag_G_width = cfg.get_bin_widths()
-
-    bins = build_all_bins(
-        data,
-        bp_rp,
-        abs_mag_G,
-        bp_rp_bin_centres,
-        abs_mag_G_bin_centres,
-        bp_rp_width,
-        abs_mag_G_width,
-    )
-
-    return data, bins
 
 
 def train_bin(data, bin_data, i_bin, ranks, q_vals, max_iter, train_frac, results_dir):
@@ -165,7 +145,7 @@ def main(
     Note: RNG_SEED and N_CLIP_PIX are imported from gaia_config.py.
     """
     print("Loading data and building bins...")
-    data, bins = build_bins()
+    data, bins, _, _ = build_bins_from_config()
 
     print(f"\nBins to train: {bins_to_run}")
     print(f"Ranks: {ranks}")
