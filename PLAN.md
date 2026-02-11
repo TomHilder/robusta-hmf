@@ -21,6 +21,7 @@ To be defined with user.
 | 7 | Set up permissions | done | — | .claude/settings.json with uv, git, WebFetch for docs sites. git push requires confirmation. |
 | 8 | Fix double inference in Gaia CV scoring | done | — | Defer all-data inference to best model only. N-1 wasted inferences eliminated. |
 | 9 | Consolidate bin construction across Gaia scripts | done | — | Removed duplicate build_bins() from train_bins.py and plot_bins.py; both now use build_bins_from_config(). |
+| 10 | Batch inference for large bins (OOM fix) | done | — | Added batched_infer() to analysis_funcs.py (50k chunk size). Also gc/cache cleanup between bins in analyse_bins.py. |
 
 ## Decisions
 
@@ -39,9 +40,9 @@ Record key decisions here as they are made. Append only — do not delete previo
 _Updated at the end of each session or major phase._
 
 **Last updated**: 2026-02-10
-**Status**: Tasks 8–9 complete (fix double inference + consolidate bin construction).
-**Next steps**: Define broader project plan with user. Potential Gaia RVS cleanup/parity with toy example.
-**Resume instructions**: Read this file top-to-bottom to pick up context. See CLAUDE.md for project conventions. See equinox-report.md and codebase-report.md for technical reference.
+**Status**: Tasks 8–9 complete. Bins 9–13 trained and analysed (K=10, Q=5). Bin 0 training still needed.
+**Next steps**: Train and analyse bin 0 (K=10, Q=5). Config files already set: train_bins.py has BINS_TO_RUN=[0], analyse_bins.py has BINS_TO_ANALYSE=[0]. Then define broader project plan with user.
+**Resume instructions**: Read this file top-to-bottom to pick up context. See CLAUDE.md for project conventions. Run scripts from `examples_paper/gaia_rvs/` using `builtin cd <path> && uv run python <script>`. NEVER use `builtin uv`.
 
 ## Log
 
@@ -55,3 +56,5 @@ _Updated at the end of each session or major phase._
 | 2026-02-10 | Bootstrap complete. |
 | 2026-02-10 | Task 8: Fixed double inference in Gaia CV scoring — compute_all_cv_scores() now only infers on test set; best model inferred on all data once in compute_bin_analysis(). |
 | 2026-02-10 | Task 9: Consolidated bin construction — removed duplicate build_bins() from train_bins.py and plot_bins.py; both now import build_bins_from_config() from analysis_funcs.py. |
+| 2026-02-10 | Trained bins 9–13 (K=10, Q=5). Analysed bins 9–13 (0 outliers at threshold 0.9). Bin 0 training/analysis pending. |
+| 2026-02-11 | Task 10: Added batched_infer() (50k chunks) to fix OOM on bin 4 (192k spectra). Added gc/cache/plt cleanup between bins. |
