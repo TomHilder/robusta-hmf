@@ -10,9 +10,11 @@ This script:
 6. Saves summary CSV with all outliers for cross-referencing
 """
 
+import gc
 from pathlib import Path
 
 import gaia_config as cfg
+import jax
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -36,18 +38,20 @@ plt.style.use("mpl_drip.custom")
 SAVE_RESIDUALS = True
 
 # Which bins to analyse (None = all bins with results, or list like [7, 8, 9])
-BINS_TO_ANALYSE = list(range(14))
+# BINS_TO_ANALYSE = [0]
+# BINS_TO_ANALYSE = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+BINS_TO_ANALYSE = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
 
 # Model grid (must match what was trained)
 # For CV grid searches, use e.g. RANKS = [3, 4, 5, 6, 7, 8, 9, 10]
-RANKS = [5]
-Q_VALS = [3.0]
+RANKS = [10]
+Q_VALS = [5.0]
 
 # Train/test split (from shared config to ensure consistency)
 TRAIN_FRAC = cfg.TRAIN_FRAC
 
 # Outlier detection
-WEIGHT_THRESHOLD = 0.9
+WEIGHT_THRESHOLD = 0.5
 
 # Best model selection metric
 # Options: "std_z" (default), "chi2_red", "rmse", "mad_z"
@@ -71,7 +75,7 @@ BEST_MODEL_METRIC = "std_z"
 #   lambda w: -np.sum(w < 0.3)                      # negated so lower = more outlier-y
 #   lambda w: 1 - np.mean(w < 0.5)                  # 1 - fraction below threshold
 #
-OUTLIER_SCORE_FUNC = None  # None = default (median)
+OUTLIER_SCORE_FUNC = lambda w: np.percentile(w, 1)  # None = default (median)
 
 # Directories
 RESULTS_DIR = Path("./gaia_rvs_results")
@@ -206,6 +210,12 @@ def analyse_all_bins(
             all_outliers.append(analysis.outliers_df)
 
         best_models[i_bin] = (analysis.best_K, analysis.best_Q)
+
+        # Free memory between bins
+        del analysis
+        plt.close("all")
+        gc.collect()
+        jax.clear_caches()
 
     # Combine and save
     if all_outliers:

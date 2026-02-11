@@ -2,9 +2,11 @@
 Reusable analysis functions for Gaia RVS robust matrix factorization.
 """
 
+import gc
 from dataclasses import dataclass
 from pathlib import Path
 
+import jax
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -414,6 +416,43 @@ def get_outlier_indices(scores, threshold):
     return np.where(scores < threshold)[0]
 
 
+def batched_infer(rhmf, all_Y, all_W, batch_size=50_000, verbose=True, **infer_kwargs):
+    """
+    Run rhmf.infer() in batches to limit memory usage.
+
+    Each spectrum's coefficients are independent (G is fixed), so batching
+    is mathematically equivalent to processing all at once.
+
+    Returns
+    -------
+    state : RHMFState
+        State with concatenated A matrix and shared G.
+    """
+    N = all_Y.shape[0]
+    if N <= batch_size:
+        state, _ = rhmf.infer(Y_infer=all_Y, W_infer=all_W, **infer_kwargs)
+        return state
+
+    A_chunks = []
+    n_batches = (N + batch_size - 1) // batch_size
+    for i, start in enumerate(range(0, N, batch_size)):
+        end = min(start + batch_size, N)
+        if verbose:
+            print(f"  Batch {i + 1}/{n_batches} ({start}:{end})...")
+        chunk_state, _ = rhmf.infer(
+            Y_infer=all_Y[start:end],
+            W_infer=all_W[start:end],
+            **infer_kwargs,
+        )
+        A_chunks.append(np.array(chunk_state.A))
+        G = np.array(chunk_state.G)
+        gc.collect()
+        jax.clear_caches()
+
+    A_full = np.concatenate(A_chunks, axis=0)
+    return RHMFState(A=A_full, G=G, it=0)
+
+
 def compute_bin_analysis(
     i_bin,
     data,
@@ -490,9 +529,10 @@ def compute_bin_analysis(
     best_rhmf = bin_results.rhmf_objs[best_idx]
     if verbose:
         print("Inferring best model on all data...")
-    best_state, _ = best_rhmf.infer(
-        Y_infer=all_Y,
-        W_infer=all_W,
+    best_state = batched_infer(
+        best_rhmf, all_Y, all_W,
+        batch_size=50_000,
+        verbose=verbose,
         max_iter=1000,
         conv_tol=1e-4,
         conv_check_cadence=5,
