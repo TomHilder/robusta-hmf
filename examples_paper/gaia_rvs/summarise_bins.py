@@ -61,10 +61,13 @@ def load_bin_summary(plots_dir, i_bin):
 def load_bin_outliers(plots_dir, i_bin):
     """Load outliers.csv for a bin, or empty DataFrame if none."""
     path = plots_dir / f"bin_{i_bin:02d}" / "outliers.csv"
-    if path.exists():
-        df = pd.read_csv(path)
-        if len(df) > 0:
-            return df
+    if path.exists() and path.stat().st_size > 0:
+        try:
+            df = pd.read_csv(path)
+            if len(df) > 0:
+                return df
+        except pd.errors.EmptyDataError:
+            pass
     return pd.DataFrame()
 
 
