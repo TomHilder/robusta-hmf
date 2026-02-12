@@ -18,6 +18,8 @@ from tqdm import tqdm
 from robusta_hmf import Robusta
 from robusta_hmf.state import RHMFState, load_state_from_npz
 
+import json
+
 import gaia_config as cfg
 
 
@@ -453,6 +455,112 @@ def batched_infer(rhmf, all_Y, all_W, batch_size=50_000, verbose=True, **infer_k
     return RHMFState(A=A_full, G=G, it=0)
 
 
+# === Save/load helpers === #
+
+
+def save_bin_results(analysis, plots_dir, results_dir):
+    """
+    Save per-bin results to disk for later use by summarise_bins.py
+    and replot_outliers.py.
+
+    Saves:
+    - {plots_dir}/bin_{i:02d}/outliers.csv — per-bin outlier DataFrame
+    - {plots_dir}/bin_{i:02d}/summary.json — summary metadata
+    - {results_dir}/inferred_all_data_R{K}_Q{Q:.2f}_bin_{i}.npz — A + G matrices
+    - {plots_dir}/bin_{i:02d}/outlier_data.npz — data needed to re-plot outliers
+    """
+    a = analysis
+    plots_dir = Path(plots_dir)
+    results_dir = Path(results_dir)
+    bin_plots_dir = plots_dir / f"bin_{a.i_bin:02d}"
+    bin_plots_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Outlier CSV
+    a.outliers_df.to_csv(bin_plots_dir / "outliers.csv", index=False)
+
+    # 2. Summary JSON
+    summary = {
+        "i_bin": a.i_bin,
+        "best_K": int(a.best_K),
+        "best_Q": float(a.best_Q),
+        "metric": "std_z",
+        "n_spectra": int(a.all_Y.shape[0]),
+        "n_outliers": int(len(a.outlier_indices)),
+        "weight_threshold": float(a.weight_threshold),
+    }
+    with open(bin_plots_dir / "summary.json", "w") as f:
+        json.dump(summary, f, indent=2)
+
+    # 3. Inferred state (A + G matrices)
+    state_path = (
+        results_dir
+        / f"inferred_all_data_R{a.best_K}_Q{a.best_Q:.2f}_bin_{a.i_bin}.npz"
+    )
+    np.savez(state_path, A=np.array(a.best_state.A), G=np.array(a.best_state.G))
+
+    # 4. Outlier data for re-plotting (flux, reconstruction, weights, scores, ids, λ)
+    outlier_flux = a.all_Y[a.outlier_indices]
+    outlier_reconstructions = a.all_reconstructions[a.outlier_indices]
+    outlier_robust_weights = a.all_robust_weights[a.outlier_indices]
+    outlier_source_ids = a.source_ids[a.outlier_indices]
+    outlier_scores_arr = a.outlier_scores[a.outlier_indices]
+    np.savez(
+        bin_plots_dir / "outlier_data.npz",
+        flux=outlier_flux,
+        reconstructions=outlier_reconstructions,
+        robust_weights=outlier_robust_weights,
+        source_ids=outlier_source_ids,
+        scores=outlier_scores_arr,
+        indices=a.outlier_indices,
+        lambda_grid=a.λ_grid,
+    )
+
+
+def load_cached_inferred_state(i_bin, best_K, best_Q, results_dir):
+    """
+    Check for a cached all-data inferred state and load it if available.
+
+    Returns
+    -------
+    RHMFState or None
+        The cached state, or None if not found.
+    """
+    results_dir = Path(results_dir)
+    state_path = (
+        results_dir
+        / f"inferred_all_data_R{best_K}_Q{best_Q:.2f}_bin_{i_bin}.npz"
+    )
+    if state_path.exists():
+        data = np.load(state_path)
+        return RHMFState(A=data["A"], G=data["G"], it=0)
+    return None
+
+
+def load_outlier_data(plots_dir, i_bin):
+    """
+    Load saved outlier data for a bin.
+
+    Returns
+    -------
+    dict with keys: flux, reconstructions, robust_weights, source_ids,
+                    scores, indices, lambda_grid
+    """
+    plots_dir = Path(plots_dir)
+    path = plots_dir / f"bin_{i_bin:02d}" / "outlier_data.npz"
+    if not path.exists():
+        return None
+    data = np.load(path, allow_pickle=False)
+    return {
+        "flux": data["flux"],
+        "reconstructions": data["reconstructions"],
+        "robust_weights": data["robust_weights"],
+        "source_ids": data["source_ids"],
+        "scores": data["scores"],
+        "indices": data["indices"],
+        "lambda_grid": data["lambda_grid"],
+    }
+
+
 def compute_bin_analysis(
     i_bin,
     data,
@@ -527,16 +635,24 @@ def compute_bin_analysis(
 
     # Infer best model on all data (only the best, not all models)
     best_rhmf = bin_results.rhmf_objs[best_idx]
-    if verbose:
-        print("Inferring best model on all data...")
-    best_state = batched_infer(
-        best_rhmf, all_Y, all_W,
-        batch_size=50_000,
-        verbose=verbose,
-        max_iter=1000,
-        conv_tol=1e-4,
-        conv_check_cadence=5,
-    )
+
+    # Check for cached inference
+    cached_state = load_cached_inferred_state(i_bin, best_K, best_Q, results_dir)
+    if cached_state is not None:
+        if verbose:
+            print("Loaded cached inference for all data")
+        best_state = cached_state
+    else:
+        if verbose:
+            print("Inferring best model on all data...")
+        best_state = batched_infer(
+            best_rhmf, all_Y, all_W,
+            batch_size=50_000,
+            verbose=verbose,
+            max_iter=1000,
+            conv_tol=1e-4,
+            conv_check_cadence=5,
+        )
 
     # Compute outlier scores using custom or default function
     outlier_scores, all_robust_weights = compute_outlier_scores(

@@ -1,13 +1,16 @@
 """
-Analyse Robusta results across multiple bins of Gaia RVS spectra.
+Per-bin analysis of Robusta results for Gaia RVS spectra.
 
 This script:
 1. Loads trained models for each bin
-2. Computes CV scores and plots heatmaps
-3. Selects best (K, Q) based on std(z) closest to 1.0
-4. Identifies outlier spectra (low robust weight)
-5. Plots residuals for each outlier
-6. Saves summary CSV with all outliers for cross-referencing
+2. Computes CV scores and selects best (K, Q)
+3. Identifies outlier spectra (low robust weight)
+4. Generates per-bin plots
+5. Saves per-bin results to disk (outliers.csv, summary.json, outlier_data.npz,
+   inferred state)
+
+Run summarise_bins.py afterwards for cross-bin summary plots (HR diagram,
+combined outlier CSV, best model vs bin).
 """
 
 import gc
@@ -17,16 +20,12 @@ import gaia_config as cfg
 import jax
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 from analysis_funcs import (
-    BinAnalysis,
     build_bins_from_config,
     compute_bin_analysis,
-    plot_best_model_vs_bin,
     plot_bin_analysis,
-    plot_outliers_on_hr,
+    save_bin_results,
 )
-from tqdm import tqdm
 
 plt.style.use("mpl_drip.custom")
 
@@ -133,6 +132,11 @@ def analyse_bin(
         verbose=verbose,
     )
 
+    # Save per-bin results for summarise_bins.py and replot_outliers.py
+    save_bin_results(analysis, plots_dir, results_dir)
+    if verbose:
+        print(f"Saved per-bin results for bin {i_bin}")
+
     return analysis
 
 
@@ -148,7 +152,10 @@ def analyse_all_bins(
     plots_dir=PLOTS_DIR,
 ):
     """
-    Analyse multiple bins and save combined outlier summary.
+    Analyse multiple bins: compute, plot, and save per-bin results.
+
+    Per-bin results are saved to disk by save_bin_results().
+    Run summarise_bins.py afterwards for cross-bin plots.
 
     Parameters
     ----------
@@ -156,19 +163,13 @@ def analyse_all_bins(
         Bin indices to analyse. None = all bins (0 to N_BINS-1)
     ranks, q_vals, train_frac, weight_threshold, outlier_score_func, results_dir, plots_dir
         See analyse_bin
-
-    Returns
-    -------
-    all_outliers_df : pd.DataFrame
-        Combined outlier summary across all bins
     """
     plots_dir = Path(plots_dir) / best_model_metric
     plots_dir.mkdir(parents=True, exist_ok=True)
 
     # Load data and bins
     print("Loading data and building bins...")
-    data, bins, bp_rp, abs_mag_G = build_bins_from_config()
-    source_ids_all = data["source_id"]
+    data, bins, _, _ = build_bins_from_config()
 
     # Determine which bins to analyse
     if bins_to_analyse is None:
@@ -217,78 +218,18 @@ def analyse_all_bins(
         gc.collect()
         jax.clear_caches()
 
-    # Combine and save
-    if all_outliers:
-        all_outliers_df = pd.concat(all_outliers, ignore_index=True)
-
-        # Sort by score (most anomalous = lowest score first)
-        all_outliers_df = all_outliers_df.sort_values("score").reset_index(drop=True)
-
-        # Save CSV
-        csv_path = plots_dir / "outlier_summary.csv"
-        all_outliers_df.to_csv(csv_path, index=False)
-        print(f"\nSaved outlier summary to {csv_path}")
-        print(f"Total outliers: {len(all_outliers_df)}")
-
-        # Check for duplicates across bins (same source_id)
-        duplicate_sources = all_outliers_df[all_outliers_df.duplicated("source_id", keep=False)]
-        if len(duplicate_sources) > 0:
-            n_unique_duplicates = duplicate_sources["source_id"].nunique()
-            print(f"Found {n_unique_duplicates} sources appearing as outliers in multiple bins")
-    else:
-        all_outliers_df = pd.DataFrame()
-        print("\nNo outliers found across any bins")
+    # Print summary
+    n_outliers_total = sum(len(df) for df in all_outliers)
+    print(f"\nDone. Analysed {len(best_models)} bins, found {n_outliers_total} total outliers.")
+    print("Per-bin results saved. Run summarise_bins.py for cross-bin plots.")
 
     # Print best models summary
     print("\nBest models per bin:")
     for i_bin, (K, Q) in sorted(best_models.items()):
         print(f"  Bin {i_bin:2d}: K={K}, Q={Q:.2f}")
 
-    # Save best models to CSV
-    if best_models:
-        best_models_df = pd.DataFrame(
-            [
-                {"bin": i_bin, "best_K": K, "best_Q": Q}
-                for i_bin, (K, Q) in sorted(best_models.items())
-            ]
-        )
-        best_models_csv = plots_dir / "best_models.csv"
-        best_models_df.to_csv(best_models_csv, index=False)
-        print(f"Saved best models to {best_models_csv}")
-
-    # Plot best model parameters vs bin
-    if len(best_models) > 0:
-        print("\nPlotting optimal K and Q vs bin...")
-        plot_best_model_vs_bin(
-            best_models=best_models,
-            save_path=plots_dir / "best_model_vs_bin.pdf",
-        )
-
-    # Plot outliers on HR diagram
-    if len(all_outliers_df) > 0:
-        print("\nPlotting outliers on HR diagram...")
-        plot_outliers_on_hr(
-            outliers_df=all_outliers_df,
-            bp_rp_all=bp_rp,
-            abs_mag_G_all=abs_mag_G,
-            source_ids_all=source_ids_all,
-            save_path=plots_dir / "outliers_hr_diagram_by_score.pdf",
-            color_by="score",
-        )
-        plot_outliers_on_hr(
-            outliers_df=all_outliers_df,
-            bp_rp_all=bp_rp,
-            abs_mag_G_all=abs_mag_G,
-            source_ids_all=source_ids_all,
-            save_path=plots_dir / "outliers_hr_diagram_by_bin.pdf",
-            color_by="bin",
-        )
-        print(f"Saved HR diagram plots to {plots_dir}")
-
     # Close data file
     data.close()
-
-    return all_outliers_df
 
 
 def main():
