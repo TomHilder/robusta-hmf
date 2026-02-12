@@ -3,6 +3,7 @@ Reusable analysis functions for Gaia RVS robust matrix factorization.
 """
 
 import gc
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -1450,6 +1451,10 @@ def plot_bin_analysis(
     plots_dir = Path(plots_dir)
     a = analysis
     bin_plots_dir = plots_dir / f"bin_{a.i_bin:02d}"
+
+    # Clear stale plots from previous runs
+    if bin_plots_dir.exists():
+        shutil.rmtree(bin_plots_dir)
     bin_plots_dir.mkdir(parents=True, exist_ok=True)
 
     # CV heatmaps
