@@ -4,12 +4,19 @@ Plot the Gaia RVS bins on an HR diagram with bin indices and spectra counts.
 Bin geometry is imported from gaia_config.py.
 """
 
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 from analysis_funcs import build_bins_from_config
 
 plt.style.use("mpl_drip.custom")
+
+PAPER_PLOTS_DIR = (
+    Path(__file__).parent.parent.parent.parent.parent / "papers/robust-hmf/paper/documents/figs"
+)
+assert PAPER_PLOTS_DIR.exists(), "PAPER_PLOTS_DIR does not exist, please update the path."
 
 
 def plot_bins(save_path=None):
@@ -40,6 +47,7 @@ def plot_bins(save_path=None):
         marker=".",
         edgecolors="white",
         linewidths=0.02,
+        rasterized=True,
     )
 
     # cols = plt.cm.viridis(np.linspace(0, 1, len(bins)))
@@ -59,6 +67,7 @@ def plot_bins(save_path=None):
                 marker=".",
                 edgecolors="white",
                 linewidths=0.05,
+                rasterized=True,
             )
             # Add text label at bin centre
             ax.annotate(
@@ -66,7 +75,7 @@ def plot_bins(save_path=None):
                 xy=(b.bp_rp_prop.centre, b.abs_mag_G_prop.centre),
                 xytext=(23, 23),
                 textcoords="offset points",
-                fontsize=14,
+                fontsize=16,
                 fontweight="bold",
                 ha="center",
                 va="center",
@@ -83,9 +92,17 @@ def plot_bins(save_path=None):
 
     ax.set_ylim(15, -5)
     ax.set_xlim(-0.5, 3.5)
-    ax.set_xlabel("Color (BP - RP)")
-    ax.set_ylabel("G-Band Absolute Magnitude")
+    # ax.set_xlabel("Color (BP - RP)")
+    ax.set_xlabel(r"${\rm BP} - {\rm RP}$ [mag]")
+    ax.set_ylabel("G-Band Absolute Magnitude [mag]")
     # ax.set_title("Gaia RVS Spectral Bins")
+
+    fig.suptitle(
+        r"$\textsf{\textbf{Gaia Example: Main Sequence Bins}}$",
+        fontsize="24",
+        c="dimgrey",
+        y=1.04,
+    )
 
     if save_path:
         fig.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -98,3 +115,4 @@ def plot_bins(save_path=None):
 
 if __name__ == "__main__":
     plot_bins(save_path="plots_analysis/hr_bins.png")
+    plot_bins(save_path=PAPER_PLOTS_DIR / "hr_bins.pdf")
