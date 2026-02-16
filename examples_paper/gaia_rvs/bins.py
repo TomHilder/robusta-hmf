@@ -158,6 +158,9 @@ if __name__ == "__main__":
     bp_rp_width = (bp_rp_max - bp_rp_min) / (n_bins - 1) * 1.5
     abs_mag_G_width = (abs_mag_G_max - abs_mag_G_min) / (n_bins - 1) * 2.8
 
+    print(f"BP - RP bin width: {bp_rp_width:.2f}")
+    print(f"Abs Mag G bin width: {abs_mag_G_width:.2f}")
+
     # === Build and plot the bins === #
 
     bins = build_all_bins(
