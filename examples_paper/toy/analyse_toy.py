@@ -24,8 +24,7 @@ SCRIPT_DIR = Path(__file__).parent
 PLOT_DIR = SCRIPT_DIR
 
 PAPER_PLOTS_DIR = (
-    Path(__file__).parent.parent.parent.parent.parent
-    / "papers/robust-hmf/687e0587c45a59bcc4a3fe3e/documents/figs"
+    Path(__file__).parent.parent.parent.parent.parent / "papers/robust-hmf/paper/documents/figs"
 )
 assert PAPER_PLOTS_DIR.exists(), "PAPER_PLOTS_DIR does not exist, please update the path."
 
@@ -517,7 +516,7 @@ fig.suptitle(
 )
 plt.tight_layout()
 plt.savefig(PLOT_DIR / "absorption_line_residuals.pdf", bbox_inches="tight")
-plt.savefig(PAPER_PLOTS_DIR / "absorption_line_residuals.pdf", bbox_inches="tight")
+# plt.savefig(PAPER_PLOTS_DIR / "absorption_line_residuals.pdf", bbox_inches="tight")
 plt.show()
 
 # === Heatmap of the robust weights for === #

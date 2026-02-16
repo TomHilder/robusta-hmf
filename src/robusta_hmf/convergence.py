@@ -20,6 +20,7 @@ DEFAULT_TOL = 1e-6
 def max_frac_mat(old_mat: Array, new_mat: Array, tol: float) -> bool:
     d_mat = old_mat - new_mat
     if jnp.max(d_mat * d_mat) / jnp.mean(new_mat * new_mat) < tol:
+        # if jnp.max(d_mat * d_mat / (new_mat * new_mat)) < tol:
         return True
     else:
         return False

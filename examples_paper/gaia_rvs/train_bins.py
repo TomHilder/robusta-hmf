@@ -26,15 +26,15 @@ from robusta_hmf import Robusta, save_state_to_npz
 # Which bins to train (by index, 0-13 for 14 bins)
 # BINS_TO_RUN = [7, 8, 9, 10, 11, 12, 13]
 # BINS_TO_RUN = [1, 2, 6]
-BINS_TO_RUN = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+BINS_TO_RUN = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
 
 # Rank (K) values to try
 # RANKS = [2, 3, 4, 5, 6, 7, 8, 9, 10]
-RANKS = [5]
+RANKS = [10]
 
 # Robustness scale (Q) values to try
 # Q_VALS = [0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0]
-Q_VALS = [3.0]
+Q_VALS = [5.0]
 
 # Other training parameters
 MAX_ITER = 1000

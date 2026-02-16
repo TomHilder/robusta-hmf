@@ -38,8 +38,10 @@ SAVE_RESIDUALS = True
 
 # Which bins to analyse (None = all bins with results, or list like [7, 8, 9])
 # BINS_TO_ANALYSE = [0]
-# BINS_TO_ANALYSE = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
-BINS_TO_ANALYSE = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+# BINS_TO_ANALYSE = [1, 2, 3]
+BINS_TO_ANALYSE = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+# BINS_TO_ANALYSE = [5, 6, 7, 8, 9, 10, 11, 12, 13]
+# BINS_TO_ANALYSE = [4]
 
 # Model grid (must match what was trained)
 # For CV grid searches, use e.g. RANKS = [3, 4, 5, 6, 7, 8, 9, 10]

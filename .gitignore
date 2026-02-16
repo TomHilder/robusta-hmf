@@ -4,6 +4,7 @@
 *.zip
 *.npy
 *.png
+*.json
 
 # vscode
 .vscode/
