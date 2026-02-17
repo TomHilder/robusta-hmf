@@ -1388,12 +1388,14 @@ LINE_SET_VARIANTS = [
     )),
     ("abundance_lines", dict(
         show_strong=False, show_abundance=True, show_cn=False, show_dib=False,
+        line_width_nm=0.05, show_labels=False,
     )),
     ("cn_bands", dict(
         show_strong=False, show_abundance=False, show_cn=True, show_dib=False,
     )),
     ("all_lines", dict(
         show_strong=True, show_abundance=True, show_cn=True, show_dib=True,
+        line_width_nm=0.05, show_labels=False,
     )),
 ]
 
