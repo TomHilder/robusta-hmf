@@ -25,6 +25,8 @@ To be defined with user.
 | 11 | Separate per-bin analysis from cross-bin summary | done | — | Split analyse_bins.py into 3 scripts. Added inference caching, outlier data saving, summarise_bins.py, replot_outliers.py. |
 | 12 | Save all per-object outlier scores + fix empty CSV crash | done | — | Added all_outlier_scores.npy saving. Fixed summarise_bins.py crash on bins with 0 outliers. Updated plot_hist_stack.py to use saved scores. |
 | 13 | UMAP residuals: metadata coloring + interactive click-to-open | done | — | Rewrote umap_residuals.py: loads bp_rp, abs_mag_G, score per outlier from metadata CSV + saved npz. Interactive mode opens residual PDF on click. |
+| 14 | Save all_source_ids.npy + cross-bin outlier consistency | done | — | save_bin_results() saves all_source_ids.npy. summarise_bins.py reports multi-bin outlier consistency. save_source_ids.py one-off script. UMAP filtering of inconsistent outliers. |
+| 15 | Fix line list air-to-vacuum wavelengths | pending | — | CSV files (rvs_strong_features.csv etc.) have air wavelengths labelled as vacuum. Need to verify a sample of lines against NIST, then convert all to true vacuum. |
 
 ## Decisions
 
@@ -43,9 +45,9 @@ Record key decisions here as they are made. Append only — do not delete previo
 _Updated at the end of each session or major phase._
 
 **Last updated**: 2026-02-17
-**Status**: Tasks 11–13 complete. Pipeline split into analyse_bins / summarise_bins / replot_outliers. All 14 bins analysed. UMAP residuals script supports metadata coloring and interactive click-to-open.
-**Next steps**: Define broader project plan with user. Potential: third example, paper figures, library improvements.
-**Resume instructions**: Read this file top-to-bottom to pick up context. See CLAUDE.md for project conventions. Run scripts from `examples_paper/gaia_rvs/` using `builtin cd <path> && uv run python <script>`. NEVER use `builtin uv`.
+**Status**: Tasks 11–14 complete. Task 15 (line list air-to-vacuum fix) pending.
+**Next steps**: Fix line list CSVs — verify sample of lines against NIST air values, then apply air-to-vacuum conversion to all CSVs. Then re-plot.
+**Resume instructions**: Read this file top-to-bottom to pick up context. See CLAUDE.md for project conventions. Run scripts from `examples_paper/gaia_rvs/` using `builtin cd <path> && uv run python <script>`. NEVER use `builtin uv`. Key finding: rvs_strong_features.csv (and likely other line list CSVs) contain air wavelengths mislabelled as `lambda_vac_nm`. Confirmed by checking Ca II 8542 against NIST (854.209 nm = air) and observing the absorption dip at ~854.4 nm in the vacuum-calibrated Gaia spectra.
 
 ## Log
 
@@ -64,3 +66,5 @@ _Updated at the end of each session or major phase._
 | 2026-02-12 | Task 11: Separated per-bin analysis from cross-bin summary. analyse_bins.py now saves per-bin results (outliers.csv, summary.json, outlier_data.npz, inferred state). New summarise_bins.py generates cross-bin plots. New replot_outliers.py re-plots outlier spectra from saved data (zero HDF5). Added inference caching to compute_bin_analysis(). |
 | 2026-02-17 | Task 12: Added all_outlier_scores.npy (per-object scores for ALL spectra). Fixed summarise_bins.py EmptyDataError on bins with 0 outliers. Updated plot_hist_stack.py to load from saved scores. |
 | 2026-02-17 | Task 13: Rewrote umap_residuals.py — loads metadata (bp_rp, abs_mag_G, score, etc.) from CSV + saved npz. Supports coloring by any property. Added interactive mode: click point to open residual PDF in Preview. |
+| 2026-02-17 | Task 14: Added all_source_ids.npy saving, cross-bin outlier consistency reporting in summarise_bins.py, UMAP filtering of inconsistent outliers, save_source_ids.py one-off script. |
+| 2026-02-17 | Discovered line list CSVs have air wavelengths mislabelled as vacuum. Confirmed via NIST Ca II 8542 = 854.209 nm (air) matching CSV, while Gaia spectrum shows dip at ~854.4 nm (vacuum). Task 15 created. |
