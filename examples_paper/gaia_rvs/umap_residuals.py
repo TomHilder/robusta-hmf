@@ -14,6 +14,9 @@ RESIDUALS_DIR = Path("./residuals")
 PLOTS_DIR = Path("./plots_analysis")
 BEST_MODEL_METRIC = "std_z"
 
+# Filter out sources that are outliers in only some of the bins they belong to
+FILTER_INCONSISTENT = False
+
 
 def get_i_bin(fname):
     # f"{source_id}_residual_bin_{i_bin:02d}.npy"
@@ -113,6 +116,68 @@ def load_residuals_and_metadata(residuals_dir=RESIDUALS_DIR):
     }
 
     return all_residuals, metadata
+
+
+def filter_inconsistent_outliers(
+    all_residuals,
+    metadata,
+    plots_dir=PLOTS_DIR,
+    best_model_metric=BEST_MODEL_METRIC,
+):
+    """
+    Remove sources that belong to >1 bin but are outliers in only some.
+
+    Keeps: single-bin outliers + multi-bin outliers that are flagged in ALL bins.
+
+    Returns filtered copies of all_residuals and metadata.
+    """
+    import pandas as pd
+
+    plots_dir = Path(plots_dir) / best_model_metric
+
+    # Build bin membership from all_source_ids.npy
+    source_to_bins = {}
+    for d in sorted(plots_dir.glob("bin_*")):
+        sids_path = d / "all_source_ids.npy"
+        if sids_path.exists():
+            i_bin = int(d.name.split("_")[1])
+            for sid in np.load(sids_path):
+                source_to_bins.setdefault(int(sid), set()).add(i_bin)
+
+    # Build outlier membership from outliers.csv
+    source_to_outlier_bins = {}
+    for d in sorted(plots_dir.glob("bin_*")):
+        csv_path = d / "outliers.csv"
+        if csv_path.exists() and csv_path.stat().st_size > 0:
+            try:
+                df = pd.read_csv(csv_path)
+                i_bin = int(d.name.split("_")[1])
+                for sid in df["source_id"]:
+                    source_to_outlier_bins.setdefault(int(sid), set()).add(i_bin)
+            except pd.errors.EmptyDataError:
+                pass
+
+    # Find sources to exclude: belong to >1 bin, outlier in < all bins
+    exclude_sids = set()
+    for sid, member_bins in source_to_bins.items():
+        if len(member_bins) <= 1:
+            continue
+        outlier_bins = source_to_outlier_bins.get(sid, set())
+        if len(outlier_bins) > 0 and not outlier_bins >= member_bins:
+            exclude_sids.add(sid)
+
+    # Filter
+    keep = np.array([int(sid) not in exclude_sids for sid in metadata["source_id"]])
+    n_removed = np.sum(~keep)
+    print(
+        f"Filtered {n_removed} residuals from {len(set(metadata['source_id'][~keep]))} "
+        f"inconsistent sources (outlier in some but not all bins)"
+    )
+
+    filtered_residuals = all_residuals[keep]
+    filtered_metadata = {k: v[keep] for k, v in metadata.items()}
+
+    return filtered_residuals, filtered_metadata
 
 
 def plot_umap(
@@ -281,9 +346,13 @@ def plot_umap_interactive(
         present_bins = sorted(set(int(b) for b in unique_bins))
         handles = [
             plt.Line2D(
-                [0], [0],
-                marker="o", color="w", label=f"Bin {b}",
-                markerfacecolor=cols[b], markersize=6,
+                [0],
+                [0],
+                marker="o",
+                color="w",
+                label=f"Bin {b}",
+                markerfacecolor=cols[b],
+                markersize=6,
             )
             for b in present_bins
         ]
@@ -291,14 +360,18 @@ def plot_umap_interactive(
     else:
         if cmap is None:
             cmap = {
-                "bp_rp": "RdYlBu_r", "abs_mag_G": "viridis",
-                "parallax": "magma", "phot_g_mean_mag": "viridis",
+                "bp_rp": "RdYlBu_r",
+                "abs_mag_G": "viridis",
+                "parallax": "magma",
+                "phot_g_mean_mag": "viridis",
                 "score": "viridis_r",
             }.get(color_by, "viridis")
 
         label = {
-            "bp_rp": "BP - RP", "abs_mag_G": "Absolute G Magnitude",
-            "parallax": "Parallax [mas]", "phot_g_mean_mag": "G-band Apparent Magnitude",
+            "bp_rp": "BP - RP",
+            "abs_mag_G": "Absolute G Magnitude",
+            "parallax": "Parallax [mas]",
+            "phot_g_mean_mag": "G-band Apparent Magnitude",
             "score": "Outlier Score",
         }.get(color_by, color_by)
 
@@ -339,6 +412,9 @@ def plot_umap_interactive(
 
 if __name__ == "__main__":
     all_residuals, metadata = load_residuals_and_metadata()
+
+    if FILTER_INCONSISTENT:
+        all_residuals, metadata = filter_inconsistent_outliers(all_residuals, metadata)
 
     # UMAP
     reducer = umap.UMAP(random_state=1)

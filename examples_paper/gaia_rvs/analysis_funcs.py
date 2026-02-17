@@ -1413,6 +1413,14 @@ def plot_spectrum_residual(
     except Exception as e:
         print(f"Warning: Could not add line markers: {e}")
 
+    # Fine tick marks for wavelength calibration checking
+    from matplotlib.ticker import MultipleLocator
+    for ax in axes:
+        ax.xaxis.set_major_locator(MultipleLocator(1.0))
+        ax.xaxis.set_minor_locator(MultipleLocator(0.2))
+        ax.tick_params(which="minor", length=3)
+        ax.tick_params(which="major", length=6)
+
     plt.tight_layout()
 
     # Filename with all relevant info
