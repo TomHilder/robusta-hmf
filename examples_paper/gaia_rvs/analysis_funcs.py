@@ -9,6 +9,7 @@ from pathlib import Path
 
 import jax
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator
 import numpy as np
 import pandas as pd
 from bins import build_all_bins
@@ -1336,6 +1337,67 @@ def plot_outliers_on_hr(
     return save_path
 
 
+def _make_residual_figure(
+    λ_grid, flux, reconstruction, residual, source_id,
+    i_bin, idx, per_object_weight, best_K, best_Q,
+    lines, line_kwargs,
+):
+    """Create a single residual figure with the given line marker settings."""
+    fig, axes = plt.subplots(2, 1, figsize=(12, 8), dpi=150, sharex=True)
+
+    # Top panel: spectrum and reconstruction
+    axes[0].plot(λ_grid, flux, c="k", lw=0.8, label="Observed", alpha=0.8)
+    axes[0].plot(
+        λ_grid, reconstruction, c="C2", lw=0.8, label="Reconstruction", alpha=0.8
+    )
+    axes[0].set_ylabel("Normalised flux")
+    axes[0].legend(loc="upper right")
+    axes[0].set_title(
+        f"Bin {i_bin} | idx {idx} | source_id {source_id} | "
+        f"K={best_K} Q={best_Q:.2f} | median weight={per_object_weight:.3f}"
+    )
+
+    # Bottom panel: residual
+    axes[1].plot(λ_grid, residual, c="k", lw=0.5, label="Residual")
+    axes[1].set_ylabel("Residual")
+    axes[1].set_xlabel("Wavelength [nm]")
+
+    # Add spectral line markers to both panels
+    if lines is not None:
+        try:
+            for ax in axes:
+                add_line_markers(ax=ax, lines=lines, **line_kwargs)
+        except Exception as e:
+            print(f"Warning: Could not add line markers: {e}")
+
+    # Fine tick marks
+    for ax in axes:
+        ax.xaxis.set_major_locator(MultipleLocator(1.0))
+        ax.xaxis.set_minor_locator(MultipleLocator(0.2))
+        ax.tick_params(which="minor", length=3)
+        ax.tick_params(which="major", length=6)
+
+    plt.tight_layout()
+    return fig
+
+
+# Line set variants: (subdirectory name or None for main, show_kwargs)
+LINE_SET_VARIANTS = [
+    (None, dict(
+        show_strong=True, show_abundance=False, show_cn=False, show_dib=False,
+    )),
+    ("abundance_lines", dict(
+        show_strong=False, show_abundance=True, show_cn=False, show_dib=False,
+    )),
+    ("cn_bands", dict(
+        show_strong=False, show_abundance=False, show_cn=True, show_dib=False,
+    )),
+    ("all_lines", dict(
+        show_strong=True, show_abundance=True, show_cn=True, show_dib=True,
+    )),
+]
+
+
 def plot_spectrum_residual(
     λ_grid,
     flux,
@@ -1352,6 +1414,10 @@ def plot_spectrum_residual(
 ):
     """
     Plot spectrum with reconstruction and residuals.
+
+    Creates the main plot (strong features only) in save_dir, plus variant
+    plots with different line sets in subdirectories (abundance_lines/,
+    cn_bands/, all_lines/).
 
     Parameters
     ----------
@@ -1380,60 +1446,38 @@ def plot_spectrum_residual(
     save_dir.mkdir(parents=True, exist_ok=True)
 
     residual = flux - reconstruction
-
-    fig, axes = plt.subplots(2, 1, figsize=(12, 8), dpi=150, sharex=True)
-
-    # Top panel: spectrum and reconstruction
-    axes[0].plot(λ_grid, flux, c="k", lw=0.8, label="Observed", alpha=0.8)
-    axes[0].plot(λ_grid, reconstruction, c="C2", lw=0.8, label="Reconstruction", alpha=0.8)
-    axes[0].set_ylabel("Normalised flux")
-    axes[0].legend(loc="upper right")
-    axes[0].set_title(
-        f"Bin {i_bin} | idx {idx} | source_id {source_id} | "
-        f"K={best_K} Q={best_Q:.2f} | median weight={per_object_weight:.3f}"
-    )
-
-    # Bottom panel: residual
-    ax_resid = axes[1]
-    ax_resid.plot(λ_grid, residual, c="k", lw=0.5, label="Residual")
-    ax_resid.set_ylabel("Residual")
-    ax_resid.set_xlabel("Wavelength [nm]")
-
-    # Add spectral line markers (strong lines only)
-    try:
-        lines = load_linelists()
-        add_line_markers(
-            ax=ax_resid,
-            lines=lines,
-            show_strong=True,
-            show_abundance=False,
-            show_cn=False,
-            show_dib=False,
-        )
-    except Exception as e:
-        print(f"Warning: Could not add line markers: {e}")
-
-    # Fine tick marks for wavelength calibration checking
-    from matplotlib.ticker import MultipleLocator
-    for ax in axes:
-        ax.xaxis.set_major_locator(MultipleLocator(1.0))
-        ax.xaxis.set_minor_locator(MultipleLocator(0.2))
-        ax.tick_params(which="minor", length=3)
-        ax.tick_params(which="major", length=6)
-
-    plt.tight_layout()
-
-    # Filename with all relevant info
     filename = (
         f"bin_{i_bin:02d}_K{best_K}_Q{best_Q:.2f}_"
         f"idx_{idx:05d}_srcid_{source_id}_weight_{per_object_weight:.3f}.pdf"
     )
-    save_path = save_dir / filename
-    plt.savefig(save_path, bbox_inches="tight")
 
-    if show:
-        plt.show()
-    plt.close()
+    # Load line lists once for all variants
+    try:
+        lines = load_linelists()
+    except Exception as e:
+        print(f"Warning: Could not load line lists: {e}")
+        lines = None
+
+    save_path = None
+    for subdir, line_kwargs in LINE_SET_VARIANTS:
+        fig = _make_residual_figure(
+            λ_grid, flux, reconstruction, residual, source_id,
+            i_bin, idx, per_object_weight, best_K, best_Q,
+            lines, line_kwargs,
+        )
+
+        if subdir is None:
+            variant_path = save_dir / filename
+            save_path = variant_path
+        else:
+            variant_dir = save_dir / subdir
+            variant_dir.mkdir(parents=True, exist_ok=True)
+            variant_path = variant_dir / filename
+
+        plt.savefig(variant_path, bbox_inches="tight")
+        if subdir is None and show:
+            plt.show()
+        plt.close(fig)
 
     return save_path
 
