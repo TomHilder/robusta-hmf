@@ -119,16 +119,54 @@ def summarise(
         print(f"\nSaved combined outlier summary to {csv_path}")
         print(f"Total outliers: {len(all_outliers_df)}")
 
-        # Check for duplicates
-        duplicate_sources = all_outliers_df[
-            all_outliers_df.duplicated("source_id", keep=False)
-        ]
-        if len(duplicate_sources) > 0:
-            n_unique_duplicates = duplicate_sources["source_id"].nunique()
+        # Cross-bin outlier consistency analysis
+        # 1. Build bin membership: which bins does each source belong to?
+        source_to_bins = {}  # source_id -> set of bin indices
+        for i_bin in bins_to_summarise:
+            sids_path = plots_dir / f"bin_{i_bin:02d}" / "all_source_ids.npy"
+            if sids_path.exists():
+                sids = np.load(sids_path)
+                for sid in sids:
+                    source_to_bins.setdefault(int(sid), set()).add(i_bin)
+
+        # 2. For outlier sources, compare bins-as-outlier vs bins-as-member
+        outlier_source_ids = all_outliers_df["source_id"].unique()
+        outlier_bins = all_outliers_df.groupby("source_id")["bin"].apply(set)
+
+        n_multi_bin_member = 0  # outliers that belong to >1 bin
+        n_outlier_in_all = 0  # of those, outlier in ALL their bins
+        n_outlier_in_some = 0  # of those, outlier in only SOME bins
+
+        for sid in outlier_source_ids:
+            member_bins = source_to_bins.get(int(sid), set())
+            if len(member_bins) <= 1:
+                continue
+            n_multi_bin_member += 1
+            o_bins = outlier_bins.get(sid, set())
+            if o_bins >= member_bins:  # outlier in all bins it belongs to
+                n_outlier_in_all += 1
+            else:
+                n_outlier_in_some += 1
+
+        print(f"Unique outlier sources: {len(outlier_source_ids)}")
+        if n_multi_bin_member > 0:
+            print(f"Outlier sources belonging to >1 bin: {n_multi_bin_member}")
             print(
-                f"Found {n_unique_duplicates} sources appearing as "
-                f"outliers in multiple bins"
+                f"  Outlier in ALL their bins: {n_outlier_in_all} "
+                f"({100 * n_outlier_in_all / n_multi_bin_member:.1f}%)"
             )
+            print(
+                f"  Outlier in only SOME bins: {n_outlier_in_some} "
+                f"({100 * n_outlier_in_some / n_multi_bin_member:.1f}%)"
+            )
+        else:
+            if len(source_to_bins) == 0:
+                print(
+                    "No all_source_ids.npy files found — "
+                    "re-run analyse_bins.py to generate them"
+                )
+            else:
+                print("No outlier sources belong to multiple bins")
     else:
         all_outliers_df = pd.DataFrame()
         print("\nNo outliers found across any bins")

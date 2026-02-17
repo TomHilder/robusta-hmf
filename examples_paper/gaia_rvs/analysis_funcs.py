@@ -469,6 +469,7 @@ def save_bin_results(analysis, plots_dir, results_dir):
     - {plots_dir}/bin_{i:02d}/summary.json — summary metadata
     - {results_dir}/inferred_all_data_R{K}_Q{Q:.2f}_bin_{i}.npz — A + G matrices
     - {plots_dir}/bin_{i:02d}/all_outlier_scores.npy — per-object scores for ALL spectra
+    - {plots_dir}/bin_{i:02d}/all_source_ids.npy — source IDs for ALL spectra in this bin
     - {plots_dir}/bin_{i:02d}/outlier_data.npz — data needed to re-plot outliers
     """
     a = analysis
@@ -502,6 +503,9 @@ def save_bin_results(analysis, plots_dir, results_dir):
 
     # 4. Per-object scores for ALL spectra (for cross-bin histograms etc.)
     np.save(bin_plots_dir / "all_outlier_scores.npy", a.outlier_scores)
+
+    # 5. All source IDs in this bin (for cross-bin membership analysis)
+    np.save(bin_plots_dir / "all_source_ids.npy", a.source_ids)
 
     # 5. Outlier data for re-plotting (flux, reconstruction, weights, scores, ids, λ)
     outlier_flux = a.all_Y[a.outlier_indices]
