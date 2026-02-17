@@ -6,6 +6,16 @@
 *.png
 *.json
 
+# Latex
+*.aux
+*.synctex.gz
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.bbl
+*.blg
+
 # vscode
 .vscode/
 
