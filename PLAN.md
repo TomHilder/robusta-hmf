@@ -26,7 +26,7 @@ To be defined with user.
 | 12 | Save all per-object outlier scores + fix empty CSV crash | done | — | Added all_outlier_scores.npy saving. Fixed summarise_bins.py crash on bins with 0 outliers. Updated plot_hist_stack.py to use saved scores. |
 | 13 | UMAP residuals: metadata coloring + interactive click-to-open | done | — | Rewrote umap_residuals.py: loads bp_rp, abs_mag_G, score per outlier from metadata CSV + saved npz. Interactive mode opens residual PDF on click. |
 | 14 | Save all_source_ids.npy + cross-bin outlier consistency | done | — | save_bin_results() saves all_source_ids.npy. summarise_bins.py reports multi-bin outlier consistency. save_source_ids.py one-off script. UMAP filtering of inconsistent outliers. |
-| 15 | Fix line list air-to-vacuum wavelengths | pending | — | CSV files (rvs_strong_features.csv etc.) have air wavelengths labelled as vacuum. Need to verify a sample of lines against NIST, then convert all to true vacuum. |
+| 15 | Fix line list air-to-vacuum wavelengths | done | — | Verified 10 lines (Ca II, N I, Fe I, Si I) against NIST — all match air. Applied Edlen/Morton conversion to all 5 CSV files. CSVs are gitignored; convert_air_to_vacuum.py committed for reference. |
 
 ## Decisions
 
@@ -45,9 +45,9 @@ Record key decisions here as they are made. Append only — do not delete previo
 _Updated at the end of each session or major phase._
 
 **Last updated**: 2026-02-17
-**Status**: Tasks 11–14 complete. Task 15 (line list air-to-vacuum fix) pending.
-**Next steps**: Fix line list CSVs — verify sample of lines against NIST air values, then apply air-to-vacuum conversion to all CSVs. Then re-plot.
-**Resume instructions**: Read this file top-to-bottom to pick up context. See CLAUDE.md for project conventions. Run scripts from `examples_paper/gaia_rvs/` using `builtin cd <path> && uv run python <script>`. NEVER use `builtin uv`. Key finding: rvs_strong_features.csv (and likely other line list CSVs) contain air wavelengths mislabelled as `lambda_vac_nm`. Confirmed by checking Ca II 8542 against NIST (854.209 nm = air) and observing the absorption dip at ~854.4 nm in the vacuum-calibrated Gaia spectra.
+**Status**: Tasks 1–15 complete.
+**Next steps**: Re-run `replot_outliers.py` to regenerate residual plots with corrected line markers. Verify line markers now align with spectral features. Then continue with next task (TBD).
+**Resume instructions**: Read this file top-to-bottom to pick up context. See CLAUDE.md for project conventions. Run scripts from `examples_paper/gaia_rvs/` using `builtin cd <path> && uv run python <script>`. NEVER use `builtin uv`. Line list CSVs now contain correct vacuum wavelengths (converted from air via convert_air_to_vacuum.py).
 
 ## Log
 
@@ -68,3 +68,4 @@ _Updated at the end of each session or major phase._
 | 2026-02-17 | Task 13: Rewrote umap_residuals.py — loads metadata (bp_rp, abs_mag_G, score, etc.) from CSV + saved npz. Supports coloring by any property. Added interactive mode: click point to open residual PDF in Preview. |
 | 2026-02-17 | Task 14: Added all_source_ids.npy saving, cross-bin outlier consistency reporting in summarise_bins.py, UMAP filtering of inconsistent outliers, save_source_ids.py one-off script. |
 | 2026-02-17 | Discovered line list CSVs have air wavelengths mislabelled as vacuum. Confirmed via NIST Ca II 8542 = 854.209 nm (air) matching CSV, while Gaia spectrum shows dip at ~854.4 nm (vacuum). Task 15 created. |
+| 2026-02-17 | Task 15: Verified 10 lines across Ca II (3), N I (4), Fe I (2), Si I (1) against NIST — all match air wavelengths exactly. Applied Edlen/Morton air-to-vacuum conversion (~0.234 nm shift at 850 nm) to all 5 CSV files. CSVs are gitignored; convert_air_to_vacuum.py committed for reference. |
