@@ -27,6 +27,7 @@ To be defined with user.
 | 13 | UMAP residuals: metadata coloring + interactive click-to-open | done | — | Rewrote umap_residuals.py: loads bp_rp, abs_mag_G, score per outlier from metadata CSV + saved npz. Interactive mode opens residual PDF on click. |
 | 14 | Save all_source_ids.npy + cross-bin outlier consistency | done | — | save_bin_results() saves all_source_ids.npy. summarise_bins.py reports multi-bin outlier consistency. save_source_ids.py one-off script. UMAP filtering of inconsistent outliers. |
 | 15 | Fix line list air-to-vacuum wavelengths | done | — | Verified 10 lines (Ca II, N I, Fe I, Si I) against NIST — all match air. Applied Edlen/Morton conversion to all 5 CSV files. CSVs are gitignored; convert_air_to_vacuum.py committed for reference. |
+| 16 | Line markers on top panel + variant line-set plots | done | — | Refactored plot_spectrum_residual(): markers on both panels, 4 variants (strong, abundance, CN, all) saved in subdirs. |
 
 ## Decisions
 
@@ -45,8 +46,8 @@ Record key decisions here as they are made. Append only — do not delete previo
 _Updated at the end of each session or major phase._
 
 **Last updated**: 2026-02-17
-**Status**: Tasks 1–15 complete.
-**Next steps**: Re-run `replot_outliers.py` to regenerate residual plots with corrected line markers. Verify line markers now align with spectral features. Then continue with next task (TBD).
+**Status**: Tasks 1–16 complete.
+**Next steps**: Re-run `replot_outliers.py` to regenerate residual plots with line markers on both panels + variant subdirectories. Verify line markers align with spectral features. Then continue with next task (TBD).
 **Resume instructions**: Read this file top-to-bottom to pick up context. See CLAUDE.md for project conventions. Run scripts from `examples_paper/gaia_rvs/` using `builtin cd <path> && uv run python <script>`. NEVER use `builtin uv`. Line list CSVs now contain correct vacuum wavelengths (converted from air via convert_air_to_vacuum.py).
 
 ## Log
@@ -69,3 +70,4 @@ _Updated at the end of each session or major phase._
 | 2026-02-17 | Task 14: Added all_source_ids.npy saving, cross-bin outlier consistency reporting in summarise_bins.py, UMAP filtering of inconsistent outliers, save_source_ids.py one-off script. |
 | 2026-02-17 | Discovered line list CSVs have air wavelengths mislabelled as vacuum. Confirmed via NIST Ca II 8542 = 854.209 nm (air) matching CSV, while Gaia spectrum shows dip at ~854.4 nm (vacuum). Task 15 created. |
 | 2026-02-17 | Task 15: Verified 10 lines across Ca II (3), N I (4), Fe I (2), Si I (1) against NIST — all match air wavelengths exactly. Applied Edlen/Morton air-to-vacuum conversion (~0.234 nm shift at 850 nm) to all 5 CSV files. CSVs are gitignored; convert_air_to_vacuum.py committed for reference. |
+| 2026-02-17 | Task 16: Refactored plot_spectrum_residual() — line markers now on both panels; generates 4 variants (strong/abundance/CN/all) with subdirs per bin folder. Extracted _make_residual_figure() helper + LINE_SET_VARIANTS config. |
