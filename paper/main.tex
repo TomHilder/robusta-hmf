@@ -179,7 +179,7 @@ The outliers appear explicitly in the above, but we do not model them as an expl
 The choice of the rank $K$, or the number of basis vectors to include, is a hyperparameter to be set by the user.
 Unlike in PCA, $K$ cannot be chosen \emph{after} fitting, since the choice of $K$ will affect the inferred basis.
 
-We then make the following assumptions:
+We then make the following assumptions: \hoggtodo{Comment on whether this is the right set of assumptions in your view}
 \begin{enumerate}
     \item \textbf{Unreliable measurement uncertainties}: The data $y_{ij}$ have known, Gaussian measurement uncertainties $\sigma_{ij}$, although these may not all be \emph{representative} in that some $y_{ij}$ may be outliers or have underestimated $\sigma_{ij}$.
     \item \textbf{Heteroskedasticity}: The measurement uncertainties $\sigma_{ij}$ may vary for different $i,j$.
@@ -328,6 +328,7 @@ The following metric should then be calculated using the test set data $y_{*j}$,
 \end{align}
 This essentially tests the degree to which the data, after fitting, follow the distribution given by the likelihood in Eq~\eqref{eq:hierachical_like}, using the residuals weighted by the inferred weights.
 That is, we expect the data to follow a normal distribution centred on the fitted model, with a standard deviation equal to the inferred weights $\tau_{*j}=(w_{*j}^{\rm total})^{-1/2}$.
+\hoggtodo{Requesting reassurance or comment or edit on the framing of the test I propose. I would prefer not to change it, because I both like it, and also that everything is currently already run assuming it.}
 
 \subsubsection{Pixel- and spectrum-level outlier identification} \label{sec:outlier_id}
 
@@ -347,6 +348,7 @@ In that case, the minimum or the 0.01 quantile weight per object, might be bette
 Alternatively, one could look for contiguous stretches of pixels with an average weight below a threshold.
 We will demonstrate using the mean per-spectrum weight in the toy example (Section~\ref{sec:toy}), and using the 0.01 quantile in the Gaia example (Section~\ref{sec:gaia}).
 
+\hoggtodo{Comment on whether this is the right amount of detail and right framing for this discussion here:}
 As we hinted at in Section~\ref{sec:assumptions}, the degree to which these weights can be used to identify outliers depends on the investigators beliefs about the data, in particular arround the provided data uncertainties.
 Spectra with underestimated uncertainties can easily appear outliers via these metrics, since they will also recieve downweighting.
 This is somewhat remediated by also inspecting the residual between the data and the model, because objects that are not outliers but merely had underestimated uncertainties should still be well described by the inferred basis.
@@ -387,9 +389,10 @@ The exact details of the basis function functional form, the random sampling use
 We fit the model with 35 different combinations of the hyperparameters $Q$ and $K$ to the same random subset of 4000 spectra, with the other 4000 held out for validation.
 The values of $Q$ were chosen to span a range from very aggressive downweighting of outliers ($Q=0.5$) to very little downweighting at all ($Q=10$), and the values of $K$ were chosen to span a range from underfitting ($K=3$) to overfitting ($K=7$) the true underlying model.
 The values we tested were $Q\in\left\{ 0.5, 1, 2, 3, 4, 5, 10\right\}$ and $K\in\left\{ 3, 4, 5, 6, 7\right\}$.
-For each fit, we initialized with an SVD, and iterated the algorithm until the maximum fractional change in any entry of ${\bf G}$ was less than $10^{-2}$ \tom{this is maybe a bit low, but it doesn't seem to matter much. Happy to redo it before submission if desired}, checking for convergence every 10 cycles.
+For each fit, we initialized with an SVD, and iterated the algorithm until the maximum fractional change in any entry of ${\bf G}$ was less than $10^{-2}$ \hoggtodo{this is maybe a bit low, but it doesn't seem to matter much. Happy to redo it before submission if desired}, checking for convergence every 10 cycles.
 
 We also fit a standard PCA model, and a robust PCA (RPCA) model using the method of \citet{candes2011} as implemented in the \texttt{robust-pca} Python package \citep{ganguli2026}.
+\hoggtodo{happy to remove comparison if desired.}
 For both of these we used the same training set as in the RHMF case, and stuck to the true underlying model rank of $K=5$ as a best-case scenario for these methods.
 Since these methods do not support providing data weights nor missing data, we set the missing data points to zero and ignored the measurement uncertainties.
 Given that the data points in the spectra are all near 1, it might be more realistic for this case to set the missing data points to 1, or to the mean of the dataset, or similar. 
