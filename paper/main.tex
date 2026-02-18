@@ -590,10 +590,26 @@ Throwing the residuals of all the outliers into UMAP thus seems like a nice way 
 
 \tom{Still rough draft.}
 
-The usefulness of the robustness of the model is two-fold, one can either learn what to ignore, or what to investigate.
-We showed in our toy example that this approach does not suffer the issue of outliers spoiling the eigenvectors.
-We do this without any ad-hoc sigma-clipping, instead taking a purely data-driven approach with a probabilistic interpretation, in that we are marginalizing over our ignorance about the true uncertainties by using the measurement uncertainties as a prior.
-We also provide relaxed assumptions about the noise distribution, and bad pixels do not ruin rectangularity.
+% Section outline:
+% \begin{enumerate}
+%     \item Little summmary bit
+%     \item Importance of cross-validation and validation metric. Why did we pick the metric we did, what are and aren't the viable alternatives?
+%     \item Outlier identification in practice, and in the context of our results. Toy model was clearly cleaner than some of the hotter star bins from the Gaia sample.
+%     \item Main caveats
+%     \end{itemize}
+%     \item Ways to weaken assumptions
+%     \item Extensions (non-pixel space, regularisation, hierarchical weights updating rules)
+%     \item Other?
+% \end{enumerate}
+
+%%% LITTLE SUMMARY
+
+We presented a robust version of heteroskedastic matrix factorization, which we have called Robust HMF or RHMF.
+RHMF has the nice properties of both HMF and robust methods, in that it can handle missing data, heteroskedastic noise, and outliers, all in a principled way.
+The usefulness of a model of this kind is two-fold: one may care about the low-rank structure without being burdened by outliers, or one can use the inference to identify outliers and then investigate them further.
+We demonstrated mostly the former in the toy example, and the latter in the Gaia example, but of course both can be done in either case.
+
+%%% CV STUFF
 
 Validation metric cannot be prediction performance on held-out data because there simply is not enough information.
 We could always score better by increasing $K$.
@@ -604,24 +620,14 @@ We can circumvent this problem by doing something Bayesian-ish, because our opti
 [Tom to think about this more carefully but] this effectively gives us some posterior-ish information in terms of a predictive distribution type thing.
 The metric we propose in this paper leverages this by simply comparing the distribution of z-scores obtained with our inferred weights from that which the likelihood predicts.
 
+%%% OUTLIER ID
 
-F1 stays high at larger Q where CV degrades - this makes sense because aggressive downweighting still correctly identifies outliers  
-  (high F1) but may over-fit the remaining data (worse CV).
-
-Straightforward to extend the model to have any kind of regularisation, or to change from a pixel basis to something like sines and cosines, which will be the subject of a future paper.
-
-Unlike PCA the rank must be determined before the fit, we can't just pick the top K components after the fact.
-
-The method also comes along with a scalar objective function, which means that in principal it could be trained with stochastic gradient descent methods and mini-batching, and so can potentially scale to massive data sets, although that's beyond scope here.
-The main issue would be intialising without an SVD, but I think really you would just intialise on a small subsample of the full dataset and that would be fine.
-All that matters is that you can learn the basis functions, since the coefficients are completely determined by that.
+F1 stays high at larger Q where CV degrades - this makes sense because aggressive downweighting still correctly identifies outliers (high F1) but may over-fit the remaining data (worse CV).
 
 Lack of dependence on K for F1 is probably because the outliers really do not share any low-rank structure.
 If they did, then sensitivity to K would occur.
 CV version: This is likely explained by the fact that our underlying true model is really linear with rank 5, and that the outlier population shares no significant low-rank structure.
 In more realistic cases, it is possible that choosing a $K$ too large would degrade the performance more signicantly.
-
-Possible failure modes and stuff we give up with our assumptions.
 
 A case of interest is comprised of a two classes of object, where the first class is the vast majority, and where there is shared low-rank structure within but not between the classes.
 In this case, the second class could be considered outliers, or not.
@@ -632,13 +638,65 @@ The realistic case is much more of a sparse continuum, and so a bit complicated.
 Empirical finding that changing $Q$ to be more or less aggressive doesn't seem to change the ordering of the weights.
 I'm not sure how general this is but it feels right anyway.
 
-In the toy example, we know we have exactly accurately characterized uncertainties.
+%%% CAVEATS
 
-In the gaia example, maybe $K$ needed to be higher for the hotter stars.
+% Possible failure modes and stuff we give up with our assumptions.
+
+% \begin{itemize}
+%     \item Must determine K before the fit unlike PCA, can't just pick the top K components after the fact.
+%     \item If the outliers share low-rank structure, then at large enough K the model will capture that structure, and thus not identify those objects as outliers. This is a fundamental limitation of any method that relies on low-rank structure to identify outliers, and so it is up to the investigator to decide whether or not the model should be flexible enough to capture this second ``class'' of objects.
+%     \item 
+% \end{itemize}
+
+An important caveat to the model that makes things a bit more annoying in practice, is that the inferred basis vectors depend on the chosen rank $K$, which therefore must be chosen before fitting.
+This is not the case in PCA and RPCA, where one can just pick the top $K$ components after the fact.
+The annoyance is that the workflow is then different to PCA, since it's not a matter of adding basis vectors until the knee in the explained variance curve, but rather of picking $K$ before the fit, and then doing cross-validation to check if that choice was good.
+
+Another point already alluded to is that the outlier identification is going to be sensitive to the choice of $K$ if the outliers share some low-rank structure between them.
+For the toy example, this wasn't really a problem, because we specifically designed the outliers not to share low-rank structure.
+The Gaia RVS example, more realisitically, has a continuum from stuff that's slightly weird to stuff that's super weird.
+The things one might consider ``outliers'' thus may actually constitute an additional class of similar objects with similar spectra.
+Identification of this kind of outlier will be sensitive to $K$.
+
+More reassuringly, we also tried a range of $K$ and $Q$ values for the Gaia example, and we found that mostly it was the same objects that were identified as outliers.
+Increasing $K$ or $Q$ did reduce the number of outliers found, but in a way that only increased the false negative rate, and not the false positive rate, which is arguably more imporant when fishing for weird stuff.
+
+For the toy example, we know for sure that our uncertainties are accurately characterised.
+As we alluded to in Section~\ref{sec:assumptions}, the model is fundamentally unable to distinguish between outliers, poorly characterised noise, and a point that is just really unlikely.
+In all cases, the robust weight will be decreased during fitting to reduce the influence of the point.
+This means that outlier identitication when you don't know the noise properties well is fraught.
+On the other hand, if you don't care about whether individual points are outliers, and just wnat a good basis, then it doesn't matter.
+
+%%% WAYS TO WEAKEN ASSUMPTIONS
+
+You can handle non-Gaussian noise by changing the likelihood function, which changes the loss.
+It's slightly complicated by the fact that the neat marginalisation of the prior on the data uncertainties is a special case that is closed form.
+If you want Poisson noise, plus the same inverse gamma prior on the uncertainties, I'm not sure you get a closed form loss with which to derive a weights updating rule.
+Another funny quirk is that if you happen to have noise that is Student-t or Cauchy distributed, this model becomes HMF again and the robustness will vanish.
+The model equivalently describes Gaussian-distributed noise with robustnes, or Student-t-distributed noise.
+Pretty weird.
+
+You can relax the uniform data grid assumption with either a shift operator (you can't infer the shifts but that's probably fine), or by having the basis functions themselves not live on a pixel grid, which would also involve a per-row shift operator that changes where the basis is evaluated.
+Maybe that's the same thing twice actually?
+
+It's also perfectly fine to not have an orthogonal basis, it might just be a bit awkward and cause numerical problems.
+It \emph{is} important to have the rotation step to suppress the massive degeneracy between ${\bf A}$ and ${\bf G}$ as mentioned.
+But, you're free to do whatever you want.
+You could give the orthogonality condition to ${\bf A}$ instead, for example.
+
+%%% EXTENSIONS
+
+The method also comes along with a scalar objective function, which means that in principal it could be trained with stochastic gradient descent methods and mini-batching, and so can potentially scale to massive data sets, although that's beyond scope here.
+The main issue would be intialising without an SVD, but I think really you would just intialise on a small subsample of the full dataset and that would be fine.
+All that matters is that you can learn the basis functions, since the coefficients are completely determined by that.
+
+We could extend the model such that the basis functions do not live on a pixel basis, but rather are something like sines and cosines, or wavelets, or something else.
+Doing sines and cosines with regularisation based on a kernel PSD, would allow the basis functions to be GPs effectively.
+It could be nice to use kernel design to get basis functons!
 
 \section{Conclusion} \label{sec:conclusion}
 
-Concludey stuff.
+Concludey stuff. \hoggtodo{I heard you don't like having a conclusion section. I don't have a strong opinion so we can drop it if you like.}
 
 \appendix
 
@@ -792,43 +850,59 @@ Concludey stuff.
 
 \section{Proof of objective} \label{sec:proof}
 
-[TOM: update now that I am using Student-t not Cauchy.]
+% [TOM: update now that I am using Student-t not Cauchy.]
+
+In Eqns.~\eqref{eq:robust_opt} and \eqref{eq:t_like} we wrote the model as optimizing a Student t likelihood.
+The corresponding negative log-likelihood is
+\begin{align}
+    \mathcal{L}(A,G) = \frac{Q^2}{2} \sum_{ij} \log\left(1 + \frac{r_{ij}^2}{Q^2}\right), \label{eq:t_loss}
+\end{align}
+which is identical to the loss function in Eq~\eqref{eq:robust_opt} up to the constant $Q^2 / 2$, where $r_{ij} = (w_{ij}^{\rm data})^{1/2} (y_{ij} - \sum_{k} a_{ik} g_{kj})$ is now the \emph{data weighted} residual, that is, the residual weighted with the measurement uncertainty weights.
+In the remainder of this section, we prove that the alternating least squares plus weight-updating step algorithm does actually minimize this negative log-likelihood.
 
 \subsection{Auxiliary Form}
 
-Claim: the loss can be expressed for any $r$ in the following way
+\tom{Need to figure out less confusing $w$ notation dealio because it's super confusing that we have $w_{ij}^{\rm data}$ and $w_{ij}$, and things go a bit back and forth. In the derivation I absorb the data weights into the residual, so the weights out the front are just the robust weights, but it's still confusing.}
+
+For convenience, we will drop the $ij$ indices for the parts of the following that are general.
+We claim that the loss Eq.~\eqref{eq:t_loss} for any $r$ can be expressed in the following way
 \begin{equation}
-    \rho(r) = \min_{0<w\leq1} \left[ \tfrac{1}{2} w r^2 + \phi(w) \right],
+    \rho(r) = \min_{0<w\leq1} \left[ \tfrac{1}{2} w r^2 + \phi(w) \right], \label{eq:rho_loss}
 \end{equation}
 where
 \begin{equation}
     \phi(w) = \frac{Q^2}{2}\,(w - 1 - \log w).
 \end{equation}
-Let's prove that. Define
+That is, performing the minimization in Eq~\eqref{eq:rho_loss} is identical to evaluating Eq.~\eqref{eq:t_loss}.
+
+We will now prove the claim. First, define
 \begin{align}
-    J\left( w ; r \right) &= \tfrac{1}{2} w r^2 + \tfrac{Q^2}{2} \left( w - 1 - \log{w}\right)
+    J\left( w ; r \right) &= \tfrac{1}{2} w r^2 + \tfrac{Q^2}{2} \left( w - 1 - \log{w}\right), \label{eq:J_def}
 \end{align}
-Differentiating with respect to $w$:
+where the $;$ notation just indicates that $J$ is a function of $w$ given a particular $r$.
+Differentiating with respect to $w$ gives
 \begin{equation}
     \frac{\partial J}{\partial w} 
     = \tfrac{1}{2}r^2 + \frac{Q^2}{2}\left(1 - \frac{1}{w}\right),
 \end{equation}
-and
+and again
 \begin{align}
     \frac{\partial^2 J}{\partial w^2} = \frac{Q^2}{2} \frac{1}{w^2} > 0, \qquad \forall \, Q,w > 0.
 \end{align}
-thus we know that the critical point minimises $J$.
-Setting $\partial_w J=0$ yields
+Since the second derivative is guaranteed positive, we know that the critical point in $w$ minimises $J$.
+Setting $\partial_w J=0$ to find the critical point $\hat{w}$ yields
 \begin{align}
     \hat{w}(r) &= {\rm argmin}_w \, J (w ; r) \\
-    &= \frac{1}{1 + (r/Q)^2},
+    &= \frac{1}{1 + (r/Q)^2}, \label{eq:w_hat}
 \end{align}
 and note that $\hat{w} \in (0, 1]$ because $(r/Q)^2 \geq 0$.
+% This shows that we can do the minimization Eq.~\eqref{eq:rho_loss} simply by finding $\hat{w}$ with Eq.~\eqref{eq:w_hat}.
+
 We now prove the claim. First set $t = (r/Q)^2 \geq 0$, then
 \begin{equation}
     \hat{w} = \frac{1}{1+t}, \qquad r^2 = Q^2 t,
 \end{equation}
-such that
+and then substitute $\hat{w}$ into Eq.~\eqref{eq:J_def} to fo the minimization in Eq.~\eqref{eq:rho_loss}
 \begin{align}
     J (\hat{w} ; r) &= \tfrac{1}{2} \hat{w} r^2 + \phi(\hat{w}),
 \end{align}
@@ -852,7 +926,9 @@ Define new objective:
 \begin{equation}
     J(A,G,W) = \frac{1}{2}\sum_{ij} \left[ w_{ij} r_{ij}^2 + \phi(w_{ij}) \right],
 \end{equation}
-with $r_{ij} = (Y_{ij} - a_i^\top g_j)/\sigma_{ij}$.
+% with $r_{ij} = (Y_{ij} - a_i^\top g_j)/\sigma_{ij}$.
+where $[A]_{ij} = a_{ij}$, $[G]_{ij} = g_{ij}$, $[W]_{ij} = w_{ij}$, and $r_{ij} = (y_{ij} - \sum_{k} a_{ik} g_{kj})$ is the normalized residual,
+where we have reintroduced the $ij$ indices.
 By construction,
 \begin{equation}
     L(A,G) = \min_W J(A,G,W),
