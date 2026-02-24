@@ -186,6 +186,8 @@ We then make the following assumptions: \hoggtodo{Comment on whether this is the
     \item \textbf{Uniform data grid}: For fixed pixel index $j$, pixel values across all spectra $i$ correspond to the same wavelength.
     \item \textbf{Missing data}: Missing values at particular $y_{ij}$ are handled with vanishing weights by setting the corresponding $w_{ij}=0$, equivalent to infinitely large measurement uncertainties $\sigma_{ij}\rightarrow\infty$.
     \item \textbf{Basis orthogonality}: The inferred basis vectors, and so the rows of $G$, will be strictly orthogonal and ordered by explained variance, similarly to principal component analysis. The rank of the model is restricted to $1 \le K \le N$.
+    \item \textbf{Outlier sparsity}: The outliers in the data are sparse in that the vast majority of the pixels are not outliers.
+    \item \textbf{Outlier uniqueness}: The outliers do not share low-rank structure with one another.
 \end{enumerate}
 
 The fact that the model accounts for outliers by treating them as points with underestimated uncertainties provides one of the most important caveats for the approach; the inability to actually differentiate between the outlier and noise components of the model in Eq~\eqref{eq:model}.
@@ -193,6 +195,8 @@ An outlier, a point with correct ununcertainties but a large noise draw by chanc
 This informs the lack of an explicit sparse outlier component in our model, unlike many previous robust PCA approaches \citep[e.g.][]{candes2011} which did not consider data uncertainities.
 We discuss the implications of this assumption further in the context of outlier identification in Section~\ref{sec:outlier_id}, and of all the assumptions together in Section~\ref{sec:discussion}.
 \hoggtodo{This wording is clunky. An opinionated edit here would be great!}
+
+\tom{I added two new assumptions about the outliers based on writing I've done elsewhere, I think pre-empting these things can mean less text later. Elsewhere will need some reworkign now though.}
 
 \subsection{Robustness}
 
@@ -315,7 +319,7 @@ As a final note, the asymptotic complexity per cycle, assuming that $K \ll N, M$
 As part of fitting the model, the investigator should choose the hyperparameters $Q\in \mathbb{R}^+$ and $K\in \mathbb{Z}^+$.
 Depending on the application, it may be sufficient to set these to reasonable values and move on, but in some cases it may be important to select them more carefully.
 We discuss when hyperparameter choice matters further in Section~\ref{sec:discussion}.
-Assuming that is does matter, we advocate for a held-out data validation approach which is both straightforward and prior-independent.
+Assuming that is does matter, we advocate for a held-out data cross-validation approach which is both straightforward and prior-independent.
 
 The data should be partitioned randomly into a training set, and the model should be fit on the training set only.
 This should be repeated over a grid of $Q$ and $K$ values, and the best-fitting model for each pair of hyperparameters should be used to predict the test set data.
@@ -604,39 +608,47 @@ Throwing the residuals of all the outliers into UMAP thus seems like a nice way 
 
 %%% LITTLE SUMMARY
 
-We presented a robust version of heteroskedastic matrix factorization, which we have called Robust HMF or RHMF.
-RHMF has the nice properties of both HMF and robust methods, in that it can handle missing data, heteroskedastic noise, and outliers, all in a principled way.
+We presented a PCA-like model, which we have called robust heteroskedastic matrix factorization or RHMF.
+RHMF has all the nice properties of both HMF \citep{tsalmantza2012} and robust regression \placeholder{citations}, in that it can handle missing data, heteroskedastic noise, and outliers, all in a principled way.
 The usefulness of a model of this kind is two-fold: one may care about the low-rank structure without being burdened by outliers, or one can use the inference to identify outliers and then investigate them further.
-We demonstrated mostly the former in the toy example, and the latter in the Gaia example, but of course both can be done in either case.
+We demonstrated mostly the former in the toy example, and the latter in the Gaia example.
+Like all models, it has strengths (hopefully demonstrated in the preceeding sections), and shortcomings, which we will discuss below.
 
 %%% CV STUFF
 
-Validation metric cannot be prediction performance on held-out data because there simply is not enough information.
-We could always score better by increasing $K$.
-It's also complicated by the fact that we are deliberately fitting a subset of the data poorly because we believe they are outliers.
-And worse, we don't know what is truly an outlier nor how to ignore it for the sake of quantifying prediction quality.
+Unlike PCA, the number of basis vectors $K$ must be determined before fitting the model.
+One must additionally set the value of the soft outlier threshold $Q$.
+We advocated for a data-driven, cross-validation approach to selecting these hyperparameters through assessing their predictive performance on held-out data.
+Typically, this might be done through some kind of reconstruction loss which would be a summary statistic over the uncertainty-weighted residuals between the prediction and data for the held-out data.
+This approach cannot possibly work for a model such as this, if holding-out whole spectra as we did here.
+Firstly, one must choose between weighting with the data uncertainty weights, or the total weights (including the robust downweighting).
+If one uses the former, they are doomed because increasing $K$ will always do better, because we are accidentally assessing the model's ability to fit the outliers, not ignore them.
+Using the total weights is doomed because the model could be downweighting real features, which should be contributing to the performance metric.
 
-We can circumvent this problem by doing something Bayesian-ish, because our optimized total variances $\tau_{ij}$, $\tau_{*j}$ have actually performed implicit marginalization.
-[Tom to think about this more carefully but] this effectively gives us some posterior-ish information in terms of a predictive distribution type thing.
-The metric we propose in this paper leverages this by simply comparing the distribution of z-scores obtained with our inferred weights from that which the likelihood predicts.
+For these reasons, we argued to do something Bayesian-ish, where we effectively check to see if the residuals for the held-out data, are predicted as according to our hypothesis.
+Models where the residuals look more like the expected distribution are said to have performed better.
+The specific metric we proposed simply looks at the width of the distribution of the z-score obtained with the inferred weights, and compares that width to what is expected from the likelihood (which is unity).
+We could also have compared the mean z-score to 0 instead.
 
 %%% OUTLIER ID
 
-F1 stays high at larger Q where CV degrades - this makes sense because aggressive downweighting still correctly identifies outliers (high F1) but may over-fit the remaining data (worse CV).
+In the toy model, we assessed the outlier identification performance against the true labels through calculating the F1 score over a grid of hyperparameter values.
+Comparing with the cross-validation results, the F1 score per-pixel is maximized by the hyperparameters with the best validation score, and the per-object maximum is nearby.
+This is reassuring as it indicates that the validation metric is a sensible choice.
+Interestingly, the F1 scores only decrease slightly at larger $Q$ where the validation score degrades.
+It's possible that this is caused by the fact that the outliers truly are sparse and without shared low-rank structure, resulting in less-aggressive downweighting still performing well.
+It's unclear if this would generalise to realistic datasets, where the outliers may not quite satisfy those assumptions.
+Similarly, the F1 scores become constant at larger $K$, not degrading at all.
+This is very likely caused by the injected outliers very well satisfying the sparsity and uniqueness assumptions mentioned in Section~\ref{sec:assumptions}, since the outliers truly share no low-rank structure in the toy example.
+More realistically, larger $K$ would degrade F1.
+\tom{this paragraph is a mess and repetitive}
 
-Lack of dependence on K for F1 is probably because the outliers really do not share any low-rank structure.
-If they did, then sensitivity to K would occur.
-CV version: This is likely explained by the fact that our underlying true model is really linear with rank 5, and that the outlier population shares no significant low-rank structure.
-In more realistic cases, it is possible that choosing a $K$ too large would degrade the performance more signicantly.
-
-A case of interest is comprised of a two classes of object, where the first class is the vast majority, and where there is shared low-rank structure within but not between the classes.
-In this case, the second class could be considered outliers, or not.
-Whether or not the model views them as outliers is going to be very sensitive to the hyperparameters.
-If the second class had no shared low-rank structure, this would not be true.
-The realistic case is much more of a sparse continuum, and so a bit complicated.
-
-Empirical finding that changing $Q$ to be more or less aggressive doesn't seem to change the ordering of the weights.
-I'm not sure how general this is but it feels right anyway.
+A simple and realistic example in which the outlier identification becomes fraught, and violates the assumptions of the model, is the following.
+In addition to the main objects of interest making up the majority of the dataset with shared low-rank structure, there exists a second class of rare objects that consititute a small percentage of the population, which also share low-rank structure.
+Lower $K$ will prioritise the common objects and thus identify the second class as outliers. 
+Larger $K$ will able to also fit that second class.
+Whether or not the second class are ``outliers'' is in the eyes of the beholder, but setting $K$ adequately for either view will require to be careful here.
+Of course, the model is still usable and maybe useful even in this case, one just has to be careful.
 
 %%% CAVEATS
 
