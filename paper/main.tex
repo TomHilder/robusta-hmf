@@ -1,25 +1,13 @@
 \documentclass[onecolumn,floatfix]{aastex631}
-% \documentclass[twocolumn,floatfix]{aastex631}
-% \usepackage[letterpaper]{geometry}
-% \usepackage{setspace}
 \usepackage{amsmath}
 \usepackage{amsfonts}
 \usepackage{graphicx}
 \usepackage{xcolor}
 
-% page layout -- the idea is, set text height and width and then set margins to match
-% \setlength{\textheight}{9.00in}
-% \setlength{\textwidth}{5.00in}
-% \setlength{\topmargin}{0.5\paperheight}\addtolength{\topmargin}{-1in}\addtolength{\topmargin}{-0.5\textheight}\addtolength{\topmargin}{-\headsep}\addtolength{\topmargin}{-\headheight}
-% \setlength{\oddsidemargin}{0.5\paperwidth}\addtolength{\oddsidemargin}{-1in}\addtolength{\oddsidemargin}{-0.5\textwidth}
-% \pagestyle{myheadings}
-% \markboth{foo}{\sffamily Hilder \& Hogg / robust heteroskedastic matrix factorization}
-
-% other text layout adjustment commands
-% \renewcommand{\newblock}{} % this adjusts the bibliography style.
-% \setstretch{1.08}
-% \sloppy\sloppypar\raggedbottom
-% \frenchspacing
+\addtolength{\textwidth}{-0.50in}
+\addtolength{\oddsidemargin}{0.25in}
+\setlength{\evensidemargin}{\oddsidemargin}
+\frenchspacing % Hogg won't post to arXiv without this.
 
 % math macros
 \DeclareMathOperator{\rank}{rank}
@@ -31,17 +19,22 @@
 \DeclareMathOperator*{\argmin}{argmin}
 \DeclareMathOperator*{\argmax}{argmax}
 
-\newcommand{\tom}[1]{\textcolor{teal}{\textbf{TH:} #1}}
+\newcommand{\tom}[1]{\textcolor{teal}{\textbf{TH says:} #1}}
+\newcommand{\hogg}[1]{\textcolor{teal}{\textbf{DWH says:} #1}}
 \newcommand{\hoggtodo}[1]{\textcolor{magenta}{\textbf{HOGG TODO:} #1}}
 \newcommand{\placeholder}[1]{\textcolor{blue}{[#1]}}
 
 \begin{document}
 
-\title{Robust Heteroskedastic Matrix Factorization: A PCA Replacement that Flags Outliers and Handles Missing Data \tom{happy for a title rework}}
+\title{Robust Heteroskedastic Matrix Factorization: \\
+  A Replacement for PCA that Flags Outliers and Handles Missing Data \\
+  \hogg{love the 19$^{\mathrm{th}}$\,c. title}}
 \author[0000-0001-7641-5235]{Thomas Hilder}
 \affiliation{School of Physics and Astronomy, Monash University VIC 3800, Australia}
 \author[0000-0003-2866-9403]{David W. Hogg}
-\affiliation{\hoggtodo{Add affiliations}}
+\affiliation{Center for Cosmology and Particle Physics, Department of Physics, New York University, 726~Broadway, New~York, NY~10012,~USA}
+\affiliation{Max-Planck-Institut f\"ur Astronomie, K\"onigstuhl 17, D-69117 Heidelberg, Germany}
+\affiliation{Center for Computational Astrophysics, Flatiron Institute, 162~Fifth~Ave., New~York, NY~10010,~USA}
 
 \begin{abstract}
     We present Robust Heteroskedastic Matrix Factorization (RHMF), a replacement for Principal Component Analysis (PCA) that is robust to outliers, handles per-point uncertainties and missing data, and automatically flags per-point and per-object anomalies.
@@ -53,21 +46,20 @@
 
 \section{Introduction}
 
-\hoggtodo{Comment on intro structure or do edits. I tried to preserve as much of what you were going for, and parts you mentioned liking.}
+% \tom{Define per-data-point and per-object at some point and use it consistently throughout the paper. There could also be per-feature.}
 
-% \tom{Define per-data-point and per-object at some point and use it consistently throughout the paper.}
-
-% \textbf{Motivation:}
-Matrix factorization methods are a workhorse of modern astronomy.
-They offer a data-driven approach to modeling complex datasets, without the need for a detailed physical model, and come with the benefit of being generally fast and straightfoward to fit with numerical linear algebra.
+Matrix factorization methods are workhorses of modern astronomy.
+They offer data-driven approaches to simplifying, de-noising, and lowering the dimensionality of complex datasets, without the need for a detailed physical model. \hogg{You could cite NNMF here, my HMF, maybe factor analysis? and PCA}
+They come with the benefit of being generally fast and straightfoward to fit with numerical linear algebra.
 In stellar spectroscopy, these methods are used to find a low-dimensional embedding of the spectra of a population of stars, which can then be used for parameter estimation \placeholder{citations}, classification \placeholder{citations}, and label transfer \placeholder{citations}.
-In high contract imaging, they are used to build a data-driven model of the quasistatic starlight in a sequence of exposures, in order to subtract that signal from each frame and look for faint companions in the stacked residuals \placeholder{citations}.
-Other examples include \placeholder{brief list with citations} \hoggtodo{Not sure if I should include specific examples. Maybe I shouldn't even say the HCI one in so much detail since it's not the main focus of the paper?}
+In high-contrast imaging, they are used to build a data-driven model of the quasistatic starlight in a sequence of exposures, in order to subtract that signal from each frame and look for faint companions in the stacked residuals \placeholder{citations}.
+\hogg{I like the examples, and on HCI, cite my work with Rob Fergus, which uses PCA. My standard example here would be the original SDSS redshift pipeline, but that's somewhat redundant with your stellar spectra one.}
 
-% \textbf{Problem (PCA explainer):}
-The last universal common ancestor of unsupervised learning methods, and by far the most widely used, is principal component analysis \citep[PCA;][]{pearson1901,hotelling1933}.
+The last universal common ancestor of all matrix-factorization methods, and by far the most widely used, is principal component analysis \citep[PCA;][]{pearson1901,hotelling1933}.
 PCA approximates a full-rank rectangular $N \times M$ data matrix ${\bf Y}$ with a matrix ${\bf L}$ of lower rank $K \le {\rm min} \, (N, M)$ by minimizing the sum of squared residuals between ${\bf Y}$ and ${\bf L}$ \citep{eckart1936}.
-The \emph{components} of PCA are the basis vectors contained in the rows of some $K \times M$ matrix ${\bf G}$, while the \emph{coefficients} are the $N$ rows of some $N \times K$ matrix ${\bf A}$, such that ${\bf L} = {\bf A} {\bf G}$.
+The $K$ \emph{components} delivered by PCA are orthonormal basis vectors contained in the $K$ rows of some $K \times M$ matrix ${\bf G}$, while the \emph{coefficients} are the $N$ columns of some $N \times K$ matrix ${\bf A}$, such that ${\bf L} = {\bf A}\,{\bf G}$.
+\hogg{I reversed rows and columns in the previous sentence; am I wrong?}
+\hogg{I believe that the \emph{multiply} operator is always a thin space. Don't be just putting symbols next to each other.}
 PCA simultaneously learns both the basis vectors and the coefficients, and it has the nice property that the basis vectors are orthogonal and ordered by explained variance.
 
 Like almost all of its machine-learning-method descendants, PCA requires complete, rectangular data and treats every data point as equally important.
@@ -1013,4 +1005,3 @@ This is enough to guarantee that robust HMF with Hogg's w-step converges to the 
 \bibliography{rhmf}
 
 \end{document}
-    
