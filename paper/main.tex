@@ -90,7 +90,8 @@ However, HMF is still very sensitive to outliers and anomalies unless already do
 % \textbf{Our solution:}
 The method we present in this paper is a straightforward generalisation of HMF that adds robustness to outliers through an IRLS scheme, which we call robust-HMF or RHMF.
 It supports missing data, heteroskedasticity and flags and automatically downweights outliers on both a per-data-point and a per-object level.
-The automatic downweighting provides a continuous measure of outlier-y-ness \hoggtodo{Is there a better word than outlier-y-ness?} which can be used to automatically identify anomalous data points and objects, such as unusual spectra or emission lines.
+The automatic downweighting provides a continuous measure of discrepancy (outlier-y-ness, if you will), which can be used to automatically identify anomalous data points and objects, such as unusual spectra or emission lines.
+\hogg{Tom likes long sentences; the previous could be two sentences---it makes two points. Tom should audit the text for long sentences and, when in doubt, split. Our reader will thank us.}
 The algorithm uses a simple alternating linear least squares scheme with provable convergence and competitive performance.
 The model also has a probabilistic interpretation as either heavy-tailed maximal likelihood estimation, or equivalently as a hierarchical Bayesian model with latent variances.
 To our knowledge, no published robust PCA method has all of these properties together.
