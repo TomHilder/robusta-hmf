@@ -40,7 +40,7 @@
   We present Robust Heteroskedastic Matrix Factorization (RHMF), a replacement for Principal Component Analysis (PCA) that is robust to outliers, handles per-point uncertainties and missing data, and automatically flags per-point, per-object, and per-feature anomalies.
   \hogg{I rearranged the abstract slightly and mentioned ``per-feature.'' That latter point needs to be carried through the text.}
   It works by optimizing a likelihood-like objective function that is adaptive to bad data and has a probabilistic interpretation.
-    We deliver a fast JAX implementation, Robusta-HMF, and practical guidance for users.
+    We deliver a fast JAX \hogg{JAX, Jax, or jax?} implementation, Robusta-HMF, and practical guidance for users.
     We demonstrate uses on a toy dataset, on RVS spectra from Gaia DR3, and on \placeholder{DEMO 3}.
     In the Gaia case, outlier detection finds \placeholder{WEIRD STUFF}.
     In \placeholder{DEMO 3}, we accurately recover \placeholder{SOMETHING} despite heteroskedastic noise, hot pixels, missing data, and a variety of outliers.
@@ -701,9 +701,20 @@ We could extend the model such that the basis functions do not live on a pixel b
 Doing sines and cosines with regularisation based on a kernel PSD, would allow the basis functions to be GPs effectively.
 It could be nice to use kernel design to get basis functons!
 
-\section{Conclusion} \label{sec:conclusion}
+\begin{acknowledgments}
+  The authors thank Andy Casey (Monash), Hans-Walter Rix (MPIA), and the Stars group at MPIA for valuable discussions.
+  \hogg{Put grant numbers and acknowledgements here.}
+  The Flatiron Institute is a division of the Simons Foundation.
+  DWH acknowledges that the land politically designated as New York City is the homeland of the Lenape (Lenapehoking), who were unjustly displaced.
+\end{acknowledgments}
 
-Concludey stuff. \hoggtodo{I heard you don't like having a conclusion section. I don't have a strong opinion so we can drop it if you like.}
+\software{
+  Jax \citep{jax} \hogg{how is Jax typeset officially? You have all-caps in the abstract.}
+  \textsl{numpy} \cite{numpy}
+  \hogg{what else?}
+}
+
+\hogg{I generally typeset projects and codebases with textsl, but I don't feel strongly, so \textsl{APOGEE} and \textsl{Jax}.}
 
 \appendix
 
