@@ -20,7 +20,7 @@
 \DeclareMathOperator*{\argmax}{argmax}
 
 \newcommand{\tom}[1]{\textcolor{teal}{\textbf{TH says:} #1}}
-\newcommand{\hogg}[1]{\textcolor{teal}{\textbf{DWH says:} #1}}
+\newcommand{\hogg}[1]{\textcolor{red}{\textbf{DWH says:} #1}}
 \newcommand{\hoggtodo}[1]{\textcolor{magenta}{\textbf{HOGG TODO:} #1}}
 \newcommand{\placeholder}[1]{\textcolor{blue}{[#1]}}
 
@@ -37,9 +37,11 @@
 \affiliation{Center for Computational Astrophysics, Flatiron Institute, 162~Fifth~Ave., New~York, NY~10010,~USA}
 
 \begin{abstract}
-    We present Robust Heteroskedastic Matrix Factorization (RHMF), a replacement for Principal Component Analysis (PCA) that is robust to outliers, handles per-point uncertainties and missing data, and automatically flags per-point and per-object anomalies.
-    We provide Robusta-HMF, a fast JAX implementation, alongside a probabilistic interpretation and practical guidance for users.
-    We demonstrate RHMF on a toy dataset, Gaia RVS spectra, and \placeholder{DEMO 3}.
+  We present Robust Heteroskedastic Matrix Factorization (RHMF), a replacement for Principal Component Analysis (PCA) that is robust to outliers, handles per-point uncertainties and missing data, and automatically flags per-point, per-object, and per-feature anomalies.
+  \hogg{I rearranged the abstract slightly and mentioned ``per-feature.'' That latter point needs to be carried through the text.}
+  It works by optimizing a likelihood-like objective function that is adaptive to bad data and has a probabilistic interpretation.
+    We deliver a fast JAX implementation, Robusta-HMF, and practical guidance for users.
+    We demonstrate uses on a toy dataset, on RVS spectra from Gaia DR3, and on \placeholder{DEMO 3}.
     In the Gaia case, outlier detection finds \placeholder{WEIRD STUFF}.
     In \placeholder{DEMO 3}, we accurately recover \placeholder{SOMETHING} despite heteroskedastic noise, hot pixels, missing data, and a variety of outliers.
 \end{abstract}
