@@ -7,7 +7,7 @@
 \addtolength{\textwidth}{-0.50in}
 \addtolength{\oddsidemargin}{0.25in}
 \setlength{\evensidemargin}{\oddsidemargin}
-\frenchspacing % Hogg won't post to arXiv without this.
+\raggedbottom\frenchspacing % Hogg won't post to arXiv without this.
 
 % math macros
 \DeclareMathOperator{\rank}{rank}
@@ -163,34 +163,35 @@ In practice we will often refer to ``weights'' instead, which are simply inverse
 
 The model for the data is
 \begin{align}
-    y_{ij} &= \sum_{k=1}^K a_{ik} g_{kj} + \rm{outliers} + \rm{noise}, \\
-    \rm{or \,\, equivalently} \quad {\bf Y} &= {\bf A} {\bf G} + \rm{outliers} + \rm{noise}, \label{eq:model}
+    y_{ij} &= \sum_{k=1}^K a_{ik}\,g_{kj} + \rm{outliers} + \rm{noise}, \\
+    \rm{or \,\, equivalently} \quad {\bf Y} &= {\bf A}\,{\bf G} + \rm{outliers} + \rm{noise}, \label{eq:model}
     % {\bf Y} &= {\bf A} {\bf G} + \rm{outliers} + \rm{noise}
 \end{align}
+\hogg{note my addition of thin spaces in the above}
 which is a low dimensional linear embedding of rank $K\in\mathbb{Z}^+$.
 $a_{ik}$ are the entries of an $N \times K$ matrix ${\bf A}$ where each of the $N$ rows contains $K$ \emph{coefficients}, and $g_{kj}$ are the entries of a $K \times M$ matrix ${\bf G}$ where each of the $K$ rows contain \emph{basis vectors} of length $M$.
 The outliers appear explicitly in the above, but we do not model them as an explicit component unlike many other robust PCA methods as already discussed.
 The choice of the rank $K$, or the number of basis vectors to include, is a hyperparameter to be set by the user.
-Unlike in PCA, $K$ cannot be chosen \emph{after} fitting, since the choice of $K$ will affect the inferred basis.
+Because of the objective function we will adopt, and unlike with PCA, the rank $K$ cannot be chosen \emph{after} fitting.
 
-We then make the following assumptions: \hoggtodo{Comment on whether this is the right set of assumptions in your view}
+We make the following assumptions:
 \begin{enumerate}
-    \item \textbf{Unreliable measurement uncertainties}: The data $y_{ij}$ have known, Gaussian measurement uncertainties $\sigma_{ij}$, although these may not all be \emph{representative} in that some $y_{ij}$ may be outliers or have underestimated $\sigma_{ij}$.
-    \item \textbf{Heteroskedasticity}: The measurement uncertainties $\sigma_{ij}$ may vary for different $i,j$.
-    \item \textbf{Uniform data grid}: For fixed pixel index $j$, pixel values across all spectra $i$ correspond to the same wavelength.
-    \item \textbf{Missing data}: Missing values at particular $y_{ij}$ are handled with vanishing weights by setting the corresponding $w_{ij}=0$, equivalent to infinitely large measurement uncertainties $\sigma_{ij}\rightarrow\infty$.
-    \item \textbf{Basis orthogonality}: The inferred basis vectors, and so the rows of $G$, will be strictly orthogonal and ordered by explained variance, similarly to principal component analysis. The rank of the model is restricted to $1 \le K \le N$.
-    \item \textbf{Outlier sparsity}: The outliers in the data are sparse in that the vast majority of the pixels are not outliers.
-    \item \textbf{Outlier uniqueness}: The outliers do not share low-rank structure with one another.
+    \item \textbf{Heteroskedasticity}: Each feature $j$ of each object $i$ has a known measurement uncertainties $\sigma_{ij}$ that is the root-variance of a zero-mean effective or expected Gaussian noise distribution. Each of these uncertainties $\sigma_{ij}$ can be different for each different $i,j$. In what follows we will often speak in terms of inverse-variance weights $w_{ij}=\sigma_{ij}^{-2}$; data with large uncertainties have low weights.
+    \item \textbf{Unreliable measurement uncertainties}: The measurement uncertainties $\sigma_{ij}$ are known but they may not all be \emph{accurate} in that some $y_{ij}$ may be outliers or have underestimated $\sigma_{ij}$.
+    \item \textbf{Missing data}: Missing values at particular locations $i, j$ can be handled by setting weights $w_{ij}$ to zero or (equivalently) by setting the corresponding measurement uncertainties $\sigma_{ij}$ to infinity (or arbitrarily large).
+    \item \textbf{Rectangular data}: At each fixed pixel index $j$, pixel values across all spectra $i$ correspond to the same feature or (in the case of spectroscopy) wavelength. \hogg{I think we should talk about objects and features, and this property here is rectangularity. There is additionally an assumption that $M$ is the same for all $i$, where missing data are accounted for by zero-padding the weights.}
+    \item \textbf{Basis orthogonality}: The inferred basis vectors, and so the rows of $G$, will be made strictly orthogonal and ordered by explained variance, in analogy to principal component analysis.
+      \item \textbf{Low rank}: The rank of the model is restricted to $1 \le K < \min(N, M)$. \hogg{I believe we must be \emph{strictly} low rank to have nontrivial behavior.}
+    \item \textbf{Outlier sparsity}: The outliers in the data are rare; the vast majority of the nonzero-weight pixels are \emph{not} outliers.
+    \item \textbf{Outlier uniqueness}: The outliers do not themselves show low-rank structure; that is, the low-rank structure is only in the \emph{inlier} and not the \emph{outlier} part of the data set.
 \end{enumerate}
 
-The fact that the model accounts for outliers by treating them as points with underestimated uncertainties provides one of the most important caveats for the approach; the inability to actually differentiate between the outlier and noise components of the model in Eq~\eqref{eq:model}.
-An outlier, a point with correct ununcertainties but a large noise draw by chance, and a point with understimated uncertainties, are all indistinguishable.
-This informs the lack of an explicit sparse outlier component in our model, unlike many previous robust PCA approaches \citep[e.g.][]{candes2011} which did not consider data uncertainities.
-We discuss the implications of this assumption further in the context of outlier identification in Section~\ref{sec:outlier_id}, and of all the assumptions together in Section~\ref{sec:discussion}.
-\hoggtodo{This wording is clunky. An opinionated edit here would be great!}
-
-\tom{I added two new assumptions about the outliers based on writing I've done elsewhere, I think pre-empting these things can mean less text later. Elsewhere will need some reworkign now though.}
+In the end, although we are thinking about having outlier pixels, we will in fact inflate the uncertainties (lower the weights) on such pixels such that they are no longer outliers.
+Thus the model does not explicitly classify pixels into binary outlier and non-outlier classes.
+This distinguishes our approach from standard low-rank-plus-sparse approaches \citep{candes2011}.
+Related to this, our method is not convex, so there is an additional implicit assumption that the optimization scheme, including its initialization, finds a good local solution.
+This is generally true when the outliers are rare and the heteroskedasticity is not extreme.
+\hogg{Does this paragraph capture what you wanted to say in the ``clunky'' paragraph it replaces?}
 
 \subsection{Robustness}
 
