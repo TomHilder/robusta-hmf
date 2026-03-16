@@ -27,8 +27,8 @@
 \begin{document}
 
 \title{Robust Heteroskedastic Matrix Factorization: \\
-  A Replacement for PCA that Flags Outliers and Handles Missing Data \\
-  \hogg{love the 19$^{\mathrm{th}}$\,c. title, incl. esp. capitalization}}
+  A Replacement for PCA that Flags Outliers and Handles Missing Data}
+%   \hogg{love the 19$^{\mathrm{th}}$\,c. title, incl. esp. capitalization}}
 \author[0000-0001-7641-5235]{Thomas Hilder}
 \affiliation{School of Physics and Astronomy, Monash University VIC 3800, Australia}
 \author[0000-0003-2866-9403]{David W. Hogg}
@@ -38,9 +38,9 @@
 
 \begin{abstract}
   We present Robust Heteroskedastic Matrix Factorization (RHMF), a replacement for Principal Component Analysis (PCA) that is robust to outliers, handles per-point uncertainties and missing data, and automatically flags per-point, per-object, and per-feature anomalies.
-  \hogg{I rearranged the abstract slightly and mentioned ``per-feature.'' That latter point needs to be carried through the text.}
+%   \hogg{I rearranged the abstract slightly and mentioned ``per-feature.'' That latter point needs to be carried through the text.}
   It works by optimizing a likelihood-like objective function that is adaptive to bad data and has a probabilistic interpretation.
-    We deliver a fast JAX \hogg{JAX, Jax, or jax?} implementation, Robusta-HMF, and practical guidance for users.
+    We deliver a fast \texttt{JAX} implementation, Robusta-HMF, and practical guidance for users.
     We demonstrate uses on a toy dataset, on RVS spectra from Gaia DR3, and on \placeholder{DEMO 3}.
     In the Gaia case, outlier detection finds \placeholder{WEIRD STUFF}.
     In \placeholder{DEMO 3}, we accurately recover \placeholder{SOMETHING} despite heteroskedastic noise, hot pixels, missing data, and a variety of outliers.
@@ -60,7 +60,7 @@ In high-contrast imaging, they are used to build a data-driven model of the quas
 The last universal common ancestor of all matrix-factorization methods, and by far the most widely used, is principal component analysis \citep[PCA;][]{pearson1901,hotelling1933}.
 PCA approximates a full-rank rectangular $N \times M$ data matrix ${\bf Y}$ with a matrix ${\bf L}$ of lower rank $K \le {\rm min} \, (N, M)$ by minimizing the sum of squared residuals between ${\bf Y}$ and ${\bf L}$ \citep{eckart1936}.
 The $K$ \emph{components} delivered by PCA are orthonormal basis vectors contained in the $K$ rows of some $K \times M$ matrix ${\bf G}$, while the \emph{coefficients} are the $N$ rows of a $N \times K$ matrix ${\bf A}$, such that ${\bf L} = {\bf A}\,{\bf G}$.
-\hogg{I believe that the \emph{multiply} operator is always a thin space. Don't be just putting symbols next to each other.}
+% \hogg{I believe that the \emph{multiply} operator is always a thin space. Don't be just putting symbols next to each other.}
 PCA simultaneously learns both the basis vectors and the coefficients, and it has the nice property that the basis vectors are orthogonal and ordered by explained variance.
 
 Like almost all of its machine-learning-method descendants, PCA requires complete, rectangular data and treats every data point as equally important.
@@ -167,7 +167,7 @@ The model for the data is
     \rm{or \,\, equivalently} \quad {\bf Y} &= {\bf A}\,{\bf G} + \rm{outliers} + \rm{noise}, \label{eq:model}
     % {\bf Y} &= {\bf A} {\bf G} + \rm{outliers} + \rm{noise}
 \end{align}
-\hogg{note my addition of thin spaces in the above}
+% \hogg{note my addition of thin spaces in the above} \tom{noted}
 which is a low dimensional linear embedding of rank $K\in\mathbb{Z}^+$.
 $a_{ik}$ are the entries of an $N \times K$ matrix ${\bf A}$ where each of the $N$ rows contains $K$ \emph{coefficients}, and $g_{kj}$ are the entries of a $K \times M$ matrix ${\bf G}$ where each of the $K$ rows contain \emph{basis vectors} of length $M$.
 The outliers appear explicitly in the above, but we do not model them as an explicit component unlike many other robust PCA methods as already discussed.
@@ -179,9 +179,9 @@ We make the following assumptions:
     \item \textbf{Heteroskedasticity}: Each feature $j$ of each object $i$ has a known measurement uncertainties $\sigma_{ij}$ that is the root-variance of a zero-mean effective or expected Gaussian noise distribution. Each of these uncertainties $\sigma_{ij}$ can be different for each different $i,j$. In what follows we will often speak in terms of inverse-variance weights $w_{ij}=\sigma_{ij}^{-2}$; data with large uncertainties have low weights.
     \item \textbf{Unreliable measurement uncertainties}: The measurement uncertainties $\sigma_{ij}$ are known but they may not all be \emph{accurate} in that some $y_{ij}$ may be outliers or have underestimated $\sigma_{ij}$.
     \item \textbf{Missing data}: Missing values at particular locations $i, j$ can be handled by setting weights $w_{ij}$ to zero or (equivalently) by setting the corresponding measurement uncertainties $\sigma_{ij}$ to infinity (or arbitrarily large).
-    \item \textbf{Rectangular data}: At each fixed pixel index $j$, pixel values across all spectra $i$ correspond to the same feature or (in the case of spectroscopy) wavelength. \hogg{I think we should talk about objects and features, and this property here is rectangularity. There is additionally an assumption that $M$ is the same for all $i$, where missing data are accounted for by zero-padding the weights.}
+    \item \textbf{Rectangular data}: At each fixed pixel index $j$, pixel values across all spectra $i$ correspond to the same feature or (in the case of spectroscopy) wavelength. \hogg{I think we should talk about objects and features, and this property here is rectangularity. There is additionally an assumption that $M$ is the same for all $i$, where missing data are accounted for by zero-padding the weights.} \tom{agree, I already felt a bit funny about using pixels everywhere so features is great.}
     \item \textbf{Basis orthogonality}: The inferred basis vectors, and so the rows of $G$, will be made strictly orthogonal and ordered by explained variance, in analogy to principal component analysis.
-      \item \textbf{Low rank}: The rank of the model is restricted to $1 \le K < \min(N, M)$. \hogg{I believe we must be \emph{strictly} low rank to have nontrivial behavior.}
+      \item \textbf{Low rank}: The rank of the model is restricted to $1 \le K < \min(N, M)$. \hogg{I believe we must be \emph{strictly} low rank to have nontrivial behavior.} \tom{Agreed, do I need to be more explicit than $K < \min(N, M)$?}
     \item \textbf{Outlier sparsity}: The outliers in the data are rare; the vast majority of the nonzero-weight pixels are \emph{not} outliers.
     \item \textbf{Outlier uniqueness}: The outliers do not themselves show low-rank structure; that is, the low-rank structure is only in the \emph{inlier} and not the \emph{outlier} part of the data set.
 \end{enumerate}
@@ -191,7 +191,7 @@ Thus the model does not explicitly classify pixels into binary outlier and non-o
 This distinguishes our approach from standard low-rank-plus-sparse approaches \citep{candes2011}.
 Related to this, our method is not convex, so there is an additional implicit assumption that the optimization scheme, including its initialization, finds a good local solution.
 This is generally true when the outliers are rare and the heteroskedasticity is not extreme.
-\hogg{Does this paragraph capture what you wanted to say in the ``clunky'' paragraph it replaces?}
+% \hogg{Does this paragraph capture what you wanted to say in the ``clunky'' paragraph it replaces?} \tom{Need to check}
 
 \subsection{Robustness}
 
@@ -709,12 +709,16 @@ It could be nice to use kernel design to get basis functons!
 \end{acknowledgments}
 
 \software{
-  Jax \citep{jax} \hogg{how is Jax typeset officially? You have all-caps in the abstract.}
-  \textsl{numpy} \cite{numpy}
-  \hogg{what else?}
+    \texttt{astropy} \placeholder{cite}
+    \texttt{equinox} \placeholder{cite}
+    \texttt{h5py} \placeholder{cite}
+    \texttt{JAX} \placeholder{cite}
+    \texttt{matplotdrip} \placeholder{cite}
+    \texttt{matplotlib} \placeholder{cite}
+    \texttt{numpy} \placeholder{cite}
+    \texttt{polars} \placeholder{cite}
+    \texttt{scipy} \placeholder{cite}
 }
-
-\hogg{I generally typeset projects and codebases with textsl, but I don't feel strongly, so \textsl{APOGEE} and \textsl{Jax}.}
 
 \appendix
 
