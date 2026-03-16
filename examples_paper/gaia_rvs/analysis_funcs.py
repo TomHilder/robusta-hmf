@@ -1338,45 +1338,60 @@ def plot_outliers_on_hr(
 
 
 def _make_residual_figure(
-    λ_grid, flux, reconstruction, residual, source_id,
+    λ_grid, flux, reconstruction, residual, robust_weights, source_id,
     i_bin, idx, per_object_weight, best_K, best_Q,
     lines, line_kwargs,
 ):
-    """Create a single residual figure with the given line marker settings."""
-    fig, axes = plt.subplots(2, 1, figsize=(12, 8), dpi=150, sharex=True)
+    """Create a single 3-panel residual figure with the given line marker settings."""
+    fig, axes = plt.subplots(
+        3, 1, figsize=(12, 8), dpi=150, sharex=True,
+        gridspec_kw={"height_ratios": [3, 2, 1]},
+    )
 
     # Top panel: spectrum and reconstruction
-    axes[0].plot(λ_grid, flux, c="k", lw=0.8, label="Observed", alpha=0.8)
-    axes[0].plot(
-        λ_grid, reconstruction, c="C2", lw=0.8, label="Reconstruction", alpha=0.8
-    )
-    axes[0].set_ylabel("Normalised flux")
-    axes[0].legend(loc="upper right")
-    axes[0].set_title(
-        f"Bin {i_bin} | idx {idx} | source_id {source_id} | "
-        f"K={best_K} Q={best_Q:.2f} | median weight={per_object_weight:.3f}"
-    )
+    axes[0].plot(λ_grid, flux, c="k", lw=2.0, label="Observed")
+    axes[0].plot(λ_grid, reconstruction, c="tab:green", lw=2.0, label="Reconstruction")
+    axes[0].set_ylabel("Flux")
+    axes[0].legend(loc="best")
 
-    # Bottom panel: residual
-    axes[1].plot(λ_grid, residual, c="k", lw=0.5, label="Residual")
-    axes[1].set_ylabel("Residual")
-    axes[1].set_xlabel("Wavelength [nm]")
+    # Middle panel: residual
+    axes[1].plot(λ_grid, residual, c="k", lw=2.0)
+    axes[1].set_ylabel("Residual\nFlux")
 
-    # Add spectral line markers to both panels
+    # Bottom panel: robust weights
+    axes[2].plot(λ_grid, robust_weights, c="k", lw=2.0)
+    axes[2].set_ylim(-0.05, 1.05)
+    axes[2].set_ylabel("Robust\nWeight")
+    axes[2].set_xlabel("Wavelength [nm]")
+
+    # Add spectral line markers to all panels (labels only on top panel)
     if lines is not None:
         try:
-            for ax in axes:
-                add_line_markers(ax=ax, lines=lines, **line_kwargs)
+            # Bump label fontsize: default is 6 -> 10
+            label_fontsize = line_kwargs.pop("label_fontsize", 6)
+            label_fontsize = round(label_fontsize * 1.7)
+            wl_range = (float(λ_grid.min()), float(λ_grid.max()))
+            # Top panel: with labels
+            add_line_markers(
+                ax=axes[0], lines=lines, label_fontsize=label_fontsize,
+                wl_range=wl_range, **line_kwargs,
+            )
+            # Middle and bottom panels: no labels
+            for ax in axes[1:]:
+                add_line_markers(
+                    ax=ax, lines=lines, show_labels=False,
+                    label_fontsize=label_fontsize, wl_range=wl_range,
+                    **line_kwargs,
+                )
         except Exception as e:
             print(f"Warning: Could not add line markers: {e}")
 
-    # Fine tick marks
+    # Tick marks
     for ax in axes:
         ax.xaxis.set_major_locator(MultipleLocator(1.0))
-        ax.xaxis.set_minor_locator(MultipleLocator(0.2))
-        ax.tick_params(which="minor", length=3)
         ax.tick_params(which="major", length=6)
 
+    fig.align_ylabels()
     plt.tight_layout()
     return fig
 
@@ -1392,6 +1407,10 @@ LINE_SET_VARIANTS = [
     )),
     ("cn_bands", dict(
         show_strong=False, show_abundance=False, show_cn=True, show_dib=False,
+    )),
+    ("all_no_cn", dict(
+        show_strong=True, show_abundance=True, show_cn=False, show_dib=False,
+        line_width_nm=0.05,
     )),
     ("all_lines", dict(
         show_strong=True, show_abundance=True, show_cn=True, show_dib=True,
@@ -1463,7 +1482,7 @@ def plot_spectrum_residual(
     save_path = None
     for subdir, line_kwargs in LINE_SET_VARIANTS:
         fig = _make_residual_figure(
-            λ_grid, flux, reconstruction, residual, source_id,
+            λ_grid, flux, reconstruction, residual, robust_weights, source_id,
             i_bin, idx, per_object_weight, best_K, best_Q,
             lines, line_kwargs,
         )

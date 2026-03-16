@@ -18,6 +18,7 @@ Usage:
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.transforms as mtransforms
 from matplotlib.patches import Rectangle
 from pathlib import Path
 from dataclasses import dataclass
@@ -33,7 +34,7 @@ SPECIES_COLORS = {
     'DIB': '#808080',     # Gray (interstellar)
     
     # Hydrogen
-    'H I': '#E6E6FA',     # Lavender (Paschen)
+    'H I': '#9370DB',     # Medium purple (Paschen)
     
     # Alpha elements
     'Mg I': '#90EE90',    # Light green
@@ -140,8 +141,9 @@ def add_line_markers(
     show_dib: bool = True,
     # Filtering
     species_filter: Optional[List[str]] = None,
+    wl_range: Optional[tuple] = None,
     # Appearance
-    line_width_nm: float = 0.3,
+    line_width_nm: float = 0.24,
     alpha: float = 0.3,
     cn_alpha: Optional[float] = None,  # Defaults to alpha * 0.5
     # Labels
@@ -167,10 +169,12 @@ def add_line_markers(
     show_dib : bool
         Show diffuse interstellar band
     species_filter : list of str, optional
-        Only show these species (e.g., ['Ca II', 'Fe I']). 
+        Only show these species (e.g., ['Ca II', 'Fe I']).
         Applied to strong and abundance lines, not CN/DIB.
+    wl_range : tuple of (float, float), optional
+        (min, max) wavelength in nm. Lines outside this range are not drawn.
     line_width_nm : float
-        Half-width of each line marker in nm (default 0.3 nm ~ RVS resolution)
+        Half-width of each line marker in nm (default 0.24 nm ~ RVS resolution)
     alpha : float
         Transparency of rectangles
     cn_alpha : float, optional
@@ -184,10 +188,15 @@ def add_line_markers(
     """
     ymin, ymax = ax.get_ylim()
     height = ymax - ymin
-    
+
     if cn_alpha is None:
         cn_alpha = alpha * 0.5
-    
+
+    def _in_range(wl):
+        if wl_range is None:
+            return True
+        return wl_range[0] <= wl <= wl_range[1]
+
     def _add_rect(wl, color, width=line_width_nm, a=alpha):
         rect = Rectangle(
             (wl - width, ymin),
@@ -198,13 +207,23 @@ def add_line_markers(
             alpha=a
         )
         ax.add_patch(rect)
-    
-    def _add_label(wl, species):
+
+    # Collect (wavelength, species) pairs for labelling at the end
+    _label_entries = []
+    # Track drawn wavelengths to deduplicate lines appearing in multiple lists
+    _drawn_wls = set()
+
+    def _collect_label(wl, species):
         if show_labels:
-            y = ymin + height * label_ypos
-            ax.text(wl, y, species, ha='center', va='top', 
-                    fontsize=label_fontsize, rotation=90)
-    
+            _label_entries.append((wl, species))
+
+    def _is_duplicate(wl, tol=0.05):
+        """Check if a line at this wavelength was already drawn."""
+        for drawn in _drawn_wls:
+            if abs(wl - drawn) < tol:
+                return True
+        return False
+
     def _process_lines(df, category_alpha=alpha):
         """Process a DataFrame of lines."""
         for _, row in df.iterrows():
@@ -212,32 +231,42 @@ def add_line_markers(
             if species_filter is not None and species not in species_filter:
                 continue
             wl = row['lambda_vac_nm']
+            if not _in_range(wl):
+                continue
+            if _is_duplicate(wl):
+                continue
+            _drawn_wls.add(wl)
             color = SPECIES_COLORS.get(species, '#CCCCCC')
             _add_rect(wl, color, a=category_alpha)
-            _add_label(wl, species)
-    
+            _collect_label(wl, species)
+
     # Add each component
     if show_strong:
         _process_lines(lines.strong)
-    
+
     if show_abundance:
         _process_lines(lines.abundance)
-    
+
     if show_dib:
         # DIB doesn't get filtered by species_filter
         for _, row in lines.dib.iterrows():
             wl = row['lambda_vac_nm']
+            if not _in_range(wl):
+                continue
             color = SPECIES_COLORS.get('DIB', '#808080')
             _add_rect(wl, color)
-            _add_label(wl, 'DIB')
-    
+            _collect_label(wl, 'DIB')
+
     if show_cn:
         # CN bands are regions, not single lines
         for _, row in lines.cn_bands.iterrows():
             wl_start = row['lambda_vac_nm_start']
             wl_end = row['lambda_vac_nm_end']
+            # Skip bands entirely outside the data range
+            if wl_range is not None and (wl_end < wl_range[0] or wl_start > wl_range[1]):
+                continue
             color = SPECIES_COLORS.get('CN', '#FF69B4')
-            
+
             rect = Rectangle(
                 (wl_start, ymin),
                 wl_end - wl_start,
@@ -247,10 +276,35 @@ def add_line_markers(
                 alpha=cn_alpha
             )
             ax.add_patch(rect)
-            
-            if show_labels:
-                wl_mid = (wl_start + wl_end) / 2
-                _add_label(wl_mid, 'CN')
+
+            _collect_label((wl_start + wl_end) / 2, 'CN')
+
+    # Draw evenly-spaced callout labels above the panel with connecting lines
+    if show_labels and _label_entries:
+        _label_entries.sort(key=lambda x: x[0])
+        n = len(_label_entries)
+        # Evenly space labels across the x range (data coords for x)
+        x_lo, x_hi = ax.get_xlim()
+        margin = (x_hi - x_lo) * 0.02
+        label_xs = np.linspace(x_lo + margin, x_hi - margin, n)
+        # Blended transform: data for x, axes-fraction for y
+        trans = mtransforms.blended_transform_factory(ax.transData, ax.transAxes)
+        for (actual_wl, species), lx in zip(_label_entries, label_xs):
+            color = SPECIES_COLORS.get(species, '#CCCCCC')
+            # Label above the panel
+            ax.text(
+                lx, 1.06, species, ha='center', va='bottom',
+                fontsize=label_fontsize, rotation=90,
+                transform=trans, clip_on=False,
+            )
+            # Short callout line: mostly above the panel
+            ax.plot(
+                [lx, actual_wl], [1.05, 1.0],
+                color=color, lw=1.0, alpha=1.0,
+                transform=trans, clip_on=False,
+            )
+        # Restore ylim — ax.plot with blended transform disrupts autoscaling
+        ax.set_ylim(ymin, ymax)
 
 
 def add_legend(ax, species_list: Optional[List[str]] = None, **kwargs):
