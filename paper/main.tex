@@ -18,6 +18,7 @@
 
 \DeclareMathOperator*{\argmin}{argmin}
 \DeclareMathOperator*{\argmax}{argmax}
+\DeclareMathOperator*{\score}{score}
 
 \newcommand{\tom}[1]{\textcolor{teal}{\textbf{TH says:} #1}}
 \newcommand{\hogg}[1]{\textcolor{red}{\textbf{DWH says:} #1}}
@@ -103,7 +104,6 @@ In Section~\ref{sec:methods} we present the model, the algorithm by which it is 
 In Section~\ref{sec:toy} we demonstrate the approach on 3 example problems: a toy dataset, Gaia RVS spectra, and \placeholder{DEMO 3}.
 The toy dataset is provided for illustration and validation of the method, the Gaia RVS spectra are used to demonstrate outlier identification, and \placeholder{DEMO 3} is used to show how the robustness and treatment of missing and heteroskedastic data leads to greater \placeholder{SOMETHING}.
 In Section~\ref{sec:discussion} we discuss the strengths and shortcomings of the model, potential applications and extensions, and the relationship to other methods in the literature.
-We provide conclusions in Section~\ref{sec:conclusion}.
 
 % Prior art by year:
 % \begin{enumerate}
@@ -179,7 +179,7 @@ We make the following assumptions:
     \item \textbf{Heteroskedasticity}: Each feature $j$ of each object $i$ has a known measurement uncertainties $\sigma_{ij}$ that is the root-variance of a zero-mean effective or expected Gaussian noise distribution. Each of these uncertainties $\sigma_{ij}$ can be different for each different $i,j$. In what follows we will often speak in terms of inverse-variance weights $w_{ij}=\sigma_{ij}^{-2}$; data with large uncertainties have low weights.
     \item \textbf{Unreliable measurement uncertainties}: The measurement uncertainties $\sigma_{ij}$ are known but they may not all be \emph{accurate} in that some $y_{ij}$ may be outliers or have underestimated $\sigma_{ij}$.
     \item \textbf{Missing data}: Missing values at particular locations $i, j$ can be handled by setting weights $w_{ij}$ to zero or (equivalently) by setting the corresponding measurement uncertainties $\sigma_{ij}$ to infinity (or arbitrarily large).
-    \item \textbf{Rectangular data}: At each fixed pixel index $j$, pixel values across all spectra $i$ correspond to the same feature or (in the case of spectroscopy) wavelength. \hogg{I think we should talk about objects and features, and this property here is rectangularity. There is additionally an assumption that $M$ is the same for all $i$, where missing data are accounted for by zero-padding the weights.} \tom{agree, I already felt a bit funny about using pixels everywhere so features is great.}
+    \item \textbf{Rectangular data}: At each fixed pixel index $j$, pixel values across all spectra $i$ correspond to the same feature or (in the case of spectroscopy) wavelength. \hogg{I think we should talk about objects and features, and this property here is rectangularity. There is additionally an assumption that $M$ is the same for all $i$, where missing data are accounted for by zero-padding the weights.} \tom{agree, I already felt a bit funny about using pixels everywhere so features is great. TODO.}
     \item \textbf{Basis orthogonality}: The inferred basis vectors, and so the rows of $G$, will be made strictly orthogonal and ordered by explained variance, in analogy to principal component analysis.
       \item \textbf{Low rank}: The rank of the model is restricted to $1 \le K < \min(N, M)$. \hogg{I believe we must be \emph{strictly} low rank to have nontrivial behavior.} \tom{Agreed, do I need to be more explicit than $K < \min(N, M)$?}
     \item \textbf{Outlier sparsity}: The outliers in the data are rare; the vast majority of the nonzero-weight pixels are \emph{not} outliers.
@@ -305,9 +305,7 @@ The robust weights $w^{\rm robust}_{ij}$ for any data point are also calculable 
 
 \textbf{Inference} on new or held-out data is performed simply by reusing ${\bf G}$, and performing the a- and w-steps (such that ${\bf G}$ is never modified) until convergence.
 Here, convergence should be assessed by a dimensionless estimate of the size of the a-step adjustment instead.
-
-As a final note, the asymptotic complexity per cycle, assuming that $K \ll N, M$, is $\mathcal{O}(NMK^2)$, which is linear in both $N$ and $M$.
-\hogg{The Journals don't like one-sentence paragraphs, so put this in somewhere.}
+The asymptotic complexity per cycle, assuming that $K \ll N, M$, is $\mathcal{O}(NMK^2)$, which is linear in both $N$ and $M$.
 
 \subsubsection{Validation and hyperparameter choice} \label{sec:cv}
 
@@ -323,9 +321,8 @@ Convergence in this case can be judged by the a-step adjustment instead of the g
 
 The following metric should then be calculated using the test set data $y_{*j}$, the fitted coefficients $a_{*k}$, the basis vectors $g_{kj}$, and the total weights $w^{\rm total}_{*j}$ calculated with the w-step rule using the test set measurement uncertainties $w^{\rm data}_{*j}$,
 \begin{align}
-    {\rm score} \, (Q, K) = {\rm log} \left( 1 - {\rm std} \left[ \sqrt{w^{\rm total}_{*j}}\left(y_{*j} - \sum_K a_{*k} g_{kj}\right) \right] \right). \label{eq:score}
+    \score{\left( Q, K \right)} = {\rm log} \left( 1 - {\rm std} \left[ \sqrt{w^{\rm total}_{*j}}\left(y_{*j} - \sum_K a_{*k} g_{kj}\right) \right] \right). \label{eq:score}
 \end{align}
-\hogg{If you want ``score'' to be a thing, use the DeclareMathOperator command to make it.}
 This essentially tests the degree to which the data, after fitting, follow the distribution given by the likelihood in Eq~\eqref{eq:hierachical_like}, using the residuals weighted by the inferred weights.
 That is, we expect the data to follow a normal distribution centred on the fitted model, with a standard deviation corresponding to the inferred weights $\tau_{*j}=(w_{*j}^{\rm total})^{-1/2}$.
 
@@ -485,7 +482,7 @@ However, this is likely contingent on the accuracy of the provided measurement u
 
 \subsection{Outliers in the Gaia RVS main sequence} \label{sec:gaia}
 
-We utilised Gaia RVS spectra to search for unusual objects along the main sequence, where by unusual we mean that the spectrum deviates significantly from what is typical of most neighbours in color-magnitude space.
+We utilised Gaia RVS spectra to search for unusual objects along the main sequence, where by unusual we mean that the spectrum deviates significantly from what is typical of most neighbours in color-magnitupde space.
 We performed this searching by applying RHMF, and taking advantage of the inferred robust weights to spot outliers.
 These outliers could be in the form of binaries, accretion or magnetic field activity signatures \tom{TODO, more examples, plus sensible Gaia-focused citations}.
 
@@ -504,7 +501,6 @@ In each bin, we trained the model with only half the spectra, selected randomly.
 These were intialised with an SVD and iterated until the maximum fractional g-step adjustment was $<10^{4}$.
 We then used the inferred basis vectors to predict the spectra in the other half of the bin.
 This yielded coefficients, predictions, and robust weights for all spectra in the bin, which we used to identify outliers as described below.
-\hoggtodo{Any opinion about plotting fits to ``normal'' spectra? Thus far it's not included.} \hogg{Yes, we should plot both; why are you asking me this here? Ask me again in the relevant figure caption.}
 
 We also chose not to perform any cross-validation, and instead picked $K=10$ and $Q=5$ uniformly for all bins.
 The motivation for this choice is two-fold: first, we were not aiming to perform a detailed analysis but rather a simple demonstration on real data; second, we were mostly interested in identifying \emph{potentially} interesting spectra, and so the exact classification performance was not of primary importance.
@@ -546,7 +542,7 @@ Of those that belong to two bins, 61 are outliers in both bins, while 74 are out
 \begin{figure}
     \centering
     \includegraphics[width=0.98\linewidth]{figs/bin_00_K10_Q5.00_idx_00567_srcid_1363284299777747584_weight_0.009.pdf}
-    \caption{Spectra of some outliers, with the best-fit model overlaid, and the residuals below. Same as the toy model plot but for real data, and with highlighted regions for line locations instead of the known true outlier locations \tom{TODO: improve figure formatting, also the line bands are shifted spuriously.}}
+    \caption{Spectra of some outliers, with the best-fit model overlaid, and the residuals below. Same as the toy model plot but for real data, and with highlighted regions for line locations instead of the known true outlier locations.}
     \label{fig:gaia_spec_1}
 \end{figure}
 
@@ -559,8 +555,15 @@ It's a hot and cool star binary.
 \begin{figure}
     \centering
     \includegraphics[width=0.98\linewidth]{figs/bin_13_K10_Q5.00_idx_00344_srcid_3136952686035250688_weight_0.173.pdf}
-    \caption{\placeholder{like above} \tom{TODO: improve figure formatting, also the line bands are shifted spuriously.}}
+    \caption{\placeholder{like above}}
     \label{fig:gaia_spec_2}
+\end{figure}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.98\linewidth]{figs/bin_01_K10_Q5.00_idx_14536_srcid_5309096898078973568_weight_0.985.pdf}
+    \caption{\hoggtodo{Any opinion about plotting fits to ``normal'' spectra? Thus far it's not included.} \hogg{Yes, we should plot both; why are you asking me this here? Ask me again in the relevant figure caption.} \tom{OK here is a potential such plot and I have moved the discussion here.}}
+    \label{fig:gaia_spec_normal}
 \end{figure}
 
 Figure~\ref{fig:gaia_spec_2} shows 1 of the 2 outlier spectra from bin 13, with a weight of 0.173.
@@ -570,8 +573,8 @@ There are clear, strong Ca II emission lines, indicative of magnetic or accretio
 
 \begin{figure}
     \centering
-    % \includegraphics[width=0.98\linewidth]{figs/TODO.pdf}
-    \caption{\placeholder{umap plot.}}
+    \includegraphics[width=0.75\linewidth]{figs/umap_residuals_score.png}
+    \caption{\placeholder{placeholder umap plot. Made from the residuals of all identified outliers, colored by their spectrum-level weight (called outlier-score in the plot)} \hoggtodo{Comment on whether you think we should include such a plot. It's neat but I'm not sure if it helps the story.}}
     \label{fig:umap}
 \end{figure}
 
