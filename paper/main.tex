@@ -144,10 +144,10 @@ In Section~\ref{sec:discussion} we discuss the strengths and shortcomings of the
 
 \subsection{Model setup and assumptions} \label{sec:assumptions}
 
-Let $N \in \mathbb{Z}^+$ be the number of spectra in the dataset, and $M\in\mathbb{Z}^+$ be the number of pixels in each spectrum.
-We then label the value in pixel $j$ of spectrum $i$ as $y_{ij}$, and we can also write the data as an $N \times M$ matrix ${\bf Y}$ with entries $y_{ij}$.
-In general the $y_{ij}$ can be any real-valued data but for concreteness we will refer to them as pixel values in a catalogue of stellar spectra.
-We assume that the investigator has measurement uncertainties $\sigma_{ij}$ corresponding to each pixel value, and also that these uncertainties have the same units as $y_{ij}$.
+Let $N \in \mathbb{Z}^+$ be the number of objects (in our case, spectra) in the dataset, and $M\in\mathbb{Z}^+$ be the number of features (pixels) for each object.
+We then label the value in feature $j$ of object $i$ as $y_{ij}$, and we can also write the data as an $N \times M$ matrix ${\bf Y}$ with entries $y_{ij}$.
+%In general the $y_{ij}$ can be any real-valued data but for concreteness we will refer to them as pixel values in a catalogue of stellar spectra.
+We assume that the investigator has measurement uncertainties $\sigma_{ij}$ corresponding to each feature, and also that these uncertainties have the same units as $y_{ij}$.
 In practice we will often refer to ``weights'' instead, which are simply inverse variances $w_{ij} = \sigma_{ij}^{-2}$.
 
 The model for the data is
@@ -161,23 +161,24 @@ which is a low dimensional linear embedding of rank $K\in\mathbb{Z}^+$.
 $a_{ik}$ are the entries of an $N \times K$ matrix ${\bf A}$ where each of the $N$ rows contains $K$ \emph{coefficients}, and $g_{kj}$ are the entries of a $K \times M$ matrix ${\bf G}$ where each of the $K$ rows contain \emph{basis vectors} of length $M$.
 The outliers appear explicitly in the above, but we do not model them as an explicit component unlike many other robust PCA methods as already discussed.
 The choice of the rank $K$, or the number of basis vectors to include, is a hyperparameter to be set by the user.
-Because of the objective function we will adopt, and unlike with PCA, the rank $K$ cannot be chosen \emph{after} fitting.
+Because of the objective function we will adopt, and unlike with PCA, the rank $K$ cannot be chosen \emph{after} fitting.\\
 
 We make the following assumptions:
 \begin{enumerate}
     \item \textbf{Heteroskedasticity}: Each feature $j$ of each object $i$ has a known measurement uncertainties $\sigma_{ij}$ that is the root-variance of a zero-mean effective or expected Gaussian noise distribution. Each of these uncertainties $\sigma_{ij}$ can be different for each different $i,j$. In what follows we will often speak in terms of inverse-variance weights $w_{ij}=\sigma_{ij}^{-2}$; data with large uncertainties have low weights.
     \item \textbf{Unreliable measurement uncertainties}: The measurement uncertainties $\sigma_{ij}$ are known but they may not all be \emph{accurate} in that some $y_{ij}$ may be outliers or have underestimated $\sigma_{ij}$.
     \item \textbf{Missing data}: Missing values at particular locations $i, j$ can be handled by setting weights $w_{ij}$ to zero or (equivalently) by setting the corresponding measurement uncertainties $\sigma_{ij}$ to infinity (or arbitrarily large).
-    \item \textbf{Rectangular data}: At each fixed pixel index $j$, pixel values across all spectra $i$ correspond to the same feature or (in the case of spectroscopy) wavelength. \hogg{I think we should talk about objects and features, and this property here is rectangularity. There is additionally an assumption that $M$ is the same for all $i$, where missing data are accounted for by zero-padding the weights.} \tom{agree, I already felt a bit funny about using pixels everywhere so features is great. TODO.}
+    \item \textbf{Rectangular data}: At each fixed feature index $j$, the values across all objects correspond to the same $j$-th feature.
     \item \textbf{Basis orthogonality}: The inferred basis vectors, and so the rows of $G$, will be made strictly orthogonal and ordered by explained variance, in analogy to principal component analysis.
       \item \textbf{Low rank}: The rank of the model is strictly low rank, with $1 \le K < \min(N, M)$. When $K = \min(N, M)$, the product ${\bf A}\,{\bf G}$ can represent any $N \times M$ matrix and the model perfectly reproduces ${\bf Y}$ with zero residuals everywhere. In that case all robust weights collapse to unity, no outliers are identified, and no noise is separated from signal---the model simply memorizes the data. Strict low rank forces the model to choose which structure to retain and which to treat as residual, and it is this compression that makes the robustness and outlier detection meaningful.
     \item \textbf{Outlier sparsity}: The outliers in the data are rare; the vast majority of the nonzero-weight pixels are \emph{not} outliers.
     \item \textbf{Outlier uniqueness}: The outliers do not themselves show low-rank structure; that is, the low-rank structure is only in the \emph{inlier} and not the \emph{outlier} part of the data set.
 \end{enumerate}
 
-In the end, although we are thinking about having outlier pixels, we will in fact inflate the uncertainties (lower the weights) on such pixels such that they are no longer outliers.
-Thus the model does not explicitly classify pixels into binary outlier and non-outlier classes.
+In the end, although we are thinking about having outlier features, we will in fact inflate the uncertainties (lower the weights) on such features such that they are no longer outliers.
+Thus the model does not explicitly classify features into binary outlier and non-outlier classes.
 This distinguishes our approach from standard low-rank-plus-sparse approaches \citep{candes2011}.
+% ARC asks: while the full problem may not be convex, is each individual update step guaranteed to be convex?
 Related to this, our method is not convex, so there is an additional implicit assumption that the optimization scheme, including its initialization, finds a good local solution.
 This is generally true when the outliers are rare and the heteroskedasticity is not extreme.
 % \hogg{Does this paragraph capture what you wanted to say in the ``clunky'' paragraph it replaces?} \tom{Need to check}
@@ -187,15 +188,15 @@ This is generally true when the outliers are rare and the heteroskedasticity is 
 Such models as described above, and also for PCA (where all $w_{ij} = 1$) and HMF, are usually fit by minimizing the $\chi^2$ metric, or equivalently maximizing a Gaussian likelihood
 \begin{align}
     \hat{\bf A}, \hat{\bf G} &= \argmin_{{\bf A},{\bf G}} \left[\sum_{ij} w_{ij}\left(y_{ij} - \sum_k a_{ik} g_{kj} \right)^2\right], \\
-    {\rm or \,\, equivalently} \quad y_{ij} &\sim {\rm Normal} \left( \sum_k a_{ik} g_{kj}, \sigma^2_{ij}\right),
+    {\rm or \,\, equivalently} \quad y_{ij} &\sim {\rm Normal} \left( \sum_k a_{ik} g_{kj}, \sigma^2_{ij}\right), \label{eq:gaussian_like}
 \end{align}
-where the hat notation denotes the best-fitting values of ${\bf A}$ and ${\bf G}$, and the notation on the second line denotes that each $y_{ij}$ is \emph{drawn from} a Normal distribution with mean $a_{ik} g_{kj}$ and variance $\sigma_{ij}^2$.
+where the hat notation denotes the best-fitting values of ${\bf A}$ and ${\bf G}$, and Equation~\ref{eq:gaussian_like} denotes that each $y_{ij}$ is \emph{drawn from} a Normal distribution with mean $a_{ik} g_{kj}$ and variance $\sigma_{ij}^2$.
 These two lines are equivalent; the top line minimizes the negative log likelihood defined implicitly by the second line.
-This setup induces a quadratic penalty in the residuals $r_{ij} = y_{ij} - \sum_k a_{ik}g_{kj}$, which causes outliers to have a large influence on the fit.
+This setup induces a quadratic penalty in the residuals $r_{ij} = y_{ij} - \sum_k a_{ik}g_{kj}$, which causes outliers to have a large influence on the fit.\\
 
-We add robustness to the model by replacing the likelihood with a heavy-tailed distribution.
+We introduce robustness to the model by replacing the likelihood with a heavy-tailed distribution.
 Here, we choose Student's t-distribution, but our method is generalizable to any heavy-tailed distribution.
-Our cost function (negative log likelihood) and likelihood therefore become %\footnote{Note that strictly there is a $\nu s^2/2$ prefactor for the full negative log-likelihood.}
+The cost function (negative log likelihood) and likelihood therefore become %\footnote{Note that strictly there is a $\nu s^2/2$ prefactor for the full negative log-likelihood.}
 \begin{align}
     \hat{\bf A}, \hat{\bf G} &= \argmin_{\bf A, G} \left[ \sum_{ij} \log\left(1 + \frac{w_{ij} r_{ij}^2}{\nu s^2}\right) \right], \label{eq:robust_opt} \\
     {\rm or \,\, equivalently} \quad y_{ij} &\sim {\rm StudentT}_\nu \left( \sum_k a_{ik} g_{kj}, s^2 \sigma_{ij}^2 \right) \label{eq:t_like}
@@ -209,25 +210,24 @@ This setup can be equivalently viewed as a hierarchical model with latent, unkno
     y_{ij} &\sim {\rm Normal} \left( \sum_k a_{ik} g_{kj}, \tau_{ij}^2 \right), \label{eq:hierachical_like} \\
     \tau_{ij} &\sim {\rm InverseGamma} \left( \frac{\nu}{2}, \frac{\nu}{2} s^2 \sigma_{ij}^2 \right) \label{eq:hierarchical_prior}
 \end{align}
-where the Inverse Gamma distribution is a strictly positive distribution with \emph{shape} $\frac{\nu}{2}$ and \emph{scale} $\frac{\nu}{2} s^2 \sigma_{ij}^2$ parameters.
-For the fitting methods we will present here $s$ and $\nu$ are not uniquely identifiable.
+where the inverse Gamma distribution is a strictly positive distribution with \emph{shape} $\frac{\nu}{2}$ and \emph{scale} $\frac{\nu}{2} s^2 \sigma_{ij}^2$ parameters.
+For the applications we present here, $s$ and $\nu$ are not uniquely identifiable.
 This is because our estimates are either maximum likelihood in the Student-t likelihood view, or type-II maximum likelihood (empirical Bayes) in the hierarchical view.
-The fit instead depends only on the product $Q=\nu s^2$, which is seen most easily by noticing that Eq.~\eqref{eq:t_like} depends only on $Q$ and does not distinguish between $\nu$ and $s^2$ separately.
-We show this fact more rigorously in Appendix~\ref{sec:proof}.
+The equivalence between the student-t likelihood and the hierarchical view is due to the fact that the inverse Gamma distribution is the conjugate prior distribution of an unknown Gaussian variance; marginalizing $\tau_{ij}$ from Eq.~\eqref{eq:hierachical_like} with Eq.~\eqref{eq:hierarchical_prior} yields Eq.~\eqref{eq:t_like} \citep[e.g.][]{lange1989}. We show this fact more rigorously in Appendix~\ref{sec:proof}.\\
 
-$Q$ is thus the second hyperparameter of the model, and corresponds to a soft outlier threshold that controls where the transition between the quadratic and logarithmic penalties occurs.
-$\sqrt{Q}=1$ means that the transition occurs at about the same point as the measurement uncertainties, $\sqrt{Q}>1$ means that the transition occurs at larger residuals than the measurement uncertainties, and $\sqrt{Q}<1$ means that the transition occurs at smaller residuals than the measurement uncertainties.
+The fit instead depends only on the \emph{product} $Q=\nu s^2$, which is seen most easily by noticing that Eq.~\eqref{eq:t_like} depends only on $Q$ and does not distinguish between $\nu$ and $s^2$ separately. After the number of basis functions $K$, $Q$ now represents  the second hyperparameter of the model: a soft outlier threshold that controls where the transition between the quadratic and logarithmic penalties occurs.
+With $Q=1$ the transition occurs at about the same point as the measurement uncertainties, ${Q}>1$ means that the transition occurs at larger residuals than the measurement uncertainties, and ${Q}<1$ means that the transition occurs at smaller residuals than the measurement uncertainties. Away from $Q=1$, it is worth reminding that $Q$ scales with variance, not standard deviation.
 
-The equivalence between the student-t likelihood and the hierarchical view is due to the fact that the Inverse Gamma distribution is the conjugate prior distribution of an unknown Gaussian variance; marginalizing $\tau_{ij}$ from Eq.~\eqref{eq:hierachical_like} with Eq.~\eqref{eq:hierarchical_prior} yields Eq.~\eqref{eq:t_like} \citep[e.g.][]{lange1989}.
+
 
 \subsection{Fitting Algorithm}
 
-While in principle it's possible to optimize Eq.~\eqref{eq:robust_opt} for all $a_{ik}$ and $g_{kj}$ simultaneously, we can instead invoke a majorization-maximization scheme that implicitly minimizes the objective by iterating between re-weighting and least-squares solves.
+While in principle it's possible to optimize Eq.~\eqref{eq:robust_opt} for all $a_{ik}$ and $g_{kj}$ simultaneously, we invoke a majorization-maximization scheme that implicitly minimizes the objective by iterating between re-weighting and least-squares solves.
 This approach is exactly the typical IRLS method for robust regression, but applied to HMF instead of linear regression.
 We prove that the algorithm below optimises the likelihood in Eq.~\eqref{eq:t_like} in Appendix~\ref{sec:proof},
 % we will discuss the methodology and results in the context of both these views, re-weighting and sub-quadratic penalty cost function, interchangably.
 
-\subsubsection{Initialization}
+%\subsubsection{Initialization} % ARC says: I don't think you need subsubsections
 
 While the algorithm we present is guaranteed to converge to a local optimum, it is not guaranteed to converge to the global optimum, and so it is pertinant to provide a good initialization.
 The most straightforward approach is the singular-value decomposition
@@ -239,13 +239,11 @@ The most straightforward approach is the singular-value decomposition
 \end{align}
 where ${\bf U}$ and ${\bf V}^\top$ are unitary matrices, and {\bf S} is a matrix with diagonal entries equal to the singular values of ${\bf Y}$ in non-decreasing order, and zeros elsewhere.
 This initialization is simply the first $K$ components of the PCA solution.
-In the case that the dataset is very large, it may be preferable to use a faster, approximate method such as the randomized SVD \citep{halko2011}.
+In the case that the dataset is very large, it may be preferable to use a faster, approximate method such as the randomized SVD \citep{halko2011}.\\
 
-\subsubsection{Iterative solver}
+%\subsubsection{Iterative solver}
 
-The algorithm consists of 4 steps iterated in turn until convergence as follows.
-
-The \textbf{w-step} updates the data weights to downweight outliers, given the current best guess of ${\bf A}$ and ${\bf G}$:
+Iteratively updating the parameters consists of four steps that cycle until convergence. The first is the \textbf{w-step}, which  updates the data weights to downweight outliers, given the current estimate of ${\bf A}$ and ${\bf G}$:
 \begin{align}
     w^{\rm total}_{ij} &\leftarrow w^{\rm data}_{ij} w^{\rm robust}_{ij}, \\
     w^{\rm robust}_{ij} & = \frac{Q^2}{Q^2 + w_{ij}^{\rm data} r_{ij}^2}, \label{eq:w_robust} \\
