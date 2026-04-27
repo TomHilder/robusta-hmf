@@ -2,7 +2,7 @@
 \usepackage{amsmath}
 \usepackage{amsfonts}
 \usepackage{graphicx}
-\usepackage{xcolor}
+\usepackage[dvipsnames]{xcolor}
 
 \addtolength{\textwidth}{-0.50in}
 \addtolength{\oddsidemargin}{0.25in}
@@ -23,6 +23,7 @@
 \newcommand{\tom}[1]{\textcolor{teal}{\textbf{TH says:} #1}}
 \newcommand{\hogg}[1]{\textcolor{red}{\textbf{DWH says:} #1}}
 \newcommand{\hoggtodo}[1]{\textcolor{magenta}{\textbf{HOGG TODO:} #1}}
+\newcommand{\arc}[1]{\textcolor{Emerald}{\textbf{ARC says:} #1}}
 \newcommand{\placeholder}[1]{\textcolor{blue}{[#1]}}
 
 \begin{document}
@@ -245,102 +246,104 @@ In the case that the dataset is very large, it may be preferable to use a faster
 
 Iteratively updating the parameters consists of four steps that cycle until convergence. The first is the \textbf{w-step}, which  updates the data weights to downweight outliers, given the current estimate of ${\bf A}$ and ${\bf G}$:
 \begin{align}
-    w^{\rm total}_{ij} &\leftarrow w^{\rm data}_{ij} w^{\rm robust}_{ij}, \\
+    r_{ij} &= y_{ij} - \sum_K a_{ik} g_{kj}, \\
     w^{\rm robust}_{ij} & = \frac{Q^2}{Q^2 + w_{ij}^{\rm data} r_{ij}^2}, \label{eq:w_robust} \\
-    r_{ij} &= y_{ij} - \sum_K a_{ik} g_{kj},
+    w^{\rm (new)}_{ij} &\leftarrow w^{\rm data}_{ij} w^{\rm robust}_{ij},
 \end{align}
-where we note that $w^{\rm robust}_{ij} \in (0, 1]$ provides a per-data-point measure of outlier-y-ness, and that $w_{ij}^{\rm total} = \tau_{ij}^{-2}$.
-This rule also respects data weights of zero, and shows clearly how $Q$ acts to control how aggressively large residuals cause downweighting.
+where we note that $w^{\rm robust}_{ij} \in (0, 1]$ provides a measure of outlier-y-ness on the $j$th feature in the $i$th object, and that $w_{ij}^{\rm (new)} = \tau_{ij}^{-2}$.
+This rule also respects data weights of zero, and shows clearly how $Q$ acts to control how aggressively large residuals cause downweighting.\\
 
 The \textbf{a-step} finds the best-fit values for the coefficients $a_{ik}$ given the current estimate of the basis vectors $g_{kj}$:
 \begin{align}
-    a_{ik} &\leftarrow [{\boldsymbol{\alpha}}_i]_k \quad {\rm for} \,\, i \,\, {\rm in} \,\, 1,...,N, \\
-    \boldsymbol{\alpha}_i &= \solve{\left( {\bf X}_i, {\bf b}_i \right)}, \\
     % {\bf X}_i &= {\bf G} {\bf W}_i {\bf G}^\top \\
-    [{\bf X}_i]_{kk'} &= \sum_{j=1}^M g_{kj} w_{ij}^{\rm total} g_{jk'}, \\
+    [{\bf X}_i]_{kk'} &= \sum_{j=1}^M g_{kj} w_{ij}^{\rm (new)} g_{jk'}, \\
     % {\bf b} &= {\bf G} {\bf W}_i {\bf y}_i \\
-    [{\bf b}_i]_k &= \sum_{j=1}^M g_{kj} w_{ij}^{\rm total} y_{ij},
-    % {\bf G} {\bf W}_i
+    [{\bf b}_i]_k &= \sum_{j=1}^M g_{kj} w_{ij}^{\rm (new)} y_{ij}, \\
+    % {\bf G} {\bf W}_i \\
+    \boldsymbol{\alpha}^{\rm (new)}_i &= \solve{\left( {\bf X}_i, {\bf b}_i \right)}, \\
+%    a_{ik} &\leftarrow [{\boldsymbol{\alpha}}_i]_k \quad {\rm for} \,\, i \,\, {\rm in} \,\, 1,...,N,
 \end{align}
 where the operator $\solve({\bf X}, {\bf b})$ returns ${\bf X}^{-1}\,{\bf b}$.
-This is just the WLS solution for the rows of ${\bf Y}$ given fixed ${\bf G}$.
+This is just the WLS solution for the rows of ${\bf Y}$ given fixed ${\bf G}$.\\
 
-The \textbf{g-step} finds the best-fit basis vectors $g_{kj}$ given the current estimate of the coefficients $a_{ik}$:
+Next, the \textbf{g-step} finds the best-fit basis vectors $g_{kj}$ given the current estimate of the coefficients $a_{ik}$:
+\arc{Below is $a_{ik}$ meant to be $a^{\rm (new)}_{il}$? I think so...}
 \begin{align}
-    g_{kj} &\leftarrow [\boldsymbol{\gamma}_j]_k \quad {\rm for} \,\, j \,\, {\rm in} \,\, 1,...,M, \\
-    \boldsymbol{\gamma}_j &= \solve{\left( {\bf X}_j, {\bf b}_j \right)}, \\
-    [{\bf X}_j]_{kk'} &= \sum_{i=1}^N a_{ik} w_{ij}^{\rm total} a_{ik'}, \\
-    [{\bf b}_j]_k &= \sum_{i=1}^N a_{ik} w_{ij}^{\rm total} y_{ij},
+    [{\bf X}_j]_{kk'} &= \sum_{i=1}^N a^{\rm (new)}_{ik} w_{ij}^{\rm (new)} a^{\rm (new)}_{ik'}, \\
+    [{\bf b}_j]_k &= \sum_{i=1}^N a^{\rm (new)}_{ik} w_{ij}^{\rm (new)} y_{ij}, \\
+    \boldsymbol{\gamma}^{\rm (new)}_j &= \solve{\left( {\bf X}_j, {\bf b}_j \right)}, \\
+%    g_{kj} &\leftarrow [\boldsymbol{\gamma}_j]_k \quad {\rm for} \,\, j \,\, {\rm in} \,\, 1,...,M,
 \end{align}
-which is just the WLS solution for the columns of ${\bf Y}$ given fixed ${\bf A}$.
+which is just the WLS solution for the columns of ${\bf Y}$ given fixed ${\bf A}$.\\
 
 The \textbf{rotation-step} suppresses the huge set of degeneracies in the model by enforcing a standard orientation in either the data or the model space. Here, we will require that the basis vectors be orthonormal:
 \begin{align}
-    {\bf A} &\leftarrow {\bf A} {\bf V} \, {\rm diag} \left(\boldsymbol{\lambda}^{-1}\right) {\bf V}^\top, \\
-    {\bf G} &\leftarrow {\bf V} \, {\rm diag} \left(\boldsymbol{\lambda}\right) {\bf V}^\top {\bf G}, \\
+    \boldsymbol{\lambda}, {\bf V} &= \eig{\left( {\bf G} {\bf G}^\top \right)},\\
+    {\bf A}^{\rm (new)} &\leftarrow {\bf A} {\bf V} \, {\rm diag} \left(\boldsymbol{\lambda}^{-1}\right) {\bf V}^\top, \\
+    {\bf G}^{\rm (new)} &\leftarrow {\bf V} \, {\rm diag} \left(\boldsymbol{\lambda}\right) {\bf V}^\top {\bf G},
     % {\bf R^{-1}} &=  \\
     % {\bf R} &=
-    \boldsymbol{\lambda}, {\bf V} &= \eig{\left( {\bf G} {\bf G}^\top \right)},
 \end{align}
 where the operator ${\rm eig}({\bf G} {\bf G}^\top)$ returns a $K$-vector and a $K\times K$ matrix, containing the eigenvalues and eigenvectors of ${\bf G} {\bf G}^\top$ respectively.
 $\boldsymbol{\lambda}^{-1}$ is shorthand for the element-wise reciprocal of the eigenvalues vector $\boldsymbol{\lambda}$.
-Note that here the eigendecomposition is guaranteed to be performed on a real and symmetric matrix, and so allows for slightly faster numerical routines than the general case.
+Note that here the eigendecomposition is guaranteed to be performed on a real and symmetric matrix, and so allows for slightly faster numerical routines than the general case.\\
 
-\textbf{Convergence} is assessed every few cycles by a dimensionless estimate of the size of the g-step adjustment.
+We assess convergence every few cycles by a dimensionless estimate of the size of the g-step adjustment.
 The outputs of the procedure are the full matrices ${\bf A}$ and ${\bf G}$.
 The robust weights $w^{\rm robust}_{ij}$ for any data point are also calculable by Eq~\eqref{eq:w_robust}.
 
-\textbf{Inference} on new or held-out data is performed simply by reusing ${\bf G}$, and performing the a- and w-steps (such that ${\bf G}$ is never modified) until convergence.
-Here, convergence should be assessed by a dimensionless estimate of the size of the a-step adjustment instead.
+Inference on new or held-out data is performed simply by reusing ${\bf G}$, and performing the a- and w-steps (such that ${\bf G}$ is never modified) until convergence.
+Here, we assess convergence by a dimensionless estimate of the size of the a-step adjustment instead.
 The asymptotic complexity per cycle, assuming that $K \ll N, M$, is $\mathcal{O}(NMK^2)$, which is linear in both $N$ and $M$.
 
-\subsubsection{Validation and hyperparameter choice} \label{sec:cv}
+\subsection{Validation and hyperparameter choice} \label{sec:cv}
 
-As part of fitting the model, the investigator should choose the hyperparameters $Q\in \mathbb{R}^+$ and $K\in \mathbb{Z}^+$.
+As part of fitting the model, the investigator is required to choose the hyperparameters $Q\in \mathbb{R}^+$ and $K\in \mathbb{Z}^+$.
 Depending on the application, it may be sufficient to set these to reasonable values and move on, but in some cases it may be important to select them more carefully.
 We discuss when hyperparameter choice matters further in Section~\ref{sec:discussion}.
-Assuming that is does matter, we advocate for a held-out data cross-validation approach which is both straightforward and prior-independent.
+Assuming that is does matter, we advocate for a held-out data cross-validation approach which is both straightforward and prior-independent.\\
 
 The data should be partitioned randomly into a training set, and the model should be fit on the training set only.
 This should be repeated over a grid of $Q$ and $K$ values, and the best-fitting model for each pair of hyperparameters should be used to predict the test set data.
 This is done by iterating the a-step and w-step on the test set data, keeping the basis vectors $g_{kj}$ fixed to the values inferred from the training set.
-Convergence in this case can be judged by the a-step adjustment instead of the g-step adjustment, since the basis vectors are fixed.
+Convergence in this case can be judged by the a-step adjustment instead of the g-step adjustment, since the basis vectors are fixed.\\
 
 The following metric should then be calculated using the test set data $y_{*j}$, the fitted coefficients $a_{*k}$, the basis vectors $g_{kj}$, and the total weights $w^{\rm total}_{*j}$ calculated with the w-step rule using the test set measurement uncertainties $w^{\rm data}_{*j}$,
 \begin{align}
     \score{\left( Q, K \right)} = {\rm log} \left( 1 - {\rm std} \left[ \sqrt{w^{\rm total}_{*j}}\left(y_{*j} - \sum_K a_{*k} g_{kj}\right) \right] \right). \label{eq:score}
 \end{align}
 This essentially tests the degree to which the data, after fitting, follow the distribution given by the likelihood in Eq~\eqref{eq:hierachical_like}, using the residuals weighted by the inferred weights.
-That is, we expect the data to follow a normal distribution centred on the fitted model, with a standard deviation corresponding to the inferred weights $\tau_{*j}=(w_{*j}^{\rm total})^{-1/2}$.
+That is, we expect the data to follow a normal distribution centred on the fitted model, with a standard deviation corresponding to the inferred weights $\tau_{*j}=(w_{*j}^{\rm total})^{-1/2}$.\\
 
-\subsubsection{Pixel- and spectrum-level outlier identification} \label{sec:outlier_id}
+\subsection{Feature- and object-level outlier identification} \label{sec:outlier_id}
 
 The inferred  \emph{robust} weights $w^{\rm robust}_{ij}$ take a value between 0 and 1, with $\rightarrow0$ corresponding to complete downweighting and $\rightarrow1$ corresponding to no downweighting.
-This property means that the individual values of the weights can effectively give a continuous, per-pixel-per-spectrum measure of the degree to which a point is an outlier.
+This property means that the individual values of the weights can effectively give a continuous, per-feature-per-object measure of the degree to which a data point is an outlier.
 One can do this by assembling statistics or thresholds relative to the distribution of all $w^{\rm robust}_{ij}$.
-Furthermore, per-spectrum or per-column measures of outlier-y-ness can be assembled from some summary statistic over either the $j$ or $i$ index respectively.
-A simple example is to take the per-spectrum mean
+Furthermore, per-object or per-feature measures of outlier-y-ness can be assembled from some summary statistic over either the $j$ or $i$ index respectively.
+A simple example is to take the per-object mean
 \begin{align}
-    w^{\rm spectrum}_i &= \frac{1}{M}\sum_{j=1}^M w_{ij}^{\rm robust}, \label{eq:w_spec}
+    w^{\rm object}_i &= \frac{1}{M}\sum_{j=1}^M w_{ij}^{\rm robust}, \label{eq:w_spec}
 \end{align}
-and then to look at the distribution of $w^{\rm spectrum}_i$ across the data set to see the degree to which any one object deviates from the bulk.
+and then to look at the distribution of $w^{\rm object}_i$ across the data set to see the degree to which any one object deviates from the population.\\
 
 One is free to choose whatever metric over $w^{\rm robust}_{ij}$ best suits a particular dataset.
-For example, in stellar spectra, the mean weight per-spectrum could be a bad measure in that the spectra of interest could be mostly typical, but with one unusual line.
+For example, in stellar spectra, the mean weight per-spectrum (per-object) could be a bad measure in that the spectra of interest could be mostly typical, but with one unusual line.
 In that case, the minimum or the 0.01 quantile weight per object, might be better choices.
-Alternatively, one could look for contiguous stretches of pixels with an average weight below a threshold.
-We will demonstrate using the mean per-spectrum weight in the toy example (Section~\ref{sec:toy}), and using the 0.01 quantile in the Gaia example (Section~\ref{sec:gaia}).
+Alternatively, one could look for contiguous stretches of pixels (features) with an average weight below a threshold.
+We will demonstrate using the mean per-spectrum (per-object) weight in the toy example (Section~\ref{sec:toy}), and using the 0.01 quantile in the \textsl{Gaia} example (Section~\ref{sec:gaia}).\\
 
+\arc{Would the following paragraph feel more at home in the discussion?}
 As we hinted at in Section~\ref{sec:assumptions}, the degree to which these weights can be used to identify outliers depends on the investigators beliefs about the data, in particular arround the provided data uncertainties.
 Spectra with underestimated uncertainties can easily appear outliers via these metrics, since they might recieve near-universal downweighting.
 This is somewhat remediated by inspecting the residual between the data and the model, because objects that are not outliers but merely had underestimated uncertainties should still be well described by the inferred basis.
 It is therefore much safer to use the weights as a guide for \emph{where to look} for interesting things in a large dataset, rather than a \emph{statistical measure} of the degree to which an object is an outlier.
-In the case where the uncertainties are well-known and truly Gaussian, and where $Q$ and $K$ have been set carefully, it is potentially reasonable to use the population of weights as a means to ascribe a statistically-meaningful measure of outlier-y-ness.
+In the case where the uncertainties are well-known and truly Gaussian, and where $Q$ and $K$ have been set carefully, it is reasonable to use the population of weights as a means to ascribe a statistically-meaningful measure of outlier-y-ness.
 We caution that these conditions are hard to meet in practice.
 
 \section{Implementation}
 
-We implemented the RHMF algorithm in an open-source and publicly available Python package called \texttt{Robusta-HMF} \citep{hilder2026}.
+We implemented the RHMF algorithm in an open-source Python package called \texttt{Robusta-HMF} \citep{hilder2026}.
 \texttt{Robusta-HMF} is designed for both those want an out-of-the-box solution for RHMF (and HMF), and also for those who want to extend/modify the algorithm for their own purposes.
 The code is written in \texttt{JAX} \citep{jax2018github}, which provides just-in-time compilation, GPU and TPU support, and automatic differentiation.
 The API is designed to be easy to use, with a scikit-learn-like \citep{scikit-learn} interface for fitting the model and making predictions.
@@ -354,9 +357,9 @@ For all the data experiments in the following sections, we use the implementatio
 
 \subsection{Toy Spectra} \label{sec:toy}
 
-We generated 8000 synthetic spectra with 1200 pixels on the same wavelength grid, from a linear sum of a few polynomials and a low- and fixed-frequency sinusoid to represent continuum, as well as a set of absorption lines present in all the spectra.
+We generated 8000 synthetic spectra (objects) with 1200 pixels (features) on the same wavelength grid, from a linear sum of a few polynomials and a low- and fixed-frequency sinusoid to represent continuum, and absorption lines present in all the spectra. \arc{what details about absorption lines?}
 The true underlying model is therefore linear with rank 5.
-We then corrupted this dataset in following ways:
+We then corrupted the dataset in following ways:
 \begin{enumerate}
     \item We added Gaussian noise with a standard deviation proportional to a random factor across spectra, a systematic factor across wavelength, and a random additive factor per pixel. We take these standard deviations as known measurement uncertainties for the analysis.
     \item One contiguous missing data segment was injected in half of all spectra, at a random wavelength location, with a length between 50 and 200 pixels.
