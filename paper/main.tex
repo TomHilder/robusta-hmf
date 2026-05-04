@@ -366,27 +366,27 @@ We then corrupted the dataset in following ways:
     \item 40 of the 8000 spectra were \emph{outlier spectra}, constructed as a high frequency sinusoid with a randomly drawn frequency and amplitude in some range. This set contains little shared low-rank structure between them, and so should be interpreted as representing outlier spectra of different kinds, rather than some second class of spectra with similar properties.
     The outlier spectra may also contain missing data segments, and the other types of ourliers described below.
     \item We injected \emph{outlier columns}, which are fixed pixel indices at which 30\% of all spectra contain a random large (or very negative) value, intended to represent some systematic reduction, calibration, or instrument issue that affects a particular wavelength across many spectra.
-    \item we injected individual \emph{outlier pixels} at random locations, consisting of a fixed 0.4\% of all pixels in the data. We did not set the corresponding measurement weights to zero as these are itended to represent \emph{unknown} bad pixels.
+    \item We injected individual \emph{outlier pixels} at random locations, consisting of a fixed 0.4\% of all pixels in the data. We did not set the corresponding measurement weights to zero as these are intended to represent \emph{unknown} bad pixels.
     \item In 10 non-outlier spectra (hereafter \emph{normal spectra}) we injected 3 absorption lines at random wavelength locations with random amplitudes. We refer to these as \emph{outlier lines}.
 \end{enumerate}
-The exact details of the basis function functional form, the random sampling used for the coefficients, and the random sampling used to generate the noise, missing data, and each type of outlier, is provied in Appendix~\ref{sec:toy_model_details}.
+The exact details of the basis function functional form, the random sampling used for the coefficients, and the random sampling used to generate the noise, missing data, and each type of outlier, is provided in Appendix~\ref{sec:toy_model_details}.
 
 We fit the model with 35 different combinations of the hyperparameters $Q$ and $K$ to the same random subset of 4000 spectra, with the other 4000 held out for validation.
 The values of $Q$ were chosen to span a range from very aggressive downweighting of outliers ($Q=0.5$) to very little downweighting at all ($Q=10$), and the values of $K$ were chosen to span a range from underfitting ($K=3$) to overfitting ($K=7$) the true underlying model.
 The values we tested were $Q\in\left\{ 0.5, 1, 2, 3, 4, 5, 10\right\}$ and $K\in\left\{ 3, 4, 5, 6, 7\right\}$.
-For each fit, we initialized with an SVD, and iterated the algorithm until the maximum fractional change in any entry of ${\bf G}$ was less than $10^{-2}$, checking for convergence every 10 cycles. \hogg{This sounds not quite right. If there are 7000 pixels, $10^-2$ is actually \emph{order unity}. Shouldn't it be something like $10^2/\sqrt{M}$ or something like that? It should somehow depend on the normalization standard for $G$.}
+For each fit, we initialized with an SVD, and iterated the algorithm until the maximum fractional change in any entry of ${\bf G}$ was less than $10^{-2}$, checking for convergence every 10 cycles. \hogg{This sounds not quite right. If there are 7000 pixels, $10^-2$ is actually \emph{order unity}. Shouldn't it be something like $10^2/\sqrt{M}$ or something like that? It should somehow depend on the normalization standard for $G$.} \arc{I think this is OK, right? It is saying the \emph{maximum fractional change in any entry of ${\bf G}$.} It would be wrong if it were the \emph{mean} fractional change, but it's hard to conclude it is wrong without knowing what the distribution of fractional changes are. My guess is that if the \emph{maximum} fractional change is $10^{-2}$ then the rest are likely far lower in magnitude.}\\
 
 We also fit a standard PCA model, and a robust PCA (RPCA) model using the method of \citet{candes2011} as implemented in the \texttt{robust-pca} Python package \citep{ganguli2026}.
 For both of these we used the same training set as in the RHMF case, and stuck to the true underlying model rank of $K=5$ as a best-case scenario for these methods.
 Since these methods do not support providing data weights nor missing data, we set the missing data points to zero and ignored the measurement uncertainties.
 Given that the data points in the spectra are all near 1, it might be more realistic for this case to set the missing data points to 1, or to the mean of the dataset, or similar.
 However in full generality the investigator may not have a good way to set the missing data, and so we chose to set them to zero for illustrative purposes.
-Indeed, if the missing data segment contained an absorption line (which some of them do), setting the missing data to 1 or the mean would be a similarly bad choice.
+Indeed, if the missing data segment contained an absorption line (which some of them do), setting the missing data to 1 or the mean would be a similarly bad choice.\\
 
 \begin{figure}
     \centering
     \includegraphics[width=0.98\linewidth]{figs/absorption_line_residuals.pdf}
-    \caption{Randomly selected noisy toy spectrum that contains outlier absorptions lines, random outlier bad pixels, a pixel bad across many spectra, and a missing data segment. The top panel shows the data compared with the best-fit PCA, RPCA and RHMF models. The middle panel shows the RHMF model-subtracted residuals, demonstrating that the model has ignored the outlier pixels and lines, making them easy to identify by eye. The bottom panel shows the inferred robust weights, showing that the outlier pixels and lines have been downweighted by the model, also useful for identification. The PCA, RPCA, and RHMF models are all fit with $K=5$ basis vectors, and the RHMF model is fit with $Q=5$. \tom{Update to support reading elements in greyscale.}}
+    \caption{Randomly selected noisy toy spectrum that contains outlier absorptions lines, random outlier bad pixels, a pixel bad across many spectra, and a missing data segment. The top panel shows the data compared with the best-fit PCA, RPCA and RHMF models. The middle panel shows the RHMF model-subtracted residuals, demonstrating that the model has ignored the outlier pixels and lines, making them easy to identify by eye. The bottom panel shows the inferred robust weights, showing that the outlier pixels and lines have been down-weighted by the model, also useful for identification. The PCA, RPCA, and RHMF models are all fit with $K=5$ basis vectors, and the RHMF model is fit with $Q=5$. \tom{Update to support reading elements in greyscale.}}
     \label{fig:toy_residuals}
 \end{figure}
 
@@ -400,14 +400,14 @@ It is also unable to handle the missing data, causing the model to completely fa
 The RPCA model (blue) fares better at capturing the underlying structure due to the robustness.
 However, it is still negatively impacted by the heteroskedasticity, and it deviates from the data severely in the missing data region and mildly elsewhere.
 The RHMF model (green) captures the underlying structure very well, as it is able to ignore the outliers, handle the heteroskedasticity, and handle the missing data.
-The correct low-rank structure is captured, the model is smooth and continuous, the lines fit the data well, and the model interpolates well across the missing data region.
+The correct low-rank structure is captured, the model is smooth and continuous, the lines fit the data well, and the model interpolates well across the missing data region.\\
 
 The middle panel of Fig~\ref{fig:toy_residuals} shows the residuals after subtracting the best-fit RHMF model from the data.
 At all regions where outliers are present, the residuals are large, as is intended since the model deliberately does not capture them.
 Elsewhere the residuals are small and contain only noise.
 The outlier lines are easy to identify by eye in the residuals.
 The bottom panel of Fig~\ref{fig:toy_residuals} shows the inferred robust weights $w_{ij}^{\rm robust}$.
-These weights exhibit random fluctuations near 1 across most of the spectrum, but drop to values of $\lesssim 0.5$ in outlier locations, with the outlier lines dropping even to $\lesssim 0.2$.
+These weights exhibit random fluctuations near 1 across most of the spectrum, but drop to values of $\lesssim 0.5$ in outlier locations, with the outlier lines dropping even to $\lesssim 0.2$.\\
 % In combination with the residuals, the weights can thus be used to identify outliers in the spectra by eye, and the population of weights across a single spectrum or across the whole dataset can be used to measure the degree to which a particular spectrum or pixel is outlying, as we will show below.
 % Above line not really needed after update to Section~\ref{sec:outlier_id}.
 
@@ -472,9 +472,7 @@ However, this is likely contingent on the accuracy of the provided measurement u
 
 \subsection{Outliers in the Gaia RVS main sequence} \label{sec:gaia}
 
-We utilised Gaia RVS spectra to search for unusual objects along the main sequence, where by unusual we mean that the spectrum deviates significantly from what is typical of most neighbours in color-magnitupde space.
-We performed this searching by applying RHMF, and taking advantage of the inferred robust weights to spot outliers.
-These outliers could be in the form of binaries, accretion or magnetic field activity signatures \tom{TODO, more examples, plus sensible Gaia-focused citations}.
+We applied RHMF to Gaia/RVS spectra to identify unusual stellar objects on the stellar main-sequence \citep{GaiaDR4,GaiaRVS}. Here, \emph{unusual} is qualitatively defined by the spectrum deviating significantly from typical stars in neighboring color-magnitude bins, and quantified by the inferred robust weights. Examples of sources that we might expect to find could be binary systems, stars with peculiarly high rotation, or those with signatures of accretion or chromospheric activity.\\
 
 \begin{figure}
     \centering
@@ -488,7 +486,7 @@ Figure~\ref{fig:hr_bins} demonstrates how we used these regions to define bins, 
 We used 14 regions/bins, evenly spaced in BP$-$RP color and nearly evenly spaced in G-band absolute magnitude. %\footnote{We found that to cover the main sequence, it was necessary to curve the bin centre locations downwards near bins 4-7.}.
 The widths of these regions was set such that they slightly overlap, which means that there are spectra that belong to multiple bins.
 In each bin, we trained the model with only half the spectra, selected randomly.
-These were intialised with an SVD and iterated until the maximum fractional g-step adjustment was $<10^{4}$.
+These were intialised with an SVD and iterated until the maximum fractional g-step adjustment was $<10^{4}$ \arc{Is this right? $10^{-4}$ for the maximum fractional g-step adjustment \emph{does} seem pretty large!}.
 We then used the inferred basis vectors to predict the spectra in the other half of the bin.
 This yielded coefficients, predictions, and robust weights for all spectra in the bin, which we used to identify outliers as described below.
 
@@ -508,6 +506,7 @@ Therefore, we calculated the per-spectrum weights as the $w_i^{\rm spectrum}$ 1\
 Figure~\ref{fig:gaia_weights} shows the distributions of the per-spectrum weights $w_i^{\rm spectrum}$ calculated for all spectra in each bin.
 We then set a threshold of $0.5$, such that if $w_i^{\rm spectrum} < 0.5$ then spectrum $i$ is identified as a potential outlier, this is shown as a vertical dashed line in the figure.
 The number of identified outliers is labelled for each bin, as well as the total number of spectra in that bin.
+\arc{This might be a rabbit hole, and if it looks to be, I don't want to venture there. However, do we know what the expected \emph{distribution} is for the per-spectrum weights? If I look at Figure 6 (spectrum-level weights for each bin) then at first glance I thought \emph{`well, perhaps these more frequent outliers is just because of sampling: that all bins are distributed the same way and we are just sampling more outliers in some bins'}. But when I look more carefully, bin 0 has 193 outliers and 7k spectra, whereas bin 7 has 10k spectra and only 2 outliers. So the spectral complexity in bin 0 is higher than bin 7. I know that K and Q can be fiddled, but I am just wondering conceptually if there is some expected distribution of the per-spectrum weights, because that could help guide the decision of Q and K given the number of input spectra and the rough `rate' of outliers that you are interested in investigating}
 % Need to remember to return to the point that we did not tune the threshold, which might matter a bit since the distribution varies across the bins. Of course, we just pick three outliers to show anyway, but it might matter for a systematic study
 
 For bins 6 through 14, we see similar behaviour in the distributions of weights as in the toy example, with a large population of spectra with large weights, and a very sparse tail of spectra with weights ranging from $\lesssim 0.5$ to $\lesssim 0.1$.
