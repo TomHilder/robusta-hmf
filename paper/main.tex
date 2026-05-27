@@ -322,17 +322,17 @@ The inferred  \emph{robust} weights $w^{\rm robust}_{ij}$ take a value between 0
 This property means that the individual values of the weights can effectively give a continuous, per-feature-per-object measure of the degree to which a data point is an outlier.
 One can do this by assembling statistics or thresholds relative to the distribution of all $w^{\rm robust}_{ij}$.
 Furthermore, per-object or per-feature measures of outlier-y-ness can be assembled from some summary statistic over either the $j$ or $i$ index respectively.
-A simple example is to take the per-object mean
+A simple example is to take the per-object median
 \begin{align}
-    w^{\rm object}_i &= \frac{1}{M}\sum_{j=1}^M w_{ij}^{\rm robust}, \label{eq:w_spec}
+    w^{\rm object}_i &= \operatorname*{median}_{j} \left( w_{ij}^{\rm robust} \right), \label{eq:w_spec}
 \end{align}
 and then to look at the distribution of $w^{\rm object}_i$ across the data set to see the degree to which any one object deviates from the population.\\
 
 One is free to choose whatever metric over $w^{\rm robust}_{ij}$ best suits a particular dataset.
-For example, in stellar spectra, the mean weight per-spectrum (per-object) could be a bad measure in that the spectra of interest could be mostly typical, but with one unusual line.
+For example, in stellar spectra, the median weight per-object could be a bad measure in that the spectra of interest could be mostly typical, but with one unusual line.
 In that case, the minimum or the 0.01 quantile weight per object, might be better choices.
 Alternatively, one could look for contiguous stretches of pixels (features) with an average weight below a threshold.
-We will demonstrate using the mean per-spectrum (per-object) weight in the toy example (Section~\ref{sec:toy}), and using the 0.01 quantile in the \textsl{Gaia} example (Section~\ref{sec:gaia}).\\
+We will demonstrate using the median per-object weight in the toy example (Section~\ref{sec:toy}), and using the 0.01 quantile in the \textsl{Gaia} example (Section~\ref{sec:gaia}).\\
 
 \arc{Would the following paragraph feel more at home in the discussion?}
 As we hinted at in Section~\ref{sec:assumptions}, the degree to which these weights can be used to identify outliers depends on the investigators beliefs about the data, in particular arround the provided data uncertainties.
@@ -428,20 +428,20 @@ This shows that the downweighting mechanism works on both a local per-data-point
 \begin{figure}
     \centering
     \includegraphics[width=0.55\linewidth]{figs/weights_per_object_clean_vs_outlier.pdf}
-    \caption{Distribution of the spectrum-leve weights $w_i^{\rm spectrum}$ for the toy data, coloured by whether the spectrum is an outlier or not. The model clearly distinguishes the outlier spectra, which mostly have much lower weights than the normal spectra. The shown model has $K=5$ and $Q=5$. \tom{Update to support reading elements in greyscale.}}
+    \caption{Distribution of the object-level weights $w_i^{\rm object}$ for the toy data, coloured by whether the spectrum is an outlier or not. The model clearly distinguishes the outlier spectra, which mostly have much lower weights than the normal spectra. The shown model has $K=5$ and $Q=5$. \tom{Update to support reading elements in greyscale.}}
     \label{fig:toy_weights}
 \end{figure}
 
-To demonstrate outlier spectrum identification, we show the per-spectrum average robust weights $w_i^{\rm spectrum}$ calculated with Eq.~\eqref{eq:w_spec} for the dataset.
+To demonstrate outlier spectrum identification, we show the per-object median robust weights $w_i^{\rm object}$ calculated with Eq.~\eqref{eq:w_spec} for the dataset.
 These are split into the two known true labels of either ``normal'' (blue) or ``outlier'' (orange).
 This includes both the training and test sets.
-While these two populations are not perfectly segregated, we see that \emph{all} the normal spectra retain average weights near unity.
-In contrast, the outlier spectra have mean weights mostly $\leq 0.8$, with only a few in the $> 0.9$ region.
+While these two populations are not perfectly segregated, we see that \emph{all} the normal spectra retain median weights near unity.
+In contrast, the outlier spectra have median weights mostly $\leq 0.8$, with only a few in the $> 0.9$ region.
 
 \begin{figure}
     \centering
     \includegraphics[width=0.84\linewidth]{figs/test_set_score_heatmap.pdf}
-    \caption{Top: Validation scores calculated with Eq~\eqref{eq:score} for the grid of $Q$ and $K$ values. The best score is obtained with $K=5$ and $Q=5$, which is the model shown in the other plots. Bottom left: F1 score for outlier identification on a per-spectrum-per-pixel basis, based on a threshold of \placeholder{ADD} on the data-level weights $w_{ij}^{\rm data}$. Bottom right: F1 score for outlier identification on a per-spectrum basis, based on a threshold of \placeholder{ADD} on the spectrum-level weights $w_i^{\rm spectrum}$. The F1 scores are calculated with respect to the known true outlier labels, and they demonstrate that both the best identification is obtained near the best validation score, but also that picking $K$ too large does not dramatically degrade the outlier identification} %. \tom{Update to support reading elements in greyscale.}}
+    \caption{Top: Validation scores calculated with Eq~\eqref{eq:score} for the grid of $Q$ and $K$ values. The best score is obtained with $K=5$ and $Q=5$, which is the model shown in the other plots. Bottom left: F1 score for outlier identification on a per-object-per-pixel basis, based on a threshold of $0.5$ on the robust weights $w_{ij}^{\rm robust}$. Bottom right: F1 score for outlier identification on a per-object basis, based on a threshold of $0.9$ on the object-level weights $w_i^{\rm object}$. The F1 scores are calculated with respect to the known true outlier labels, and they demonstrate that both the best identification is obtained near the best validation score, but also that picking $K$ too large does not dramatically degrade the outlier identification} %. \tom{Update to support reading elements in greyscale.}}
     \label{fig:cv}
 \end{figure}
 
@@ -456,9 +456,9 @@ At all fixed $K$, there is a local optimum in $Q$, and that optimum shifts to la
 This likely reflects the fact that the $K<5$ models, which are not flexible enough to capture all the common structure, can componsate by downweighting more aggressively (smaller $Q$) such that the low-rank structure of interested is no longer captured in the inferred basis.
 Luckily, it is relatively easy to diagnose this issue by looking for shared structure in the residuals across many spectra.
 
-In the bottom two panels, we also assess the ability of the model to automatically identify outliers on both a per-pixel and a per-spectrum basis, using the inferred robust weights.
-To do this, we set a hard threshold for each the pixel-level weights $w_{ij}^{\rm data}$ and the spectrum-level weights $w_i^{\rm spectrum}$.
-Individual pixels are considered outliers if $w_{ij}^{\rm data} < 0.5$, and whole spectra are considered outliers if $w_i^{\rm spectrum} < 0.9$, where $w_i^{\rm spectrum}$ is the mean along $j$ as defined in Eq~\eqref{eq:w_spec}.
+In the bottom two panels, we also assess the ability of the model to automatically identify outliers on both a per-pixel and a per-object basis, using the inferred robust weights.
+To do this, we set a hard threshold for each the pixel-level robust weights $w_{ij}^{\rm robust}$ and the object-level weights $w_i^{\rm object}$.
+Individual pixels are considered outliers if $w_{ij}^{\rm robust} < 0.5$, and whole spectra are considered outliers if $w_i^{\rm object} < 0.9$, where $w_i^{\rm object}$ is the median along $j$ as defined in Eq~\eqref{eq:w_spec}.
 Then, we calculate the F1 score for each case, where the F1 score is a common metric for binary classification tasks that combines both precision and recall.
 \tom{Define F1, precision, recall, more carefully.}
 An F1 score of 1 would indicate perfect classification; no false positives nor false negatives.
@@ -487,7 +487,7 @@ Figure~\ref{fig:hr_bins} demonstrates how we used these regions to define bins, 
 We used 14 regions/bins, evenly spaced in BP$-$RP color and nearly evenly spaced in G-band absolute magnitude. %\footnote{We found that to cover the main sequence, it was necessary to curve the bin centre locations downwards near bins 4-7.}.
 The widths of these regions was set such that they slightly overlap, which means that there are spectra that belong to multiple bins.
 In each bin, we trained the model with only half the spectra, selected randomly.
-These were intialised with an SVD and iterated until the maximum fractional g-step adjustment was $<10^{4}$ \arc{Is this right? $10^{-4}$ for the maximum fractional g-step adjustment \emph{does} seem pretty large!}.
+These were intialised with an SVD and iterated until the maximum fractional g-step adjustment was $<10^{-4}$. % \arc{Is this right? $10^{-4}$ for the maximum fractional g-step adjustment \emph{does} seem pretty large!}
 We then used the inferred basis vectors to predict the spectra in the other half of the bin.
 This yielded coefficients, predictions, and robust weights for all spectra in the bin, which we used to identify outliers as described below.
 
@@ -498,16 +498,16 @@ Additionally, the toy example showed that the outlier identification is relative
 \begin{figure}
     \centering
     \includegraphics[width=0.72\linewidth]{figs/stacked_hist.pdf}
-    \caption{Distribution of the spectrum-level weights $w_i^{\rm spectrum}$ for each bin, with a vertical grey dashed line showing the threshold of $0.5$ for outlier identification. The number of identified outliers with $w_i^{\rm spectrum} < 0.5$, as well as the total number of spectra in each bin, is labelled next to the corresponding histogram. \tom{Maybe add a right panel showing the spectra on the HR diagram, colored by their spectrum-level weight?}}
+    \caption{Distribution of the object-level weights $w_i^{\rm object}$ for each bin, with a vertical grey dashed line showing the threshold of $0.5$ for outlier identification. The number of identified outliers with $w_i^{\rm object} < 0.5$, as well as the total number of spectra in each bin, is labelled next to the corresponding histogram. \tom{Maybe add a right panel showing the spectra on the HR diagram, colored by their object-level weight?}}
     \label{fig:gaia_weights}
 \end{figure}
 
 In terms of outlier identification, we were interested in finding spectra that may look mostly normal, but with one or a few unusual features, such as an unusual line.
-Therefore, we calculated the per-spectrum weights as the $w_i^{\rm spectrum}$ 1\% percentile over $j$, rather than the mean as in the toy example.
-Figure~\ref{fig:gaia_weights} shows the distributions of the per-spectrum weights $w_i^{\rm spectrum}$ calculated for all spectra in each bin.
-We then set a threshold of $0.5$, such that if $w_i^{\rm spectrum} < 0.5$ then spectrum $i$ is identified as a potential outlier, this is shown as a vertical dashed line in the figure.
+Therefore, we calculated the per-object weights as the $w_i^{\rm object}$ 1\% percentile over $j$, rather than the median as in the toy example.
+Figure~\ref{fig:gaia_weights} shows the distributions of the per-object weights $w_i^{\rm object}$ calculated for all spectra in each bin.
+We then set a threshold of $0.5$, such that if $w_i^{\rm object} < 0.5$ then spectrum $i$ is identified as a potential outlier, this is shown as a vertical dashed line in the figure.
 The number of identified outliers is labelled for each bin, as well as the total number of spectra in that bin.
-\arc{This might be a rabbit hole, and if it looks to be, I don't want to venture there. However, do we know what the expected \emph{distribution} is for the per-spectrum weights? If I look at Figure 6 (spectrum-level weights for each bin) then at first glance I thought \emph{`well, perhaps these more frequent outliers is just because of sampling: that all bins are distributed the same way and we are just sampling more outliers in some bins'}. But when I look more carefully, bin 0 has 193 outliers and 7k spectra, whereas bin 7 has 10k spectra and only 2 outliers. So the spectral complexity in bin 0 is higher than bin 7. I know that K and Q can be fiddled, but I am just wondering conceptually if there is some expected distribution of the per-spectrum weights, because that could help guide the decision of Q and K given the number of input spectra and the rough `rate' of outliers that you are interested in investigating}
+\arc{This might be a rabbit hole, and if it looks to be, I don't want to venture there. However, do we know what the expected \emph{distribution} is for the per-object weights? If I look at Figure 6 (object-level weights for each bin) then at first glance I thought \emph{`well, perhaps these more frequent outliers is just because of sampling: that all bins are distributed the same way and we are just sampling more outliers in some bins'}. But when I look more carefully, bin 0 has 193 outliers and 7k spectra, whereas bin 7 has 10k spectra and only 2 outliers. So the spectral complexity in bin 0 is higher than bin 7. I know that K and Q can be fiddled, but I am just wondering conceptually if there is some expected distribution of the per-object weights, because that could help guide the decision of Q and K given the number of input spectra and the rough `rate' of outliers that you are interested in investigating}
 % Need to remember to return to the point that we did not tune the threshold, which might matter a bit since the distribution varies across the bins. Of course, we just pick three outliers to show anyway, but it might matter for a systematic study
 
 For bins 6 through 14, we see similar behaviour in the distributions of weights as in the toy example, with a large population of spectra with large weights, and a very sparse tail of spectra with weights ranging from $\lesssim 0.5$ to $\lesssim 0.1$.
@@ -526,8 +526,8 @@ We previously mentioned that some of the spectra belong to two bins.
 Those spectra are then fit twice, and so they have two set of inferred weights, and thus two chances to be identified as outliers.
 Of the 584 spectra identified as outliers in at least one bin, 135 of those belong to two bins.
 Of those that belong to two bins, 61 are outliers in both bins, while 74 are outliers in only one of the two bins.
-\tom{Check the values of $w_i^{\rm spectrum}$ for the 74 that are outliers in only one of the two bins, to see if they are close to the threshold in the other bin.}
-\tom{Check in general how close the $w_i^{\rm spectrum}$ are for all 135 spectra that are outliers in two bins.}
+\tom{Check the values of $w_i^{\rm object}$ for the 74 that are outliers in only one of the two bins, to see if they are close to the threshold in the other bin.}
+\tom{Check in general how close the $w_i^{\rm object}$ are for all 135 spectra that are outliers in two bins.}
 
 \begin{figure}
     \centering
@@ -537,7 +537,7 @@ Of those that belong to two bins, 61 are outliers in both bins, while 74 are out
 \end{figure}
 
 Figure~\ref{fig:gaia_spec_1} shows the spectrum of one of the identified outliers, with the best-fit model overlaid, and the residuals below.
-The spectrum is from bin 0, and it has a very low spectrum-level weight of $w_i^{\rm spectrum} = 0.009$, which is well below the threshold of $0.5$.
+The spectrum is from bin 0, and it has a very low object-level weight of $w_i^{\rm object} = 0.009$, which is well below the threshold of $0.5$.
 The spectrum looks to have contributions from both the very broad lines expected of a hot star, as well as deep and narrow lines expected of a cool star.
 It's a hot and cool star binary.
 \tom{TODO: crossref Gaia ID and literature search object.}
@@ -564,7 +564,7 @@ There are clear, strong Ca II emission lines, indicative of magnetic or accretio
 \begin{figure}
     \centering
     \includegraphics[width=0.75\linewidth]{figs/umap_residuals_score.png}
-    \caption{\placeholder{placeholder umap plot. Made from the residuals of all identified outliers, colored by their spectrum-level weight (called outlier-score in the plot)} \hoggtodo{Comment on whether you think we should include such a plot. It's neat but I'm not sure if it helps the story.}}
+    \caption{\placeholder{placeholder umap plot. Made from the residuals of all identified outliers, colored by their object-level weight (called outlier-score in the plot)} \hoggtodo{Comment on whether you think we should include such a plot. It's neat but I'm not sure if it helps the story.}}
     \label{fig:umap}
 \end{figure}
 
