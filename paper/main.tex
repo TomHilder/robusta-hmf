@@ -1,8 +1,9 @@
+\PassOptionsToPackage{dvipsnames}{xcolor}
 \documentclass[onecolumn,floatfix]{aastex631}
 \usepackage{amsmath}
 \usepackage{amsfonts}
 \usepackage{graphicx}
-\usepackage[dvipsnames]{xcolor}
+\usepackage{xcolor}
 
 \addtolength{\textwidth}{-0.50in}
 \addtolength{\oddsidemargin}{0.25in}
@@ -260,19 +261,19 @@ The \textbf{a-step} finds the best-fit values for the coefficients $a_{ik}$ give
     % {\bf b} &= {\bf G} {\bf W}_i {\bf y}_i \\
     [{\bf b}_i]_k &= \sum_{j=1}^M g_{kj} w_{ij}^{\rm (new)} y_{ij}, \\
     % {\bf G} {\bf W}_i \\
-    \boldsymbol{\alpha}^{\rm (new)}_i &= \solve{\left( {\bf X}_i, {\bf b}_i \right)}, \\
-%    a_{ik} &\leftarrow [{\boldsymbol{\alpha}}_i]_k \quad {\rm for} \,\, i \,\, {\rm in} \,\, 1,...,N,
+    \boldsymbol{\alpha}_i &= \solve{\left( {\bf X}_i, {\bf b}_i \right)}, \\
+   a_{ik}^{\rm (new)} &\leftarrow [{\boldsymbol{\alpha}}_i]_k %\quad {\rm for} \,\, i \,\, {\rm in} \,\, 1,...,N,
 \end{align}
 where the operator $\solve({\bf X}, {\bf b})$ returns ${\bf X}^{-1}\,{\bf b}$.
 This is just the WLS solution for the rows of ${\bf Y}$ given fixed ${\bf G}$.\\
 
 Next, the \textbf{g-step} finds the best-fit basis vectors $g_{kj}$ given the current estimate of the coefficients $a_{ik}$:
-\arc{Below is $a_{ik}$ meant to be $a^{\rm (new)}_{il}$? I think so...}
+% \arc{Below is $a_{ik}$ meant to be $a^{\rm (new)}_{il}$? I think so...}
 \begin{align}
     [{\bf X}_j]_{kk'} &= \sum_{i=1}^N a^{\rm (new)}_{ik} w_{ij}^{\rm (new)} a^{\rm (new)}_{ik'}, \\
     [{\bf b}_j]_k &= \sum_{i=1}^N a^{\rm (new)}_{ik} w_{ij}^{\rm (new)} y_{ij}, \\
-    \boldsymbol{\gamma}^{\rm (new)}_j &= \solve{\left( {\bf X}_j, {\bf b}_j \right)}, \\
-%    g_{kj} &\leftarrow [\boldsymbol{\gamma}_j]_k \quad {\rm for} \,\, j \,\, {\rm in} \,\, 1,...,M,
+    \boldsymbol{\gamma}_j &= \solve{\left( {\bf X}_j, {\bf b}_j \right)}, \\
+   g_{kj}^{\rm (new)} &\leftarrow [\boldsymbol{\gamma}_j]_k %\quad {\rm for} \,\, j \,\, {\rm in} \,\, 1,...,M,
 \end{align}
 which is just the WLS solution for the columns of ${\bf Y}$ given fixed ${\bf A}$.\\
 
