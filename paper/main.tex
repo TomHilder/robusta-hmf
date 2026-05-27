@@ -291,7 +291,7 @@ Note that here the eigendecomposition is guaranteed to be performed on a real an
 
 We assess convergence every few cycles by a dimensionless estimate of the size of the g-step adjustment.
 The outputs of the procedure are the full matrices ${\bf A}$ and ${\bf G}$.
-The robust weights $w^{\rm robust}_{ij}$ for any data point are also calculable by Eq~\eqref{eq:w_robust}.
+The robust weights $w^{\rm robust}_{ij}$ for any data point are also calculable by Eq.~\eqref{eq:w_robust}.
 
 Inference on new or held-out data is performed simply by reusing ${\bf G}$, and performing the a- and w-steps (such that ${\bf G}$ is never modified) until convergence.
 Here, we assess convergence by a dimensionless estimate of the size of the a-step adjustment instead.
@@ -313,7 +313,7 @@ The following metric should then be calculated using the test set data $y_{*j}$,
 \begin{align}
     \score{\left( Q, K \right)} = {\rm log} \left( 1 - {\rm std} \left[ \sqrt{w^{\rm total}_{*j}}\left(y_{*j} - \sum_K a_{*k} g_{kj}\right) \right] \right). \label{eq:score}
 \end{align}
-This essentially tests the degree to which the data, after fitting, follow the distribution given by the likelihood in Eq~\eqref{eq:hierachical_like}, using the residuals weighted by the inferred weights.
+This essentially tests the degree to which the data, after fitting, follow the distribution given by the likelihood in Eq.~\eqref{eq:hierachical_like}, using the residuals weighted by the inferred weights.
 That is, we expect the data to follow a normal distribution centred on the fitted model, with a standard deviation corresponding to the inferred weights $\tau_{*j}=(w_{*j}^{\rm total})^{-1/2}$.\\
 
 \subsection{Feature- and object-level outlier identification} \label{sec:outlier_id}
@@ -441,7 +441,7 @@ In contrast, the outlier spectra have median weights mostly $\leq 0.8$, with onl
 \begin{figure}
     \centering
     \includegraphics[width=0.84\linewidth]{figs/test_set_score_heatmap.pdf}
-    \caption{Top: Validation scores calculated with Eq~\eqref{eq:score} for the grid of $Q$ and $K$ values. The best score is obtained with $K=5$ and $Q=5$, which is the model shown in the other plots. Bottom left: F1 score for outlier identification on a per-object-per-pixel basis, based on a threshold of $0.5$ on the robust weights $w_{ij}^{\rm robust}$. Bottom right: F1 score for outlier identification on a per-object basis, based on a threshold of $0.9$ on the object-level weights $w_i^{\rm object}$. The F1 scores are calculated with respect to the known true outlier labels, and they demonstrate that both the best identification is obtained near the best validation score, but also that picking $K$ too large does not dramatically degrade the outlier identification} %. \tom{Update to support reading elements in greyscale.}}
+    \caption{Top: Validation scores calculated with Eq.~\eqref{eq:score} for the grid of $Q$ and $K$ values. The best score is obtained with $K=5$ and $Q=5$, which is the model shown in the other plots. Bottom left: F1 score for outlier identification on a per-object-per-pixel basis, based on a threshold of $0.5$ on the robust weights $w_{ij}^{\rm robust}$. Bottom right: F1 score for outlier identification on a per-object basis, based on a threshold of $0.9$ on the object-level weights $w_i^{\rm object}$. The F1 scores are calculated with respect to the known true outlier labels, and they demonstrate that both the best identification is obtained near the best validation score, but also that picking $K$ too large does not dramatically degrade the outlier identification} %. \tom{Update to support reading elements in greyscale.}}
     \label{fig:cv}
 \end{figure}
 
@@ -458,10 +458,15 @@ Luckily, it is relatively easy to diagnose this issue by looking for shared stru
 
 In the bottom two panels, we also assess the ability of the model to automatically identify outliers on both a per-pixel and a per-object basis, using the inferred robust weights.
 To do this, we set a hard threshold for each the pixel-level robust weights $w_{ij}^{\rm robust}$ and the object-level weights $w_i^{\rm object}$.
-Individual pixels are considered outliers if $w_{ij}^{\rm robust} < 0.5$, and whole spectra are considered outliers if $w_i^{\rm object} < 0.9$, where $w_i^{\rm object}$ is the median along $j$ as defined in Eq~\eqref{eq:w_spec}.
+Individual pixels are considered outliers if $w_{ij}^{\rm robust} < 0.5$, and whole spectra are considered outliers if $w_i^{\rm object} < 0.9$, where $w_i^{\rm object}$ is the median along $j$ as defined in Eq.~\eqref{eq:w_spec}.
 Then, we calculate the F1 score for each case, where the F1 score is a common metric for binary classification tasks that combines both precision and recall.
-\tom{Define F1, precision, recall, more carefully.}
-An F1 score of 1 would indicate perfect classification; no false positives nor false negatives.
+These quantities as defined as
+\begin{align}
+    \mathrm{precision} &= \frac{\mathrm{true~positives}}{\mathrm{true~positives} + \mathrm{false~positives}}, \\
+    \mathrm{recall} &= \frac{\mathrm{true~positives}}{\mathrm{true~positives} + \mathrm{false~negatives}}, \\
+    \mathrm{F1} &= \frac{2 \cdot \mathrm{precision} \cdot \mathrm{recall}}{\mathrm{precision} + \mathrm{recall}}.
+\end{align}
+An F1 score of 1 indicates perfect classification; no false positives nor false negatives.
 
 Both the F1 panels reveal similar behaviour: the outlier identification is relatively \emph{insensitive} to $Q$ and $K$, provided that both are sufficiently large.
 The models with $K<5$ struggle in that they cannot capture the underlying structure with a true rank of $5$, leading to false positives.
@@ -872,7 +877,7 @@ The corresponding negative log-likelihood is
 \begin{align}
     \mathcal{L}(A,G) = \frac{Q^2}{2} \sum_{ij} \log\left(1 + \frac{r_{ij}^2}{Q^2}\right), \label{eq:t_loss}
 \end{align}
-which is identical to the loss function in Eq~\eqref{eq:robust_opt} up to the constant $Q^2 / 2$, where $r_{ij} = (w_{ij}^{\rm data})^{1/2} (y_{ij} - \sum_{k} a_{ik} g_{kj})$ is now the \emph{data weighted} residual, that is, the residual weighted with the measurement uncertainty weights.
+which is identical to the loss function in Eq.~\eqref{eq:robust_opt} up to the constant $Q^2 / 2$, where $r_{ij} = (w_{ij}^{\rm data})^{1/2} (y_{ij} - \sum_{k} a_{ik} g_{kj})$ is now the \emph{data weighted} residual, that is, the residual weighted with the measurement uncertainty weights.
 In the remainder of this section, we prove that the alternating least squares plus weight-updating step algorithm does actually minimize this negative log-likelihood.
 
 \subsection{Auxiliary Form}
@@ -888,7 +893,7 @@ where
 \begin{equation}
     \phi(w) = \frac{Q^2}{2}\,(w - 1 - \log w).
 \end{equation}
-That is, performing the minimization in Eq~\eqref{eq:rho_loss} is identical to evaluating Eq.~\eqref{eq:t_loss}.
+That is, performing the minimization in Eq.~\eqref{eq:rho_loss} is identical to evaluating Eq.~\eqref{eq:t_loss}.
 
 We will now prove the claim. First, define
 \begin{align}
