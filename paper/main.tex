@@ -213,20 +213,25 @@ This setup can be equivalently viewed as a hierarchical model with latent, unkno
     \tau_{ij} &\sim {\rm InverseGamma} \left( \frac{\nu}{2}, \frac{\nu}{2} s^2 \sigma_{ij}^2 \right) \label{eq:hierarchical_prior}
 \end{align}
 where the inverse Gamma distribution is a strictly positive distribution with \emph{shape} $\frac{\nu}{2}$ and \emph{scale} $\frac{\nu}{2} s^2 \sigma_{ij}^2$ parameters.
+The equivalence between the student-t likelihood and the hierarchical view is due to the fact that the inverse Gamma distribution is the conjugate prior distribution of an unknown Gaussian variance; marginalizing $\tau_{ij}$ from Eq.~\eqref{eq:hierachical_like} with Eq.~\eqref{eq:hierarchical_prior} yields Eq.~\eqref{eq:t_like} \citep[e.g.][]{lange1989}. \\
+% We show this fact more rigorously in Appendix~\ref{sec:proof}.\\
+
 For the applications we present here, $s$ and $\nu$ are not uniquely identifiable.
-This is because our estimates are either maximum likelihood in the Student-t likelihood view, or type-II maximum likelihood (empirical Bayes) in the hierarchical view.
-The equivalence between the student-t likelihood and the hierarchical view is due to the fact that the inverse Gamma distribution is the conjugate prior distribution of an unknown Gaussian variance; marginalizing $\tau_{ij}$ from Eq.~\eqref{eq:hierachical_like} with Eq.~\eqref{eq:hierarchical_prior} yields Eq.~\eqref{eq:t_like} \citep[e.g.][]{lange1989}. We show this fact more rigorously in Appendix~\ref{sec:proof}.\\
+This is because the likelihood depends only on the product $Q^2=\nu s^2$ (Eq.~\ref{eq:t_like}), so our Student-t maximum likelihood estimate (MLE) cannot distinguish them. 
+We therefore fix $\nu=1$ (which reduces to the Cauchy distribution) without loss of generality. \\
 
-The fit instead depends only on the \emph{product} $Q=\nu s^2$, which is seen most easily by noticing that Eq.~\eqref{eq:t_like} depends only on $Q$ and does not distinguish between $\nu$ and $s^2$ separately. After the number of basis functions $K$, $Q$ now represents  the second hyperparameter of the model: a soft outlier threshold that controls where the transition between the quadratic and logarithmic penalties occurs.
-With $Q=1$ the transition occurs at about the same point as the measurement uncertainties, ${Q}>1$ means that the transition occurs at larger residuals than the measurement uncertainties, and ${Q}<1$ means that the transition occurs at smaller residuals than the measurement uncertainties. Away from $Q=1$, it is worth reminding that $Q$ scales with variance, not standard deviation.
+% This is because our estimates are either maximum likelihood in the Student-t likelihood view, or type-II maximum likelihood (empirical Bayes) in the hierarchical view.
+% In practice we therefore fix $\nu=1$, which recovers the Cauchy distribution; because the fit depends only on the \emph{product} $Q^2=\nu s^2$, this entails no loss of generality.
+% This is seen most easily by noticing that Eq.~\eqref{eq:t_like} depends only on $Q$ and does not distinguish between $\nu$ and $s^2$ separately. 
+After the number of basis functions $K$, $Q$ now represents  the second hyperparameter of the model: a soft outlier threshold that controls where the transition between the quadratic and logarithmic penalties occurs.
+With $Q=1$ the transition occurs at about the same point as the measurement uncertainties, ${Q}>1$ means that the transition occurs at larger residuals than the measurement uncertainties, and ${Q}<1$ means that the transition occurs at smaller residuals than the measurement uncertainties. 
+% Away from $Q=1$, it is worth reminding that $Q$ scales with standard deviation, not variance.
 
-
-
-\subsection{Fitting Algorithm}
+\subsection{Fitting Algorithm} \label{sec:fitting}
 
 While in principle it's possible to optimize Eq.~\eqref{eq:robust_opt} for all $a_{ik}$ and $g_{kj}$ simultaneously, we invoke a majorization-maximization scheme that implicitly minimizes the objective by iterating between re-weighting and least-squares solves.
 This approach is exactly the typical IRLS method for robust regression, but applied to HMF instead of linear regression.
-We prove that the algorithm below optimises the likelihood in Eq.~\eqref{eq:t_like} in Appendix~\ref{sec:proof},
+We prove that the algorithm below optimises the likelihood in Eq.~\eqref{eq:t_like} in Appendix~\ref{sec:proof}. \\
 % we will discuss the methodology and results in the context of both these views, re-weighting and sub-quadratic penalty cost function, interchangably.
 
 %\subsubsection{Initialization} % ARC says: I don't think you need subsubsections
@@ -436,7 +441,7 @@ To demonstrate outlier spectrum identification, we show the per-object median ro
 These are split into the two known true labels of either ``normal'' (blue) or ``outlier'' (orange).
 This includes both the training and test sets.
 While these two populations are not perfectly segregated, we see that \emph{all} the normal spectra retain median weights near unity.
-In contrast, the outlier spectra have median weights mostly $\leq 0.8$, with only a few in the $> 0.9$ region.
+In contrast, the outlier spectra have median weights mostly $\leq 0.8$, with only a few in the $> 0.9$ region.\\
 
 \begin{figure}
     \centering
@@ -447,14 +452,14 @@ In contrast, the outlier spectra have median weights mostly $\leq 0.8$, with onl
 
 We performed cross-validation for the fitted RHMF model using the method and metric specified in Section~\ref{sec:cv}.
 The validation score for each hyperparameter pair $(Q, K)$ is shown in the top panel of Figure~\ref{fig:cv}.
-The best score is achieved at $Q=5$, and at the true rank of $K=5$; this is the pair used in Figures~\ref{fig:toy_residuals} and \ref{fig:toy_spectra}.
+The best score is achieved at $Q=5$, and at the true rank of $K=5$; this is the pair used in Figures~\ref{fig:toy_residuals} and \ref{fig:toy_spectra}.\\
 
 The score is more sensitive to the choice of $Q$ than $K$, as the $K>5$ cases with $Q=5$ fair similarly.
 $K<5$ performs more poorly, reflecting the inability of the model to capture all the common structure in the data.
 The optimal $Q=5$ implies that the transition from the quadratic to logarithmic penalty in the residuals occurs near $\sqrt{5}\sigma$ from zero.
 At all fixed $K$, there is a local optimum in $Q$, and that optimum shifts to larger $Q$ as $K$ increases.
 This likely reflects the fact that the $K<5$ models, which are not flexible enough to capture all the common structure, can componsate by downweighting more aggressively (smaller $Q$) such that the low-rank structure of interested is no longer captured in the inferred basis.
-Luckily, it is relatively easy to diagnose this issue by looking for shared structure in the residuals across many spectra.
+Luckily, it is relatively easy to diagnose this issue by looking for shared structure in the residuals across many spectra.\\
 
 In the bottom two panels, we also assess the ability of the model to automatically identify outliers on both a per-pixel and a per-object basis, using the inferred robust weights.
 To do this, we set a hard threshold for each the pixel-level robust weights $w_{ij}^{\rm robust}$ and the object-level weights $w_i^{\rm object}$.
@@ -466,7 +471,7 @@ These quantities as defined as
     \mathrm{recall} &= \frac{\mathrm{true~positives}}{\mathrm{true~positives} + \mathrm{false~negatives}}, \\
     \mathrm{F1} &= \frac{2 \cdot \mathrm{precision} \cdot \mathrm{recall}}{\mathrm{precision} + \mathrm{recall}}.
 \end{align}
-An F1 score of 1 indicates perfect classification; no false positives nor false negatives.
+An F1 score of 1 indicates perfect classification; no false positives nor false negatives.\\
 
 Both the F1 panels reveal similar behaviour: the outlier identification is relatively \emph{insensitive} to $Q$ and $K$, provided that both are sufficiently large.
 The models with $K<5$ struggle in that they cannot capture the underlying structure with a true rank of $5$, leading to false positives.
@@ -474,7 +479,7 @@ This can be partially remediated by increasing $Q$ to downweight less agressivel
 $Q<3$ causes false positives despite large enough $K$, because the downweighting is too aggressive.
 These results demonstrate that the best outlier identification is obtained near the best validation score, but also that picking $K$ or $Q$ too large does not dramatically degrade the outlier identification.
 However, this is likely contingent on the accuracy of the provided measurement uncertainties, as well as the degree to which the outliers do not share low-rank structure with the rest of the data.
-\tom{Maybe not explained adequately, or maybe move to discussion. Likely this will get trimmed after writing discussion.}
+\tom{Maybe not explained adequately, or maybe move to discussion. Likely this will get trimmed after writing discussion.}\\
 
 \subsection{Outliers in the Gaia RVS main sequence} \label{sec:gaia}
 
@@ -494,11 +499,11 @@ The widths of these regions was set such that they slightly overlap, which means
 In each bin, we trained the model with only half the spectra, selected randomly.
 These were intialised with an SVD and iterated until the maximum fractional g-step adjustment was $<10^{-4}$. % \arc{Is this right? $10^{-4}$ for the maximum fractional g-step adjustment \emph{does} seem pretty large!}
 We then used the inferred basis vectors to predict the spectra in the other half of the bin.
-This yielded coefficients, predictions, and robust weights for all spectra in the bin, which we used to identify outliers as described below.
+This yielded coefficients, predictions, and robust weights for all spectra in the bin, which we used to identify outliers as described below.\\
 
 We also chose not to perform any cross-validation, and instead picked $K=10$ and $Q=5$ uniformly for all bins.
 The motivation for this choice is two-fold: first, we were not aiming to perform a detailed analysis but rather a simple demonstration on real data; second, we were mostly interested in identifying \emph{potentially} interesting spectra, and so the exact classification performance was not of primary importance.
-Additionally, the toy example showed that the outlier identification is relatively insensitive to the choice of $Q$ and $K$, provided that they are not too small.
+Additionally, the toy example showed that the outlier identification is relatively insensitive to the choice of $Q$ and $K$, provided that they are not too small.\\
 
 \begin{figure}
     \centering
@@ -512,7 +517,7 @@ Therefore, we calculated the per-object weights as the $w_i^{\rm object}$ 1\% pe
 Figure~\ref{fig:gaia_weights} shows the distributions of the per-object weights $w_i^{\rm object}$ calculated for all spectra in each bin.
 We then set a threshold of $0.5$, such that if $w_i^{\rm object} < 0.5$ then spectrum $i$ is identified as a potential outlier, this is shown as a vertical dashed line in the figure.
 The number of identified outliers is labelled for each bin, as well as the total number of spectra in that bin.
-\arc{This might be a rabbit hole, and if it looks to be, I don't want to venture there. However, do we know what the expected \emph{distribution} is for the per-object weights? If I look at Figure 6 (object-level weights for each bin) then at first glance I thought \emph{`well, perhaps these more frequent outliers is just because of sampling: that all bins are distributed the same way and we are just sampling more outliers in some bins'}. But when I look more carefully, bin 0 has 193 outliers and 7k spectra, whereas bin 7 has 10k spectra and only 2 outliers. So the spectral complexity in bin 0 is higher than bin 7. I know that K and Q can be fiddled, but I am just wondering conceptually if there is some expected distribution of the per-object weights, because that could help guide the decision of Q and K given the number of input spectra and the rough `rate' of outliers that you are interested in investigating}
+\arc{This might be a rabbit hole, and if it looks to be, I don't want to venture there. However, do we know what the expected \emph{distribution} is for the per-object weights? If I look at Figure 6 (object-level weights for each bin) then at first glance I thought \emph{`well, perhaps these more frequent outliers is just because of sampling: that all bins are distributed the same way and we are just sampling more outliers in some bins'}. But when I look more carefully, bin 0 has 193 outliers and 7k spectra, whereas bin 7 has 10k spectra and only 2 outliers. So the spectral complexity in bin 0 is higher than bin 7. I know that K and Q can be fiddled, but I am just wondering conceptually if there is some expected distribution of the per-object weights, because that could help guide the decision of Q and K given the number of input spectra and the rough `rate' of outliers that you are interested in investigating}\\
 % Need to remember to return to the point that we did not tune the threshold, which might matter a bit since the distribution varies across the bins. Of course, we just pick three outliers to show anyway, but it might matter for a systematic study
 
 For bins 6 through 14, we see similar behaviour in the distributions of weights as in the toy example, with a large population of spectra with large weights, and a very sparse tail of spectra with weights ranging from $\lesssim 0.5$ to $\lesssim 0.1$.
@@ -523,7 +528,7 @@ This difference could be explained by the fact that bin 0 truly containing more 
 However, it is also possible that an increased $K$ would have captured a lot of this structure and thus reduced the number of identified outliers.
 This is a double-edged sword, because while it is true that a more flexible model can capture more of the structure in the data, it is also true that some of that structure may be interesting and worth identifying as outliers.
 This is related to a previously mentioned fundamental limitation: if the objects you consider outliers share some low-rank structure between them, then at large enough $K$ the model will capture that structure.
-It is then up to the investigator to decide whether or not the model should be flexible enough to capture this second ``class'' of objects.
+It is then up to the investigator to decide whether or not the model should be flexible enough to capture this second ``class'' of objects.\\
 
 \tom{below here becomes rougher-draft}
 
@@ -532,7 +537,7 @@ Those spectra are then fit twice, and so they have two set of inferred weights, 
 Of the 584 spectra identified as outliers in at least one bin, 135 of those belong to two bins.
 Of those that belong to two bins, 61 are outliers in both bins, while 74 are outliers in only one of the two bins.
 \tom{Check the values of $w_i^{\rm object}$ for the 74 that are outliers in only one of the two bins, to see if they are close to the threshold in the other bin.}
-\tom{Check in general how close the $w_i^{\rm object}$ are for all 135 spectra that are outliers in two bins.}
+\tom{Check in general how close the $w_i^{\rm object}$ are for all 135 spectra that are outliers in two bins.}\\
 
 \begin{figure}
     \centering
@@ -545,7 +550,7 @@ Figure~\ref{fig:gaia_spec_1} shows the spectrum of one of the identified outlier
 The spectrum is from bin 0, and it has a very low object-level weight of $w_i^{\rm object} = 0.009$, which is well below the threshold of $0.5$.
 The spectrum looks to have contributions from both the very broad lines expected of a hot star, as well as deep and narrow lines expected of a cool star.
 It's a hot and cool star binary.
-\tom{TODO: crossref Gaia ID and literature search object.}
+\tom{TODO: crossref Gaia ID and literature search object.}\\
 
 \begin{figure}
     \centering
@@ -564,7 +569,7 @@ It's a hot and cool star binary.
 Figure~\ref{fig:gaia_spec_2} shows 1 of the 2 outlier spectra from bin 13, with a weight of 0.173.
 The spectrum is of a cool star M-dwarf type thing.
 There are clear, strong Ca II emission lines, indicative of magnetic or accretion activity \placeholder{citations}.
-\tom{TODO: crossref Gaia ID and literature search object.}
+\tom{TODO: crossref Gaia ID and literature search object.}\\
 
 \begin{figure}
     \centering
@@ -579,7 +584,7 @@ The resultant projection in shown in Figure~\ref{fig:umap}.
 Different regions in the projection correspond to different types of outliers.
 There is a corner for the binaries, a corner for cool stars with accretion signatures, and corners for \placeholder{stuff idk what it is}.
 There is also a bulk of objects near the middle that when inspected are more borderline cases with weights closer to 0.5 and mostly normal residuals.
-Throwing the residuals of all the outliers into UMAP thus seems like a nice way to categorise things in an unsupervised way, and also to identify the most promising outliers.
+Throwing the residuals of all the outliers into UMAP thus seems like a nice way to categorise things in an unsupervised way, and also to identify the most promising outliers.\\
 
 \section{Discussion} \label{sec:discussion}
 
@@ -603,7 +608,7 @@ We presented a PCA-like model, which we have called robust heteroskedastic matri
 RHMF has all the nice properties of both HMF \citep{tsalmantza2012} and robust regression \citep{holland1977, hoaglin1983}, in that it can handle missing data, heteroskedastic noise, and outliers, all in a principled way.
 The usefulness of a model of this kind is two-fold: one may care about the low-rank structure without being burdened by outliers, or one can use the inference to identify outliers and then investigate them further.
 We demonstrated mostly the former in the toy example, and the latter in the Gaia example.
-Like all models, it has strengths (hopefully demonstrated in the preceeding sections), and shortcomings, which we will discuss below.
+Like all models, it has strengths (hopefully demonstrated in the preceeding sections), and shortcomings, which we will discuss below.\\
 
 %%% CV STUFF
 
@@ -614,12 +619,12 @@ Typically, this might be done through some kind of reconstruction loss which wou
 This approach cannot possibly work for a model such as this, if holding-out whole spectra as we did here.
 Firstly, one must choose between weighting with the data uncertainty weights, or the total weights (including the robust downweighting).
 If one uses the former, they are doomed because increasing $K$ will always do better, because we are accidentally assessing the model's ability to fit the outliers, not ignore them.
-Using the total weights is doomed because the model could be downweighting real features, which should be contributing to the performance metric.
+Using the total weights is doomed because the model could be downweighting real features, which should be contributing to the performance metric.\\
 
 For these reasons, we argued to do something Bayesian-ish, where we effectively check to see if the residuals for the held-out data, are predicted as according to our hypothesis.
 Models where the residuals look more like the expected distribution are said to have performed better.
 The specific metric we proposed simply looks at the width of the distribution of the z-score obtained with the inferred weights, and compares that width to what is expected from the likelihood (which is unity).
-We could also have compared the mean z-score to 0 instead.
+We could also have compared the mean z-score to 0 instead.\\
 
 %%% OUTLIER ID
 
@@ -632,14 +637,14 @@ It's unclear if this would generalise to realistic datasets, where the outliers 
 Similarly, the F1 scores become constant at larger $K$, not degrading at all.
 This is very likely caused by the injected outliers very well satisfying the sparsity and uniqueness assumptions mentioned in Section~\ref{sec:assumptions}, since the outliers truly share no low-rank structure in the toy example.
 More realistically, larger $K$ would degrade F1.
-\tom{this paragraph is a mess and repetitive}
+\tom{this paragraph is a mess and repetitive}\\
 
 A simple and realistic example in which the outlier identification becomes fraught, and violates the assumptions of the model, is the following.
 In addition to the main objects of interest making up the majority of the dataset with shared low-rank structure, there exists a second class of rare objects that consititute a small percentage of the population, which also share low-rank structure.
 Lower $K$ will prioritise the common objects and thus identify the second class as outliers.
 Larger $K$ will able to also fit that second class.
 Whether or not the second class are ``outliers'' is in the eyes of the beholder, but setting $K$ adequately for either view will require to be careful here.
-Of course, the model is still usable and maybe useful even in this case, one just has to be careful.
+Of course, the model is still usable and maybe useful even in this case, one just has to be careful.\\
 
 %%% CAVEATS
 
@@ -653,22 +658,22 @@ Of course, the model is still usable and maybe useful even in this case, one jus
 
 An important caveat to the model that makes things a bit more annoying in practice, is that the inferred basis vectors depend on the chosen rank $K$, which therefore must be chosen before fitting.
 This is not the case in PCA and RPCA, where one can just pick the top $K$ components after the fact.
-The annoyance is that the workflow is then different to PCA, since it's not a matter of adding basis vectors until the knee in the explained variance curve, but rather of picking $K$ before the fit, and then doing cross-validation to check if that choice was good.
+The annoyance is that the workflow is then different to PCA, since it's not a matter of adding basis vectors until the knee in the explained variance curve, but rather of picking $K$ before the fit, and then doing cross-validation to check if that choice was good.\\
 
 Another point already alluded to is that the outlier identification is going to be sensitive to the choice of $K$ if the outliers share some low-rank structure between them.
 For the toy example, this wasn't really a problem, because we specifically designed the outliers not to share low-rank structure.
 The Gaia RVS example, more realisitically, has a continuum from stuff that's slightly weird to stuff that's super weird.
 The things one might consider ``outliers'' thus may actually constitute an additional class of similar objects with similar spectra.
-Identification of this kind of outlier will be sensitive to $K$.
+Identification of this kind of outlier will be sensitive to $K$.\\
 
 More reassuringly, we also tried a range of $K$ and $Q$ values for the Gaia example, and we found that mostly it was the same objects that were identified as outliers.
-Increasing $K$ or $Q$ did reduce the number of outliers found, but in a way that only increased the false negative rate, and not the false positive rate, which is arguably more imporant when fishing for weird stuff.
+Increasing $K$ or $Q$ did reduce the number of outliers found, but in a way that only increased the false negative rate, and not the false positive rate, which is arguably more imporant when fishing for weird stuff.\\
 
 For the toy example, we know for sure that our uncertainties are accurately characterised.
 As we alluded to in Section~\ref{sec:assumptions}, the model is fundamentally unable to distinguish between outliers, poorly characterised noise, and a point that is just really unlikely.
 In all cases, the robust weight will be decreased during fitting to reduce the influence of the point.
 This means that outlier identitication when you don't know the noise properties well is fraught.
-On the other hand, if you don't care about whether individual points are outliers, and just wnat a good basis, then it doesn't matter.
+On the other hand, if you don't care about whether individual points are outliers, and just wnat a good basis, then it doesn't matter.\\
 
 %%% WAYS TO WEAKEN ASSUMPTIONS
 
@@ -677,25 +682,25 @@ It's slightly complicated by the fact that the neat marginalisation of the prior
 If you want Poisson noise, plus the same inverse gamma prior on the uncertainties, I'm not sure you get a closed form loss with which to derive a weights updating rule.
 Another funny quirk is that if you happen to have noise that is Student-t or Cauchy distributed, this model becomes HMF again and the robustness will vanish.
 The model equivalently describes Gaussian-distributed noise with robustnes, or Student-t-distributed noise.
-Pretty weird.
+Pretty weird.\\
 
 You can relax the uniform data grid assumption with either a shift operator (you can't infer the shifts but that's probably fine), or by having the basis functions themselves not live on a pixel grid, which would also involve a per-row shift operator that changes where the basis is evaluated.
-Maybe that's the same thing twice actually?
+Maybe that's the same thing twice actually?\\
 
 It's also perfectly fine to not have an orthogonal basis, it might just be a bit awkward and cause numerical problems.
 It \emph{is} important to have the rotation step to suppress the massive degeneracy between ${\bf A}$ and ${\bf G}$ as mentioned.
 But, you're free to do whatever you want.
-You could give the orthogonality condition to ${\bf A}$ instead, for example.
+You could give the orthogonality condition to ${\bf A}$ instead, for example.\\
 
 %%% EXTENSIONS
 
 The method also comes along with a scalar objective function, which means that in principal it could be trained with stochastic gradient descent methods and mini-batching, and so can potentially scale to massive data sets, although that's beyond scope here.
 The main issue would be intialising without an SVD, but I think really you would just intialise on a small subsample of the full dataset and that would be fine.
-All that matters is that you can learn the basis functions, since the coefficients are completely determined by that.
+All that matters is that you can learn the basis functions, since the coefficients are completely determined by that.\\
 
 We could extend the model such that the basis functions do not live on a pixel basis, but rather are something like sines and cosines, or wavelets, or something else.
 Doing sines and cosines with regularisation based on a kernel PSD, would allow the basis functions to be GPs effectively.
-It could be nice to use kernel design to get basis functons!
+It could be nice to use kernel design to get basis functons!\\
 
 Making the reweighting step more structured.
 Hierarchical weight structure, per-object, per-feature, per-pixel, etc.
@@ -720,157 +725,7 @@ Hierarchical weight structure, per-object, per-feature, per-pixel, etc.
 
 \appendix
 
-% \section{Proof of objective} \label{sec:proof}
-
-% [TOM: I used an LLM to generalize to Student-t from Cauchy, I should check carefully]
-
-% \subsection{Student's t Likelihood as Hierarchical Model}
-
-% We adopt a Student's t likelihood, which can be viewed as a hierarchical model with latent variances. For observation $y_{ij}$ with reported measurement uncertainty $\sigma_{ij}$, define $Q^2 = \nu s^2$ where $\nu$ is the degrees of freedom and $s$ is a global scale parameter. The hierarchical model is:
-
-% \begin{align}
-%     y_{ij} \mid \mu_{ij}, \tau_{ij}^2 &\sim \mathcal{N}(\mu_{ij}, \tau_{ij}^2) \\
-%     \tau_{ij}^2 \mid Q, \sigma_{ij} &\sim \text{InverseGamma}\left(\frac{\nu}{2}, \frac{Q^2 \sigma_{ij}^2}{2}\right) \\
-%     \implies y_{ij} \mid \mu_{ij}, Q, \sigma_{ij} &\sim t_\nu(\mu_{ij}, Q^2 \sigma_{ij}^2/\nu)
-% \end{align}
-
-% where the inverse gamma prior is centered at $Q^2 \sigma_{ij}^2/\nu$, allowing the true variance to deviate from the reported measurement variance. The parameter $Q^2$ controls both the prior center and the robustness of the likelihood.
-
-% Marginalizing over $\tau_{ij}^2$ yields the Student's t likelihood. The negative log-likelihood is:
-
-% \begin{equation}
-%     L(A,G) = \frac{Q^2}{2} \sum_{ij} \log\left(1 + \frac{r_{ij}^2}{Q^2}\right),
-% \end{equation}
-
-% where $r_{ij} = (y_{ij} - \mu_{ij})/\sigma_{ij}$ is the normalized residual and $\mu_{ij} = a_i^\top g_j$ is the model prediction.
-
-% \subsection{Auxiliary Form}
-
-% \textbf{Claim:} The loss can be expressed for any $r$ in the following way
-% \begin{equation}
-%     \rho(r) = \min_{0<w\leq1} \left[ \tfrac{1}{2} w r^2 + \phi(w) \right],
-% \end{equation}
-% where
-% \begin{equation}
-%     \phi(w) = \frac{Q^2}{2}\,(w - 1 - \log w).
-% \end{equation}
-
-% \textbf{Proof:} Define
-% \begin{align}
-%     J\left( w ; r \right) &= \tfrac{1}{2} w r^2 + \tfrac{Q^2}{2} \left( w - 1 - \log{w}\right)
-% \end{align}
-
-% Differentiating with respect to $w$:
-% \begin{equation}
-%     \frac{\partial J}{\partial w}
-%     = \tfrac{1}{2}r^2 + \frac{Q^2}{2}\left(1 - \frac{1}{w}\right),
-% \end{equation}
-% and
-% \begin{align}
-%     \frac{\partial^2 J}{\partial w^2} = \frac{Q^2}{2} \frac{1}{w^2} > 0, \qquad \forall \, Q, w > 0.
-% \end{align}
-
-% Thus the critical point minimizes $J$. Setting $\partial_w J=0$ yields
-% \begin{align}
-%     \hat{w}(r) &= {\rm argmin}_w \, J (w ; r) \\
-%     &= \frac{Q^2}{Q^2 + r^2},
-% \end{align}
-% and note that $\hat{w} \in (0, 1]$ because $r^2 \geq 0$.
-
-% To verify the claim, set $t = r^2/Q^2 \geq 0$, then
-% \begin{equation}
-%     \hat{w} = \frac{1}{1+t}, \qquad r^2 = Q^2 t,
-% \end{equation}
-% such that
-% \begin{align}
-%     J (\hat{w} ; r) &= \tfrac{1}{2} \hat{w} r^2 + \phi(\hat{w}).
-% \end{align}
-
-% Substituting and simplifying:
-% \begin{align}
-%     \tfrac{1}{2} \hat{w} r^2 &= \frac{Q^2}{2} \frac{t}{1 + t} \\
-%     \phi(\hat{w}) &= \frac{Q^2}{2} \left( \hat{w} - 1 - \log{\hat{w}} \right) \\
-%     &= \frac{Q^2}{2} \left( -\frac{t}{1 + t} + \log(1 + t) \right) \\
-%     \Rightarrow J (\hat{w} ; r) &= \frac{Q^2}{2} \log{\left( 1 + \frac{r^2}{Q^2} \right)}.
-% \end{align}
-
-% Thus
-% \begin{align}
-%     \rho(r) &= J ( \hat{w} ; r ) \\
-%     &= \min_{0<w\leq1} \left[ \tfrac{1}{2} w r^2 + \phi(w) \right],
-% \end{align}
-% as claimed. Note that $\rho(r)$ equals the negative log-likelihood up to an additive constant.
-
-% \subsection{Three-Step Algorithm}
-
-% Define the auxiliary objective:
-% \begin{equation}
-%     J(A,G,W) = \frac{1}{2}\sum_{ij} \left[ w_{ij} r_{ij}^2 + \phi(w_{ij}) \right],
-% \end{equation}
-% with $r_{ij} = (Y_{ij} - a_i^\top g_j)/\sigma_{ij}$ the normalized residual.
-
-% By construction,
-% \begin{equation}
-%     L(A,G) = \min_W J(A,G,W),
-% \end{equation}
-% and if
-% \begin{align}
-%     \hat{W} &= {\rm argmin}_W \, J(A, G, W),
-% \end{align}
-% then
-% \begin{align}
-%     \left[ \hat{W} \right]_{ij} &= \hat{w} (r_{ij}) \\
-%     &= \frac{Q^2}{Q^2 + r_{ij}^2}.
-% \end{align}
-
-% This immediately yields an iteratively reweighted least squares (IRLS) procedure:
-% \begin{align*}
-%     \text{w-step:} \quad & w_{ij} \leftarrow \frac{Q^2}{Q^2 + r_{ij}^2}, \\
-%     \text{a-step:} \quad & \text{solve WLS for $A$ with weights $W$}, \\
-%     \text{g-step:} \quad & \text{solve WLS for $G$ with weights $W$},
-% \end{align*}
-% where the a-step optimizes the quadratic
-% \begin{align}
-%     Q(A \, | \, G, W) &= \frac{1}{2} \sum_{ij} w_{ij} r_{ij}^2,
-% \end{align}
-% and the g-step optimizes $Q(G \, | \, A, W)$.
-
-% The IRLS weights combine with the measurement precision weights: the effective weight for observation $ij$ is $W_{\text{eff}, ij} = w_{ij}/\sigma_{ij}^2$. This procedure computes the maximum likelihood estimate under the Student's t likelihood with $Q^2 = \nu s^2$. The special case $\nu = 1$ (hence $Q = s$) recovers the Cauchy distribution.
-
-% \subsection{Convergence Proof}
-
-% Consider one outer cycle starting at $(A^{(t)}, G^{(t)})$.
-% Choose $W^{(t)} = \hat{w}(r(A^{(t)},G^{(t)}))$.
-% Then
-% \begin{equation}
-%     L(A^{(t)}, G^{(t)}) = J(A^{(t)}, G^{(t)}, W^{(t)}).
-% \end{equation}
-
-% With frozen $W^{(t)}$, the a- and g-steps minimize $Q(\cdot \,| \,W^{(t)})$.
-% Since our total objective is $J = Q + \sum_{ij} \phi(w_{ij}^{(t)})$, this implies
-% \begin{equation}
-%     J(A^{(t+1)}, G^{(t+1)}, W^{(t)}) \le J(A^{(t)}, G^{(t)}, W^{(t)}).
-% \end{equation}
-
-% Setting
-% \begin{align}
-%     W^{(t+1)} = \hat{w} \left( r(A^{(t+1)}, G^{(t+1)}) \right),
-% \end{align}
-% and using our result from the previous section gives
-% \begin{equation}
-%     J(A^{(t+1)}, G^{(t+1)}, W^{(t+1)}) \le J(A^{(t+1)}, G^{(t+1)}, W^{(t)}).
-% \end{equation}
-
-% Thus chaining the inequalities and using $L(A,G) = \min_W J(A, G, W)$ gives
-% \begin{equation}
-%     L(A^{(t+1)}, G^{(t+1)}) \le L(A^{(t)}, G^{(t)}).
-% \end{equation}
-
-% This guarantees that the IRLS procedure converges to a local minimum of the Student's t negative log-likelihood.
-
 \section{Proof of objective} \label{sec:proof}
-
-% [TOM: update now that I am using Student-t not Cauchy.]
 
 In Eqns.~\eqref{eq:robust_opt} and \eqref{eq:t_like} we wrote the model as optimizing a Student t likelihood.
 The corresponding negative log-likelihood is
@@ -879,10 +734,8 @@ The corresponding negative log-likelihood is
 \end{align}
 which is identical to the loss function in Eq.~\eqref{eq:robust_opt} up to the constant $Q^2 / 2$, where $r_{ij} = (w_{ij}^{\rm data})^{1/2} (y_{ij} - \sum_{k} a_{ik} g_{kj})$ is now the \emph{data weighted} residual, that is, the residual weighted with the measurement uncertainty weights.
 In the remainder of this section, we prove that the alternating least squares plus weight-updating step algorithm does actually minimize this negative log-likelihood.
-
-\subsection{Auxiliary Form}
-
-\tom{Need to figure out less confusing $w$ notation dealio because it's super confusing that we have $w_{ij}^{\rm data}$ and $w_{ij}$, and things go a bit back and forth. In the derivation I absorb the data weights into the residual, so the weights out the front are just the robust weights, but it's still confusing.}
+Throughout this appendix, $w_{ij} \in (0,1]$ denotes the robust weight, while the input measurement precisions $w_{ij}^{\rm data}$ are absorbed into the data-weighted residual $r_{ij}$ as in Eq.~\eqref{eq:t_loss}. 
+The weights appearing in the auxiliary objective below are therefore purely the robust weights.\\
 
 For convenience, we will drop the $ij$ indices for the parts of the following that are general.
 We claim that the loss Eq.~\eqref{eq:t_loss} for any $r$ can be expressed in the following way
@@ -893,7 +746,7 @@ where
 \begin{equation}
     \phi(w) = \frac{Q^2}{2}\,(w - 1 - \log w).
 \end{equation}
-That is, performing the minimization in Eq.~\eqref{eq:rho_loss} is identical to evaluating Eq.~\eqref{eq:t_loss}.
+That is, performing the minimization in Eq.~\eqref{eq:rho_loss} is identical to evaluating Eq.~\eqref{eq:t_loss}.\\
 
 We will now prove the claim. First, define
 \begin{align}
@@ -915,14 +768,13 @@ Setting $\partial_w J=0$ to find the critical point $\hat{w}$ yields
     \hat{w}(r) &= {\rm argmin}_w \, J (w ; r) \\
     &= \frac{1}{1 + (r/Q)^2}, \label{eq:w_hat}
 \end{align}
-and note that $\hat{w} \in (0, 1]$ because $(r/Q)^2 \geq 0$.
-% This shows that we can do the minimization Eq.~\eqref{eq:rho_loss} simply by finding $\hat{w}$ with Eq.~\eqref{eq:w_hat}.
+and note that $\hat{w} \in (0, 1]$ because $(r/Q)^2 \geq 0$.\\
 
 We now prove the claim. First set $t = (r/Q)^2 \geq 0$, then
 \begin{equation}
     \hat{w} = \frac{1}{1+t}, \qquad r^2 = Q^2 t,
 \end{equation}
-and then substitute $\hat{w}$ into Eq.~\eqref{eq:J_def} to fo the minimization in Eq.~\eqref{eq:rho_loss}
+and then substitute $\hat{w}$ into Eq.~\eqref{eq:J_def} to do the minimization in Eq.~\eqref{eq:rho_loss}
 \begin{align}
     J (\hat{w} ; r) &= \tfrac{1}{2} \hat{w} r^2 + \phi(\hat{w}),
 \end{align}
@@ -938,16 +790,13 @@ Thus
     \rho(r) &= J ( \hat{w} ; r ) \\
     &= \min_{0<w\leq1} \left[ \tfrac{1}{2} w r^2 + \phi(w) \right],
 \end{align}
-as claimed.
+as claimed.\\
 
-\subsection{Three-Step Algorithm}
-
-Define new objective:
+To see how this naturally leads to the 3-step algorithm outlined in Section~\ref{sec:fitting}, we first define a new objective:
 \begin{equation}
     J(A,G,W) = \frac{1}{2}\sum_{ij} \left[ w_{ij} r_{ij}^2 + \phi(w_{ij}) \right],
 \end{equation}
-% with $r_{ij} = (Y_{ij} - a_i^\top g_j)/\sigma_{ij}$.
-where $[A]_{ij} = a_{ij}$, $[G]_{ij} = g_{ij}$, $[W]_{ij} = w_{ij}$, and $r_{ij} = (y_{ij} - \sum_{k} a_{ik} g_{kj})$ is the normalized residual,
+where $[A]_{ij} = a_{ij}$, $[G]_{ij} = g_{ij}$, $[W]_{ij} = w_{ij}$, and $r_{ij} = (w_{ij}^{\rm data})^{1/2} (y_{ij} - \sum_{k} a_{ik} g_{kj})$ is the data-weighted residual as in Eq.~\eqref{eq:t_loss},
 where we have reintroduced the $ij$ indices.
 By construction,
 \begin{equation}
@@ -955,14 +804,15 @@ By construction,
 \end{equation}
 and if
 \begin{align}
-    \hat{W} &= {\rm argmin}_w \, J(A, G, W),
+    \hat{W} &= {\rm argmin}_W \, J(A, G, W),
 \end{align}
 then
 \begin{align}
     \left[ \hat{W} \right]_{ij} &= \hat{w} (r_{ij}) \\
-    &= \frac{1}{1 + (r_{ij} / Q)^2}.
+    &= \frac{1}{1 + (r_{ij} / Q)^2}, \\
+    &= \frac{Q^2}{Q^2 + r_{ij}^2}.
 \end{align}
-This immediately yield's Hogg's procedure
+This immediately yields the three-step procedure (the rotation isn't relevant for convergence)
 \begin{align*}
     \text{w-step:} \quad & w_{ij} \leftarrow \hat{w}(r_{ij}), \\
     \text{a-step:} \quad & \text{solve WLS for $A$ with new weights}, \\
@@ -970,21 +820,18 @@ This immediately yield's Hogg's procedure
 \end{align*}
 where the a-step optimises the quadratic
 \begin{align}
-    Q(A \, | \, G, W) &= \frac{1}{2} \sum_{ij} w_{ij} r_{ij}^2,
+    \mathcal{Q}(A \, | \, G, W) &= \frac{1}{2} \sum_{ij} w_{ij} r_{ij}^2,
 \end{align}
-and the g-step optimises $Q(G \, | \, A, W)$.
-It should be pretty apparent now that the procedure gives the MLE with a Cauchy likelihood.
+and the g-step optimises $\mathcal{Q}(G \, | \, A, W)$.\\
 
-\subsection{Extra convincing (showing that the procedure optimises L)}
-
-Consider one outer cycle starting at $(A^{(t)}, G^{(t)})$.
+More explicitly, consider one outer cycle starting at $(A^{(t)}, G^{(t)})$.
 Choose $W^{(t)} = \hat{w}(r(A^{(t)},G^{(t)}))$.
 Then
 \begin{equation}
     L(A^{(t)}, G^{(t)}) = J(A^{(t)}, G^{(t)}, W^{(t)}).
 \end{equation}
-With frozen $W^{(t)}$, the a- and g-steps minimize $Q(\cdot \,| \,W^{(t)})$.
-Since our total objective is $J = Q + \sum \phi(W^{(t)})$, this implies
+With frozen $W^{(t)}$, the a- and g-steps minimize $\mathcal{Q}(\cdot \,| \,W^{(t)})$.
+Since our total objective is $J = \mathcal{Q} + \sum \phi(W^{(t)})$, this implies
 \begin{equation}
     J(A^{(t+1)}, G^{(t+1)}, W^{(t)}) \le J(A^{(t)}, G^{(t)}, W^{(t)}).
 \end{equation}
@@ -1000,17 +847,7 @@ Thus chaining the inequalities and $L(A,G) = \min_W J(A, G, W)$ gives
 \begin{equation}
     L(A^{(t+1)}, G^{(t+1)}) \le L(A^{(t)}, G^{(t)}).
 \end{equation}
-This is enough to guarantee that robust HMF with Hogg's w-step converges to the Cauchy MLE.
-
-% \subsection{Generalisation}
-
-% This procedure can be generalised to other likelihoods, their associated $\rho(r)$ functions, and their associated $\phi(w)$ functions.
-% The only requirement is that the $\rho(r)$ function can be expressed in the auxiliary form above, such that the update rule can be derived.
-% This will be generally true for any $\rho(r)$ that is symmetric, monotonically increasing in $|r|$, and sub-quadratic [TOM THINKS].
-% It might be worth actually writing down this whole thing in terms of student's t-distribution, which is a generalisation of both the Cauchy and Gaussian distributions.
-% Student's t-distribution also comes with the nice interpretation of marginalising out an unknown variance with a inverse Gamma prior, where actually the update rule is the posterior mean of the variance given the data and the prior, such that the $w_{ij}$ weights are latent inverse variances in a now hierarchical model with a Gaussian likelihood \cite{things}.
-% Of course, the choices here already have this interpretation, because the Cauchy is a student's t with one degree of freedom, and so the latent variance has an inverse Gamma prior with one degree of freedom.
-% [TOM: as is this is under-explained and under-developed, but I think it's a good idea. I find the idea that the weights are latent variances in a hierarchical model appealing, since we can still interpret the method as having a Gaussian likelihood, just with unknown variances that we marginalise out (with a inverse Gamma prior on the variances or Gamma on the precisions). This \emph{feels} more natural that just saying we have a Cauchy likelihood (I don't expect the data to actually be Cauchy distributed), but this is just interpretation in the end anyway.]
+This guarantees that robust HMF with the iterative procedure converges to the Student-t maximum likelihood estimate.\\
 
 \section{Toy Dataset} \label{sec:toy_model_details}
 
