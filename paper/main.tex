@@ -34,10 +34,15 @@
 %   \hogg{love the 19$^{\mathrm{th}}$\,c. title, incl. esp. capitalization}}
 \author[0000-0001-7641-5235]{Thomas Hilder}
 \affiliation{School of Physics and Astronomy, Monash University VIC 3800, Australia}
+
 \author[0000-0003-2866-9403]{David W. Hogg}
 \affiliation{Center for Cosmology and Particle Physics, Department of Physics, New York University, 726~Broadway, New~York, NY~10012,~USA}
 \affiliation{Max-Planck-Institut f\"ur Astronomie, K\"onigstuhl 17, D-69117 Heidelberg, Germany}
 \affiliation{Center for Computational Astrophysics, Flatiron Institute, 162~Fifth~Ave., New~York, NY~10010,~USA}
+
+\author[0000-0003-0174-0564]{Andrew R.\ Casey}
+\affiliation{School of Physics and Astronomy, Monash University VIC 3800, Australia}
+\affiliation{Center for Computational Astrophysics, Flatiron Institute, 162 Fifth Avenue, New York, NY 10010, USA}
 
 \begin{abstract}
   We present Robust Heteroskedastic Matrix Factorization (RHMF), a replacement for Principal Component Analysis (PCA) that is robust to outliers, handles per-point uncertainties and missing data, and automatically flags per-point, per-object, and per-feature anomalies.
@@ -45,7 +50,7 @@
   We deliver a fast \texttt{JAX} implementation, Robusta-HMF, and practical guidance for users.
   We demonstrate uses on a toy dataset, on RVS spectra from Gaia DR3, and on \placeholder{DEMO 3}.
   In the Gaia case, outlier detection finds \placeholder{WEIRD STUFF}.
-  In \placeholder{DEMO 3}, we accurately recover \placeholder{SOMETHING} despite heteroskedastic noise, hot pixels, missing data, and a variety of outliers.
+%   In \placeholder{DEMO 3}, we accurately recover \placeholder{SOMETHING} despite heteroskedastic noise, hot pixels, missing data, and a variety of outliers.
 \end{abstract}
 
 \section{Introduction}
@@ -76,7 +81,7 @@ Unrelated to the successes of PCA, weighted least squares (WLS) or $\chi^2$ fitt
 Astronomers have mostly dealt with this using $\sigma$-clipping \citep{hoaglin1983}, which removes data points with large residuals relative to their measurement uncertainties.
 This adds \emph{robustness}: the ability of a model to deal with anomalous data points that violate the assumptions of the model.
 $\sigma$-clipping is however an ad-hoc fix, and is \emph{conditioned on the assumption} that your current estimate of the model is correct, or at least good enough to identify outliers. For this reason, $\sigma$-clipping is subject to a form of ``mode collapse'' in which large amounts of data are excluded and the inferred model fails to be representative of most of the data.
-Fortunately, statisticians developed iteratively reweighted least squares \citep[IRLS;][]{holland1977}, a family of methods that has all the good properties of WLS, while being robust to outliers, and is generally far less prone to mode collapse. IRLS is a workhorse in many domains, including astronomy \citep{hogg2010}.\\
+Fortunately, statisticians developed iteratively reweighted least squares \citep[IRLS;][]{holland1977}, a family of methods that has all the good properties of WLS, while being robust to outliers, and is generally far less prone to mode collapse. IRLS is a workhorse in many domains, including astronomy \citep[e.g.][]{magnier2020}.\\
 
 
 Unfortunately, none of these methods handle the common issues of missing data segments, or varying measurement uncertainties across the data (known as heteroskedasticity). In spectroscopy for example, there are often detector defects, hot pixels, or cosmic ray hits that cause missing data.
@@ -568,7 +573,7 @@ It's a hot and cool star binary.
 
 Figure~\ref{fig:gaia_spec_2} shows 1 of the 2 outlier spectra from bin 13, with a weight of 0.173.
 The spectrum is of a cool star M-dwarf type thing.
-There are clear, strong Ca II emission lines, indicative of magnetic or accretion activity \placeholder{citations}.
+The Ca II IR triplet is clearly seen, indicative of magnetic or accretion activity \placeholder{citations}.
 \tom{TODO: crossref Gaia ID and literature search object.}\\
 
 \begin{figure}
@@ -706,7 +711,7 @@ Making the reweighting step more structured.
 Hierarchical weight structure, per-object, per-feature, per-pixel, etc.
 
 \begin{acknowledgments}
-  The authors thank Andy Casey (Monash), Hans-Walter Rix (MPIA), and the Stars group at MPIA for valuable discussions.
+  The authors thank Hans-Walter Rix (MPIA), and the Stars group at MPIA for valuable discussions.
   \hogg{Put grant numbers and acknowledgements here.}
   The Flatiron Institute is a division of the Simons Foundation.
   DWH acknowledges that the land politically designated as New York City is the homeland of the Lenape (Lenapehoking), who were unjustly displaced.
