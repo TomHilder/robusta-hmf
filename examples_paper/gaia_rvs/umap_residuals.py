@@ -13,6 +13,7 @@ plt.style.use("mpl_drip.custom")
 RESIDUALS_DIR = Path("./residuals")
 PLOTS_DIR = Path("./plots_analysis")
 BEST_MODEL_METRIC = "std_z"
+EMBEDDING_CACHE = Path("./umap_embedding.npz")
 
 # Filter out sources that are outliers in only some of the bins they belong to
 FILTER_INCONSISTENT = False
@@ -410,16 +411,211 @@ def plot_umap_interactive(
     plt.show()
 
 
+def plot_umap_dual_bin(
+    embedding,
+    metadata,
+    dual_csv_path=PLOTS_DIR / BEST_MODEL_METRIC / "dual_bin_scores.csv",
+    save_path="umap_dual_bin.pdf",
+    show=False,
+):
+    """Plot only UMAP points whose source belongs to two overlapping bins,
+    coloured by whether the source was flagged outlier in both bins or only one.
+
+    Requires `dual_bin_scores.csv` from summarise_bins.dual_bin_score_analysis().
+    Each source flagged in both bins contributes two points (one per bin); each
+    source flagged in only one bin contributes a single point.
+    """
+    import pandas as pd
+
+    df = pd.read_csv(dual_csv_path)
+    flagged = df[df["outlier_A"] | df["outlier_B"]]
+    in_both = set(
+        flagged.loc[flagged["outlier_A"] & flagged["outlier_B"], "source_id"].astype(int)
+    )
+    in_one = set(
+        flagged.loc[flagged["outlier_A"] ^ flagged["outlier_B"], "source_id"].astype(int)
+    )
+
+    keep_idx, labels = [], []
+    for i, sid in enumerate(metadata["source_id"]):
+        sid_int = int(sid)
+        if sid_int in in_both:
+            keep_idx.append(i)
+            labels.append("both")
+        elif sid_int in in_one:
+            keep_idx.append(i)
+            labels.append("one")
+
+    keep_idx = np.array(keep_idx)
+    labels = np.array(labels)
+
+    fig, ax = plt.subplots(figsize=(8, 7), dpi=150)
+
+    # Draw connecting lines between the two UMAP entries of each "both" source.
+    pairs_by_source = {}
+    for i in keep_idx:
+        pairs_by_source.setdefault(int(metadata["source_id"][i]), []).append(i)
+    for sid, idxs in pairs_by_source.items():
+        if sid in in_both and len(idxs) == 2:
+            i1, i2 = idxs
+            ax.plot(
+                [embedding[i1, 0], embedding[i2, 0]],
+                [embedding[i1, 1], embedding[i2, 1]],
+                color="C0",
+                alpha=0.4,
+                lw=0.7,
+                zorder=1,
+            )
+
+    for lbl, color, name in [
+        ("both", "C0", "outlier in both bins"),
+        ("one", "C1", "outlier in only one bin"),
+    ]:
+        m = labels == lbl
+        ax.scatter(
+            embedding[keep_idx[m], 0],
+            embedding[keep_idx[m], 1],
+            s=40,
+            alpha=0.85,
+            c=color,
+            label=f"{name} ($N={int(m.sum())}$)",
+            edgecolors="white",
+            linewidths=0.4,
+        )
+    ax.set_xlabel("UMAP 1")
+    ax.set_ylabel("UMAP 2")
+    ax.legend()
+    ax.set_title("Dual-bin outliers: agreement across overlapping bins")
+    if save_path:
+        fig.savefig(save_path, dpi=300, bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close()
+
+    n_both = int((labels == "both").sum())
+    n_one = int((labels == "one").sum())
+    print(
+        f"Plotted {len(keep_idx)} dual-bin outlier points "
+        f"({n_both} both, {n_one} one-only) → {save_path}"
+    )
+
+
+def save_embedding(embedding, metadata, path=EMBEDDING_CACHE):
+    """Save UMAP embedding and per-row metadata to a single .npz for reuse."""
+    np.savez(path, embedding=embedding, **metadata)
+
+
+def load_embedding(path=EMBEDDING_CACHE):
+    """Load the cached (embedding, metadata) pair saved by save_embedding."""
+    data = np.load(path, allow_pickle=False)
+    embedding = data["embedding"]
+    metadata = {k: data[k] for k in data.files if k != "embedding"}
+    return embedding, metadata
+
+
+def save_umap_table(
+    embedding,
+    metadata,
+    plots_dir=PLOTS_DIR,
+    best_model_metric=BEST_MODEL_METRIC,
+    save_path="umap_residuals_table.csv",
+    sort_by="umap_1",
+    dual_csv_path=None,
+):
+    """Save a per-point lookup table for the UMAP, sorted by UMAP1 by default.
+
+    Columns: umap_1, umap_2, source_id, bin, score, pdf_path, dual_bin,
+    outlier_in_both, paired_pdf_path. The last three columns require
+    `dual_bin_scores.csv` from `summarise_bins.dual_bin_score_analysis()`;
+    if it isn't present they default to False / empty.
+    """
+    import csv
+
+    if dual_csv_path is None:
+        dual_csv_path = Path(plots_dir) / best_model_metric / "dual_bin_scores.csv"
+
+    in_two_bins = set()
+    outlier_in_both_set = set()
+    other_bin = {}  # source_id -> {this_bin: that_bin} for outlier-in-both sources
+    if Path(dual_csv_path).exists():
+        with open(dual_csv_path) as f:
+            for row in csv.DictReader(f):
+                sid = int(row["source_id"])
+                bA, bB = int(row["bin_A"]), int(row["bin_B"])
+                in_two_bins.add(sid)
+                if row["outlier_A"] == "True" and row["outlier_B"] == "True":
+                    outlier_in_both_set.add(sid)
+                    other_bin[sid] = {bA: bB, bB: bA}
+    else:
+        print(f"  Note: {dual_csv_path} not found — dual_bin / outlier_in_both / paired_pdf_path columns will be empty")
+
+    rows = []
+    for i in range(len(embedding)):
+        sid = int(metadata["source_id"][i])
+        bin_i = int(metadata["bin"][i])
+        score = float(metadata["score"][i])
+        pdf = find_residual_plot(sid, bin_i, plots_dir, best_model_metric)
+        is_dual = sid in in_two_bins
+        is_outlier_both = sid in outlier_in_both_set
+        paired_pdf = ""
+        if is_outlier_both and bin_i in other_bin.get(sid, {}):
+            paired = find_residual_plot(
+                sid, other_bin[sid][bin_i], plots_dir, best_model_metric
+            )
+            if paired:
+                paired_pdf = str(paired)
+        rows.append(
+            {
+                "umap_1": float(embedding[i, 0]),
+                "umap_2": float(embedding[i, 1]),
+                "source_id": sid,
+                "bin": bin_i,
+                "score": score,
+                "pdf_path": str(pdf) if pdf else "",
+                "dual_bin": is_dual,
+                "outlier_in_both": is_outlier_both,
+                "paired_pdf_path": paired_pdf,
+            }
+        )
+
+    rows.sort(key=lambda r: r[sort_by])
+
+    with open(save_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+
+    n_missing = sum(1 for r in rows if not r["pdf_path"])
+    print(f"Saved {len(rows)}-row UMAP lookup table to {save_path}")
+    if n_missing:
+        print(f"  WARNING: {n_missing} points have no matching PDF on disk")
+
+
 if __name__ == "__main__":
-    all_residuals, metadata = load_residuals_and_metadata()
-
-    if FILTER_INCONSISTENT:
-        all_residuals, metadata = filter_inconsistent_outliers(all_residuals, metadata)
-
-    # UMAP
-    reducer = umap.UMAP(random_state=1)
-    embedding = reducer.fit_transform(all_residuals)
+    # Compute the embedding once and cache it; all downstream plots and the
+    # lookup table share the same coordinates. Delete EMBEDDING_CACHE to refit.
+    if EMBEDDING_CACHE.exists():
+        print(f"Loading cached embedding from {EMBEDDING_CACHE}")
+        embedding, metadata = load_embedding()
+    else:
+        all_residuals, metadata = load_residuals_and_metadata()
+        if FILTER_INCONSISTENT:
+            all_residuals, metadata = filter_inconsistent_outliers(all_residuals, metadata)
+        # n_jobs=1 makes UMAP fully deterministic given random_state.
+        reducer = umap.UMAP(random_state=1, n_jobs=1)
+        embedding = reducer.fit_transform(all_residuals)
+        save_embedding(embedding, metadata)
+        print(f"Cached embedding to {EMBEDDING_CACHE}")
     print("UMAP embedding shape:", embedding.shape)
+
+    # Per-point lookup table — pairs UMAP coords with source_id, bin, score, PDF.
+    save_umap_table(embedding, metadata)
+
+    # Dual-bin agreement plot (skipped if dual_bin_scores.csv hasn't been built).
+    try:
+        plot_umap_dual_bin(embedding, metadata)
+    except FileNotFoundError as e:
+        print(f"Skipping dual-bin plot: {e}")
 
     # Interactive plot (click to open residual PDFs)
     plot_umap_interactive(embedding, metadata, color_by="score")
