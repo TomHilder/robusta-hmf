@@ -155,7 +155,7 @@ Let $N \in \mathbb{Z}^+$ be the number of objects (in our case, spectra) in the 
 We then label the value in feature $j$ of object $i$ as $y_{ij}$, and we can also write the data as an $N \times M$ matrix ${\bf Y}$ with entries $y_{ij}$.
 %In general the $y_{ij}$ can be any real-valued data but for concreteness we will refer to them as pixel values in a catalogue of stellar spectra.
 We assume that the investigator has measurement uncertainties $\sigma_{ij}$ corresponding to each feature, and also that these uncertainties have the same units as $y_{ij}$.
-In practice we will often refer to ``weights'' instead, which are simply inverse variances $w_{ij} = \sigma_{ij}^{-2}$.
+In practice we will often refer to ``weights'' instead, which are simply inverse variances $w_{ij} = \sigma_{ij}^{-2}$.\\
 
 The model for the data is
 \begin{align}
@@ -210,7 +210,7 @@ The cost function (negative log likelihood) and likelihood therefore become %\fo
 \end{align}
 where the number of degrees of freedom $\nu\in\mathbb{Z}^+$ and the scale $s\in\mathbb{R}^+$ are parameters that control the heaviness of the distribution's tails.
 In the limit $\nu \rightarrow \infty$ with $s=1$ this converges to the Normal likelihood.
-This modification to the cost function results in a quadratic penalty for small residuals, and a logarithmic penalty for large residuals, reducing the influence of outliers of the fit.
+This modification to the cost function results in a quadratic penalty for small residuals, and a logarithmic penalty for large residuals, reducing the influence of outliers on the fit.
 
 This setup can be equivalently viewed as a hierarchical model with latent, unknown variances $\tau_{ij}^2$
 \begin{align}
@@ -236,7 +236,7 @@ With $Q=1$ the transition occurs at about the same point as the measurement unce
 
 While in principle it's possible to optimize Eq.~\eqref{eq:robust_opt} for all $a_{ik}$ and $g_{kj}$ simultaneously, we invoke a majorization-maximization scheme that implicitly minimizes the objective by iterating between re-weighting and least-squares solves.
 This approach is exactly the typical IRLS method for robust regression, but applied to HMF instead of linear regression.
-We prove that the algorithm below optimises the likelihood in Eq.~\eqref{eq:t_like} in Appendix~\ref{sec:proof}. \\
+We prove that the algorithm below optimises the likelihood defined in Eq.~\eqref{eq:t_like} in Appendix~\ref{sec:proof}. \\
 % we will discuss the methodology and results in the context of both these views, re-weighting and sub-quadratic penalty cost function, interchangably.
 
 %\subsubsection{Initialization} % ARC says: I don't think you need subsubsections
@@ -302,10 +302,9 @@ Note that here the eigendecomposition is guaranteed to be performed on a real an
 We assess convergence every few cycles by a dimensionless estimate of the size of the g-step adjustment.
 The outputs of the procedure are the full matrices ${\bf A}$ and ${\bf G}$.
 The robust weights $w^{\rm robust}_{ij}$ for any data point are also calculable by Eq.~\eqref{eq:w_robust}.
-
 Inference on new or held-out data is performed simply by reusing ${\bf G}$, and performing the a- and w-steps (such that ${\bf G}$ is never modified) until convergence.
 Here, we assess convergence by a dimensionless estimate of the size of the a-step adjustment instead.
-The asymptotic complexity per cycle, assuming that $K \ll N, M$, is $\mathcal{O}(NMK^2)$, which is linear in both $N$ and $M$.
+The asymptotic complexity of this algorithm per cycle, assuming that $K \ll N, M$, is $\mathcal{O}(NMK^2)$, which is linear in both $N$ and $M$.
 
 \subsection{Validation and hyperparameter choice} \label{sec:cv}
 
@@ -317,7 +316,7 @@ Assuming that is does matter, we advocate for a held-out data cross-validation a
 The data should be partitioned randomly into a training set, and the model should be fit on the training set only.
 This should be repeated over a grid of $Q$ and $K$ values, and the best-fitting model for each pair of hyperparameters should be used to predict the test set data.
 This is done by iterating the a-step and w-step on the test set data, keeping the basis vectors $g_{kj}$ fixed to the values inferred from the training set.
-Convergence in this case can be judged by the a-step adjustment instead of the g-step adjustment, since the basis vectors are fixed.\\
+Convergence in this case can be judged by the a-step adjustment instead of the g-step adjustment, since the basis vectors are fixed. \tom{these last two sentences are repeats from 2 paragraphs back?}\\
 
 The following metric should then be calculated using the test set data $y_{*j}$, the fitted coefficients $a_{*k}$, the basis vectors $g_{kj}$, and the total weights $w^{\rm total}_{*j}$ calculated with the w-step rule using the test set measurement uncertainties $w^{\rm data}_{*j}$,
 \begin{align}
@@ -339,28 +338,20 @@ A simple example is to take the per-object median
 and then to look at the distribution of $w^{\rm object}_i$ across the data set to see the degree to which any one object deviates from the population.\\
 
 One is free to choose whatever metric over $w^{\rm robust}_{ij}$ best suits a particular dataset.
-For example, in stellar spectra, the median weight per-object could be a bad measure in that the spectra of interest could be mostly typical, but with one unusual line.
-In that case, the minimum or the 0.01 quantile weight per object, might be better choices.
-Alternatively, one could look for contiguous stretches of pixels (features) with an average weight below a threshold.
+For example, in stellar spectra, the median weight per-object could be a bad measure, in that the spectra of interest could be mostly typical, but with one unusual line.
+The minimum or the 0.01 quantile weight per object, might be better choices in that case.
+One could also look for contiguous stretches of pixels (features) with an average weight below a threshold.
 We will demonstrate using the median per-object weight in the toy example (Section~\ref{sec:toy}), and using the 0.01 quantile in the \textsl{Gaia} example (Section~\ref{sec:gaia}).\\
-
-\arc{Would the following paragraph feel more at home in the discussion?}
-As we hinted at in Section~\ref{sec:assumptions}, the degree to which these weights can be used to identify outliers depends on the investigators beliefs about the data, in particular arround the provided data uncertainties.
-Spectra with underestimated uncertainties can easily appear outliers via these metrics, since they might recieve near-universal downweighting.
-This is somewhat remediated by inspecting the residual between the data and the model, because objects that are not outliers but merely had underestimated uncertainties should still be well described by the inferred basis.
-It is therefore much safer to use the weights as a guide for \emph{where to look} for interesting things in a large dataset, rather than a \emph{statistical measure} of the degree to which an object is an outlier.
-In the case where the uncertainties are well-known and truly Gaussian, and where $Q$ and $K$ have been set carefully, it is reasonable to use the population of weights as a means to ascribe a statistically-meaningful measure of outlier-y-ness.
-We caution that these conditions are hard to meet in practice.
 
 \section{Implementation}
 
 We implemented the RHMF algorithm in an open-source Python package called \texttt{Robusta-HMF} \citep{hilder2026}.
 \texttt{Robusta-HMF} is designed for both those want an out-of-the-box solution for RHMF (and HMF), and also for those who want to extend/modify the algorithm for their own purposes.
 The code is written in \texttt{JAX} \citep{jax2018github}, which provides just-in-time compilation, GPU and TPU support, and automatic differentiation.
-The API is designed to be easy to use, with a scikit-learn-like \citep{scikit-learn} interface for fitting the model and making predictions.
+The API is designed to be easy to use, with a scikit-learn-like \citep{scikit-learn} interface for fitting the model and making predictions. \\
 
 The package additionally supports custom initialization and convergence criteria, and is easily extensible to other robust losses and likelihood functions, as well as adding regularization or other constraints on the model.
-It also supports direct optimization of the likelihood with gradient-based methods as an alternative to the IRLS scheme, which may be preferable in some cases (although beyond the scope of this paper).
+It also supports direct optimization of the likelihood with gradient-based methods as an alternative to the IRLS scheme, which may be preferable in some cases (although beyond the scope of this paper). \\
 
 For all the data experiments in the following sections, we use the implementation in \texttt{Robusta-HMF}, and the code to reproduce them is available in the same repository.
 
@@ -368,7 +359,7 @@ For all the data experiments in the following sections, we use the implementatio
 
 \subsection{Toy Spectra} \label{sec:toy}
 
-We generated 8000 synthetic spectra (objects) with 1200 pixels (features) on the same wavelength grid, from a linear sum of a few polynomials and a low- and fixed-frequency sinusoid to represent continuum, and absorption lines present in all the spectra. \arc{what details about absorption lines?}
+We generated 8000 synthetic spectra (objects) with 1200 pixels (features) on the same wavelength grid, from a linear sum of a few polynomials and a low- and fixed-frequency sinusoid to represent continuum, and absorption lines present in all the spectra. %\arc{what details about absorption lines?}
 The true underlying model is therefore linear with rank 5.
 We then corrupted the dataset in following ways:
 \begin{enumerate}
@@ -380,7 +371,7 @@ We then corrupted the dataset in following ways:
     \item We injected individual \emph{outlier pixels} at random locations, consisting of a fixed 0.4\% of all pixels in the data. We did not set the corresponding measurement weights to zero as these are intended to represent \emph{unknown} bad pixels.
     \item In 10 non-outlier spectra (hereafter \emph{normal spectra}) we injected 3 absorption lines at random wavelength locations with random amplitudes. We refer to these as \emph{outlier lines}.
 \end{enumerate}
-The exact details of the basis function functional form, the random sampling used for the coefficients, and the random sampling used to generate the noise, missing data, and each type of outlier, is provided in Appendix~\ref{sec:toy_model_details}.
+The exact details of the basis function functional form, the random sampling used for the coefficients, and the random sampling used to generate the noise, missing data, and each type of outlier, is provided in Appendix~\ref{sec:toy_model_details}.\\
 
 We fit the model with 35 different combinations of the hyperparameters $Q$ and $K$ to the same random subset of 4000 spectra, with the other 4000 held out for validation.
 The values of $Q$ were chosen to span a range from very aggressive downweighting of outliers ($Q=0.5$) to very little downweighting at all ($Q=10$), and the values of $K$ were chosen to span a range from underfitting ($K=3$) to overfitting ($K=7$) the true underlying model.
@@ -594,6 +585,14 @@ There is also a bulk of objects near the middle that when inspected are more bor
 Throwing the residuals of all the outliers into UMAP thus seems like a nice way to categorise things in an unsupervised way, and also to identify the most promising outliers.\\
 
 \section{Discussion} \label{sec:discussion}
+
+\arc{Would the following paragraph feel more at home in the discussion?}
+As we hinted at in Section~\ref{sec:assumptions}, the degree to which these weights can be used to identify outliers depends on the investigators beliefs about the data, in particular arround the provided data uncertainties.
+Spectra with underestimated uncertainties can easily appear outliers via these metrics, since they might recieve near-universal downweighting.
+This is somewhat remediated by inspecting the residual between the data and the model, because objects that are not outliers but merely had underestimated uncertainties should still be well described by the inferred basis.
+It is therefore much safer to use the weights as a guide for \emph{where to look} for interesting things in a large dataset, rather than a \emph{statistical measure} of the degree to which an object is an outlier.
+In the case where the uncertainties are well-known and truly Gaussian, and where $Q$ and $K$ have been set carefully, it is reasonable to use the population of weights as a means to ascribe a statistically-meaningful measure of outlier-y-ness.
+We caution that these conditions are hard to meet in practice.
 
 \tom{Still rough draft.}
 
@@ -858,7 +857,26 @@ This guarantees that robust HMF with the iterative procedure converges to the St
 
 \section{Toy Dataset} \label{sec:toy_model_details}
 
-\placeholder{Details of basis functions, distributions used to draw coefficients, distributions used to draw outliers.}
+The toy dataset consisted of 8000 synthetic (toy) spectra, on 1200 pixel grid, logarithmically spaced between 400 and 600 nm.
+Specifically, the pixel grid was generated using the \texttt{NumPy} function \texttt{geomspace(400, 600, 1200)}.
+The spectra were convolved with a Gaussian kernel to achieve a constant spectral resolution of $R = 2123$ (where we actually chose the standard deviation to be $\sigma = \bar{\lambda} / 5000$, where $\bar{\lambda}$ is the mean wavelength).\\
+
+The non-outlier spectra were generated from the sum of 5 basis functions
+\begin{align}
+    \mathrm{spectrum}_{ij} &= a_i + b_i z_j + c_i \left[\frac{1}{2} \left( 3 z_j^2 - 1 \right)\right] + g_i \sum_{\mu \in \mathcal{C}} \exp{\left[ - \frac{1}{2} \left( \frac{\lambda_j - \mu}{1.4~\mathrm{nm}} \right)^2  \right]} + s_i \sin{\left( 2 \pi \left( z_j + 1 \right)  \right)},
+\end{align}
+where the rescaled coordinate $z_j\in[-1, 1]$
+\begin{align}
+    z_j &= \frac{2 \left( \log{\lambda_j} - \log{400~\mathrm{nm}} \right)}{\left( \log{600~\mathrm{nm}} - \log{400~\mathrm{nm}} \right)} - 1,
+\end{align}
+is such that the first basis functions are Legendre polynomials in $\log{\lambda}$ (these function are orthogonal in the interval $[-1, 1]$).
+The set of line centres $\mathcal{C}$ was chosen as
+\begin{align}
+    C = \left\{ \right\}
+\end{align}
+
+
+% \placeholder{Details of basis functions, distributions used to draw coefficients, distributions used to draw outliers.}
 
 \raggedright\footnotesize
 \bibliographystyle{aasjournal}
