@@ -222,5 +222,178 @@ def summarise(
     print("\nDone.")
 
 
+def dual_bin_score_analysis(
+    bins_to_summarise=BINS_TO_SUMMARISE,
+    best_model_metric=BEST_MODEL_METRIC,
+    plots_dir=PLOTS_DIR,
+    threshold=0.5,
+):
+    """Cross-bin score comparison for sources that fall in exactly two bins.
+
+    For every source that lives in two overlapping bins, load the per-object
+    outlier score in each bin and report:
+      - How many are outliers in both / only one / neither bin under `threshold`.
+      - Distribution of |score_A - score_B| across all dual-bin sources.
+      - For sources flagged as outlier in only one of their two bins, the
+        distribution of the OTHER (non-flagged) bin's score — i.e. how close
+        the missed bin was to crossing the threshold.
+
+    Saves a per-source CSV of pairs and a (score_A, score_B) scatter plot.
+    Reads `all_source_ids.npy` + `all_outlier_scores.npy` already on disk;
+    nothing is recomputed.
+    """
+    plots_dir = Path(plots_dir) / best_model_metric
+    if not plots_dir.exists():
+        print(f"Error: {plots_dir} does not exist.")
+        return
+
+    if bins_to_summarise is None:
+        bins_to_summarise = find_available_bins(plots_dir)
+
+    if len(bins_to_summarise) == 0:
+        print("No bins found.")
+        return
+
+    # Build {source_id: {bin_idx: score}} over every (source, bin) pair on disk.
+    source_scores = {}
+    for i_bin in bins_to_summarise:
+        sids_path = plots_dir / f"bin_{i_bin:02d}" / "all_source_ids.npy"
+        scores_path = plots_dir / f"bin_{i_bin:02d}" / "all_outlier_scores.npy"
+        if not (sids_path.exists() and scores_path.exists()):
+            print(f"Skipping bin {i_bin}: missing all_source_ids/all_outlier_scores")
+            continue
+        sids = np.load(sids_path)
+        scores = np.load(scores_path)
+        for sid, sc in zip(sids, scores):
+            source_scores.setdefault(int(sid), {})[i_bin] = float(sc)
+
+    # Restrict to sources living in exactly two bins (matches paper's framing).
+    dual = {sid: b for sid, b in source_scores.items() if len(b) == 2}
+    multi = {sid: b for sid, b in source_scores.items() if len(b) > 2}
+    print(f"Sources in exactly 2 bins: {len(dual)}")
+    if multi:
+        print(f"Sources in >2 bins (excluded): {len(multi)}")
+
+    if len(dual) == 0:
+        print("No dual-bin sources found.")
+        return
+
+    rows = []
+    for sid, bins in dual.items():
+        (bA, sA), (bB, sB) = sorted(bins.items())
+        rows.append(
+            {
+                "source_id": sid,
+                "bin_A": bA,
+                "score_A": sA,
+                "bin_B": bB,
+                "score_B": sB,
+                "delta": abs(sA - sB),
+                "outlier_A": sA < threshold,
+                "outlier_B": sB < threshold,
+            }
+        )
+    df = pd.DataFrame(rows)
+
+    both = df[df["outlier_A"] & df["outlier_B"]]
+    one = df[df["outlier_A"] ^ df["outlier_B"]]
+    neither = df[~df["outlier_A"] & ~df["outlier_B"]]
+    any_ = df[df["outlier_A"] | df["outlier_B"]]
+
+    print(f"\nThreshold: w < {threshold}")
+    print(f"  Outlier in both bins:        {len(both)}")
+    print(f"  Outlier in only one bin:     {len(one)}")
+    print(f"  Outlier in neither bin:      {len(neither)}")
+    print(f"  Outlier in at least one bin: {len(any_)}")
+
+    print(f"\n|score_A - score_B| across all {len(df)} dual-bin sources:")
+    print(f"  median   = {df['delta'].median():.3f}")
+    print(f"  mean     = {df['delta'].mean():.3f}")
+    print(f"  90 %ile  = {df['delta'].quantile(0.9):.3f}")
+    print(f"  max      = {df['delta'].max():.3f}")
+
+    if len(both) > 0:
+        print(f"\n|score_A - score_B| across the {len(both)} 'outlier in both bins' sources:")
+        print(f"  median   = {both['delta'].median():.3f}")
+        print(f"  mean     = {both['delta'].mean():.3f}")
+        print(f"  90 %ile  = {both['delta'].quantile(0.9):.3f}")
+        print(f"  max      = {both['delta'].max():.3f}")
+        print(f"  mean of min(score_A, score_B) = {np.minimum(both['score_A'], both['score_B']).mean():.3f}")
+        print(f"  mean of max(score_A, score_B) = {np.maximum(both['score_A'], both['score_B']).mean():.3f}")
+
+    if len(one) > 0:
+        print(f"\n|score_A - score_B| across the {len(one)} 'outlier in only one bin' sources:")
+        print(f"  median   = {one['delta'].median():.3f}")
+        print(f"  mean     = {one['delta'].mean():.3f}")
+        print(f"  90 %ile  = {one['delta'].quantile(0.9):.3f}")
+        print(f"  max      = {one['delta'].max():.3f}")
+        print(f"  mean of min(score_A, score_B) = {np.minimum(one['score_A'], one['score_B']).mean():.3f}")
+        print(f"  mean of max(score_A, score_B) = {np.maximum(one['score_A'], one['score_B']).mean():.3f}")
+
+        other_scores = np.where(one["outlier_A"], one["score_B"], one["score_A"])
+        print(
+            f"\nFor the {len(one)} 'outlier in only one bin' sources, "
+            f"the OTHER bin's score:"
+        )
+        print(f"  median               = {np.median(other_scores):.3f}")
+        print(f"  mean                 = {np.mean(other_scores):.3f}")
+        print(
+            f"  fraction within 0.1 of threshold = "
+            f"{np.mean(np.abs(other_scores - threshold) < 0.1):.2f}"
+        )
+        print(
+            f"  fraction within 0.2 of threshold = "
+            f"{np.mean(np.abs(other_scores - threshold) < 0.2):.2f}"
+        )
+
+    csv_path = plots_dir / "dual_bin_scores.csv"
+    df.to_csv(csv_path, index=False)
+    print(f"\nSaved per-source pairs to {csv_path}")
+
+    fig, ax = plt.subplots(figsize=(5, 5))
+    ax.scatter(df["score_A"], df["score_B"], s=8, alpha=0.5)
+    ax.plot([0, 1], [0, 1], "k-", lw=0.8, alpha=0.4)
+    ax.axvline(threshold, color="r", ls="--", lw=0.8, alpha=0.5)
+    ax.axhline(threshold, color="r", ls="--", lw=0.8, alpha=0.5)
+    ax.set_xlabel(r"$w_i^{\rm object}$ in bin A")
+    ax.set_ylabel(r"$w_i^{\rm object}$ in bin B")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    fig.tight_layout()
+    plot_path = plots_dir / "dual_bin_scores_scatter.pdf"
+    fig.savefig(plot_path)
+    plt.close(fig)
+    print(f"Saved scatter to {plot_path}")
+
+    if len(both) > 0 and len(one) > 0:
+        delta_max = max(both["delta"].max(), one["delta"].max())
+        bins = np.linspace(0, delta_max * 1.02, 25)
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.hist(
+            both["delta"],
+            bins=bins,
+            density=True,
+            histtype="step",
+            lw=1.8,
+            label=f"outlier in both bins ($N={len(both)}$)",
+        )
+        ax.hist(
+            one["delta"],
+            bins=bins,
+            density=True,
+            histtype="step",
+            lw=1.8,
+            label=f"outlier in only one bin ($N={len(one)}$)",
+        )
+        ax.set_xlabel(r"$|w_i^{\rm object, A} - w_i^{\rm object, B}|$")
+        ax.set_ylabel("density")
+        ax.legend()
+        fig.tight_layout()
+        hist_path = plots_dir / "dual_bin_delta_hist.pdf"
+        fig.savefig(hist_path)
+        plt.close(fig)
+        print(f"Saved |Δscore| histogram to {hist_path}")
+
+
 if __name__ == "__main__":
     summarise()

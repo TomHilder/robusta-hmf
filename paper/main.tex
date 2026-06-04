@@ -535,14 +535,14 @@ This is a double-edged sword, because while it is true that a more flexible mode
 This is related to a previously mentioned fundamental limitation: if the objects you consider outliers share some low-rank structure between them, then at large enough $K$ the model will capture that structure.
 It is then up to the investigator to decide whether or not the model should be flexible enough to capture this second ``class'' of objects.\\
 
-\tom{below here becomes rougher-draft}
-
-We previously mentioned that some of the spectra belong to two bins.
-Those spectra are then fit twice, and so they have two set of inferred weights, and thus two chances to be identified as outliers.
-Of the 584 spectra identified as outliers in at least one bin, 135 of those belong to two bins.
-Of those that belong to two bins, 61 are outliers in both bins, while 74 are outliers in only one of the two bins.
-\tom{Check the values of $w_i^{\rm object}$ for the 74 that are outliers in only one of the two bins, to see if they are close to the threshold in the other bin.}
-\tom{Check in general how close the $w_i^{\rm object}$ are for all 135 spectra that are outliers in two bins.}\\
+57,173 spectra fell into overlapping bins.
+Those spectra were therefore fit twice, and so they have two sets of inferred weights and two chances to identified as outliers.
+The object-level weights were generally very similar between the overlapping bins, with a median absolute difference (MAD) of 0.003 and an upper 90th percentile of 0.01.
+Of the 584 spectra identified as outliers in at least one bin, 135 of those belong to both.
+61 spectra were outliers in both bins, with both per-object weights below 0.5, while 74 were outliers in only a single bin, with the other weight above 0.5.
+The outliers in both bins were the also the most strongly identified.
+For these, the mean of the lower scores (mean of $\mathrm{min} [\mathrm{score~A,~score~B}]$) was 0.26, the mean of the higher was 0.33, and the MAD of the scores 0.04.
+The 74 singly identified spectra on the other hand straddle the cutoff, with a mean of the lower scores of 0.42, a mean of the higher scores of 0.62, and an increased MAD of the scores of 0.18.\\
 
 \begin{figure}
     \centering
@@ -550,6 +550,8 @@ Of those that belong to two bins, 61 are outliers in both bins, while 74 are out
     \caption{Spectra of some outliers, with the best-fit model overlaid, and the residuals below. Same as the toy model plot but for real data, and with highlighted regions for line locations instead of the known true outlier locations.}
     \label{fig:gaia_spec_1}
 \end{figure}
+
+\tom{below here becomes rougher-draft}
 
 Figure~\ref{fig:gaia_spec_1} shows the spectrum of one of the identified outliers, with the best-fit model overlaid, and the residuals below.
 The spectrum is from bin 0, and it has a very low object-level weight of $w_i^{\rm object} = 0.009$, which is well below the threshold of $0.5$.
