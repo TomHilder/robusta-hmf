@@ -96,10 +96,10 @@ The algorithm uses a simple alternating linear least squares scheme with provabl
 We show that the model also has a probabilistic interpretation as either heavy-tailed maximum likelihood estimation, or equivalently as a hierarchical Bayesian model with latent variances.
 To our knowledge, no published robust matrix factorization method has all of these properties together: heteroskedasticity, missing data, robustness to outliers, and a probabilistic interpretation. Unlike \citet{candes2011} and its descendants \citep[e.g.,][]{zhou2010,yin2019}, we do not explicitly learn a sparse outlier matrix ${\bf S}$, and instead rely on the inferred robust weights to quantify outlier-y-ness. \\
 
-In Section~\ref{sec:methods} we present the model, the algorithm by which it is fit, and discuss using it for outlier identification.
-In Section~\ref{sec:toy} we demonstrate the approach on two example problems: a toy dataset, and with Gaia RVS spectra.
-The toy dataset is provided for illustration and validation of the method, and the Gaia RVS spectra demonstrate outlier recognition and triage.
-In Section~\ref{sec:discussion} we discuss the strengths and shortcomings of the model, potential applications and extensions, and the relationship to other methods in the literature.
+In Section~\ref{sec:methods} we present the model, the algorithm by which it is fit, and discuss using it for outlier identification. 
+In Section~\ref{sec:toy} we demonstrate the approach on two example problems: a toy dataset, and with Gaia RVS spectra. 
+The toy dataset is provided for illustration and validation of the method, and the Gaia RVS spectra demonstrate outlier recognition and triage. 
+In Section~\ref{sec:discussion} we discuss the strengths and shortcomings of the model, potential applications and extensions, and the relationship to other methods in the literature. 
 
 % Prior art by year:
 % \begin{enumerate}
@@ -479,7 +479,7 @@ However, this is likely contingent on the accuracy of the provided measurement u
 
 \subsection{Outliers in the Gaia RVS main sequence} \label{sec:gaia}
 
-We applied RHMF to Gaia/RVS spectra to identify unusual stellar objects on the stellar main-sequence \citep{collaboration2016,collaboration2023,katz2023}. Here, \emph{unusual} is qualitatively defined by the spectrum deviating significantly from typical stars in neighboring color-magnitude bins, and quantified by the inferred robust weights. Examples of sources that we might expect to find could be binary systems, stars with peculiarly high rotation, or those with signatures of accretion or chromospheric activity.\\
+To demonstrate the application of RHMF, we applied it to Gaia/RVS spectra to look for unusual main-sequence stars \citep{collaboration2016,collaboration2023,katz2023}. Here, \emph{unusual} is qualitatively defined by the spectrum deviating significantly from typical stars in neighboring color-magnitude bins, and quantified by the inferred robust weights. Examples classes could be binary systems, stars with peculiarly high rotation, stars with signatures of accretion or chromospheric activity, or perhaps other unknown unknowns.   \\
 
 \begin{figure}
     \centering
@@ -488,18 +488,16 @@ We applied RHMF to Gaia/RVS spectra to identify unusual stellar objects on the s
     \label{fig:hr_bins}
 \end{figure}
 
-We fit RHMF models separately to local regions in color-magnitude space along the main sequence.
-Figure~\ref{fig:hr_bins} demonstrates how we used these regions to define bins, where the analysis is then performed on each bin separately.
-We used 14 regions/bins, evenly spaced in BP$-$RP color and nearly evenly spaced in G-band absolute magnitude. %\footnote{We found that to cover the main sequence, it was necessary to curve the bin centre locations downwards near bins 4-7.}.
-The widths of these regions was set such that they slightly overlap, which means that there are spectra that belong to multiple bins.
-In each bin, we trained the model with only half the spectra, selected randomly.
-These were intialised with an SVD and iterated until the maximum fractional g-step adjustment was $<10^{-4}$. % \arc{Is this right? $10^{-4}$ for the maximum fractional g-step adjustment \emph{does} seem pretty large!}
-We then used the inferred basis vectors to predict the spectra in the other half of the bin.
-This yielded coefficients, predictions, and robust weights for all spectra in the bin, which we used to identify outliers as described below.\\
+For computational efficiency we ran RHMF on stars selected in local regions of color-magnitude along the main-sequence (Figure~\ref{fig:hr_bins}).
+%We fit RHMF models separately to local regions in color-magnitude space along the main sequence.
+%Figure~\ref{fig:hr_bins} demonstrates how we used these regions to define bins, where the analysis is then performed on each bin separately.
+We used 14 regions, evenly spaced in Gaia BP$-$RP color and nearly evenly spaced in G-band absolute magnitude. %\footnote{We found that to cover the main sequence, it was necessary to curve the bin centre locations downwards near bins 4-7.}.
+The widths in color and magnitude were chosen to ensure that they slightly overlap, such that some stars belong to two bins. 
+Within each bin, we randomly selected half the spectra to perform RHMF, where we initialised the vectors with SVD and iterated until the maximum fractional g-step adjustment was $<10^{-4}$.
+We chose to use $K=10$ basis vectors and set $Q=5$ for all bins. We did not perform any cross-validation, primarily because we are interested in identifying \emph{potentially} interesting spectra (which will be vetted by humans), and so the exact classification performance is not of primary importance to us. 
+And while we recommend cross-validation in practice, it is worth noting that our toy example showed that outlier identification is relatively insensitive to the choise of $Q$ and $K$, provided that they are not too small. Given the vectors trained from a random subset of half the spectra in one bin, we used these to predict the held-out spectra in each bin.\\
 
-We also chose not to perform any cross-validation, and instead picked $K=10$ and $Q=5$ uniformly for all bins.
-The motivation for this choice is two-fold: first, we were not aiming to perform a detailed analysis but rather a simple demonstration on real data; second, we were mostly interested in identifying \emph{potentially} interesting spectra, and so the exact classification performance was not of primary importance.
-Additionally, the toy example showed that the outlier identification is relatively insensitive to the choice of $Q$ and $K$, provided that they are not too small.\\
+
 
 \begin{figure}
     \centering
@@ -508,66 +506,58 @@ Additionally, the toy example showed that the outlier identification is relative
     \label{fig:gaia_weights}
 \end{figure}
 
-In terms of outlier identification, we were interested in finding spectra that may look mostly normal, but with one or a few unusual features, such as an unusual line.
-Therefore, we calculated the per-object weights as the $w_i^{\rm object}$ 1\% percentile over $j$, rather than the median as in the toy example.
-Figure~\ref{fig:gaia_weights} shows the distributions of the per-object weights $w_i^{\rm object}$ calculated for all spectra in each bin.
-We then set a threshold of $0.5$, such that if $w_i^{\rm object} < 0.5$ then spectrum $i$ is identified as a potential outlier, this is shown as a vertical dashed line in the figure.
-The number of identified outliers is labelled for each bin, as well as the total number of spectra in that bin.
-\arc{This might be a rabbit hole, and if it looks to be, I don't want to venture there. However, do we know what the expected \emph{distribution} is for the per-object weights? If I look at Figure 6 (object-level weights for each bin) then at first glance I thought \emph{`well, perhaps these more frequent outliers is just because of sampling: that all bins are distributed the same way and we are just sampling more outliers in some bins'}. But when I look more carefully, bin 0 has 193 outliers and 7k spectra, whereas bin 7 has 10k spectra and only 2 outliers. So the spectral complexity in bin 0 is higher than bin 7. I know that K and Q can be fiddled, but I am just wondering conceptually if there is some expected distribution of the per-object weights, because that could help guide the decision of Q and K given the number of input spectra and the rough `rate' of outliers that you are interested in investigating}\\
+%In terms of outlier identification, we were interested in finding spectra that may look mostly normal, but with one or a few unusual features, such as an unusual line.
+With basis coefficients, predicted model spectra, and robust weights for all spectra in each bin, we were then able to identify outlier spectra as those with low per-object weights.
+We calculated the per-object weights as the $w_i^{\rm object}$ 1\% percentile over $j$. Figure~\ref{fig:gaia_weights} shows the distributions of the per-object weights $w_i^{\rm object}$ calculated for all spectra in each bin.
+We set a threshold of $0.5$, such that if $w_i^{\rm object} < 0.5$ then spectrum $i$ is identified as a potential outlier, this is shown as a vertical dashed line in the figure.
+The number of identified outliers is labelled for each bin, as well as the total number of spectra in that bin.\\
+%\arc{This might be a rabbit hole, and if it looks to be, I don't want to venture there. However, do we know what the expected \emph{distribution} is for the per-object weights? If I look at Figure 6 (object-level weights for each bin) then at first glance I thought \emph{`well, perhaps these more frequent outliers is just because of sampling: that all bins are distributed the same way and we are just sampling more outliers in some bins'}. But when I look more carefully, bin 0 has 193 outliers and 7k spectra, whereas bin 7 has 10k spectra and only 2 outliers. So the spectral complexity in bin 0 is higher than bin 7. I know that K and Q can be fiddled, but I am just wondering conceptually if there is some expected distribution of the per-object weights, because that could help guide the decision of Q and K given the number of input spectra and the rough `rate' of outliers that you are interested in investigating}\\
 % Need to remember to return to the point that we did not tune the threshold, which might matter a bit since the distribution varies across the bins. Of course, we just pick three outliers to show anyway, but it might matter for a systematic study
 
-For bins 6 through 14, we see similar behaviour in the distributions of weights as in the toy example, with a large population of spectra with large weights, and a very sparse tail of spectra with weights ranging from $\lesssim 0.5$ to $\lesssim 0.1$.
-In bins 0 through 5, the distribution is similar except that the tail is more populated, such that there is less of a clear break between the bulk and the potential outliers.
-This is partially explained by many of these bins simply containing more spectra.
-However, bins 0 and 7 both contain 5000-10000 spectra, but bin 0 has a far more populated tail.
-This difference could be explained by the fact that bin 0 truly containing more anomalous objects, potentially because it contains hotter and younger stars, which are more likely to have strong emission lines, accretion signatures, or other unusual features.
-However, it is also possible that an increased $K$ would have captured a lot of this structure and thus reduced the number of identified outliers.
-This is a double-edged sword, because while it is true that a more flexible model can capture more of the structure in the data, it is also true that some of that structure may be interesting and worth identifying as outliers.
-This is related to a previously mentioned fundamental limitation: if the objects you consider outliers share some low-rank structure between them, then at large enough $K$ the model will capture that structure.
-It is then up to the investigator to decide whether or not the model should be flexible enough to capture this second ``class'' of objects.\\
+\arc{Consider putting this to discussion.}
+For the lower main-sequence bins (K and M-type stars; bins 6 through 14) we see similar behaviour in the distributions of weights as in the toy example, with a large population of spectra with large weights, and a very sparse tail of spectra with weights ranging from $\lesssim 0.5$ to $\lesssim 0.1$.
+In the upper main-sequence (closer to A and F-type stars; bins 0 through 5), the tail of the distribution is better populated, making it more difficult to identify a well-defined outlier separation.
+This is not completely explained by number counts: there are 193 outliers marked in bin 0 from 6,846 spectra; and just 2 outlier in bin 7 from 9,286 spectra. 
+It is consistent with the fact that the upper main-sequence is more spectrally complex, and so there are more spectra that deviate from the common structure in the data, and thus more spectra with low weights.
+Naturally, having more components (increasing $K$) could capture common kinds of anomalies (e.g., emission lines), but it introduces a double-edged sword: a flexible model can capture more structure in the data, but some of that structure may be capturing relatively common astrophysics! It emphasizes a fundamental limitation: if the objects you consider are outliers share some low-rank structure between them, then higher $K$ components will capture that structure. Ultimately the investigator must decide on the balance between flexibility and interpretability.\\
 
-57,173 spectra fell into overlapping bins.
-Those spectra were therefore fit twice, and so they have two sets of inferred weights and two chances to identified as outliers.
-The object-level weights were generally very similar between the overlapping bins, with a median absolute difference (MAD) of 0.003 and an upper 90th percentile of 0.01.
-Of the 584 spectra identified as outliers in at least one bin, 135 of those belong to both.
-61 spectra were outliers in both bins, with both per-object weights below 0.5, while 74 were outliers in only a single bin, with the other weight above 0.5.
-The outliers in both bins were the also the most strongly identified.
-For these, the mean of the lower scores (mean of $\mathrm{min} [\mathrm{score~A,~score~B}]$) was 0.26, the mean of the higher was 0.33, and the MAD of the scores 0.04.
-The 74 singly identified spectra on the other hand straddle the cutoff, with a mean of the lower scores of 0.42, a mean of the higher scores of 0.62, and an increased MAD of the scores of 0.18.\\
+
+%57,173 spectra fell into overlapping bins.
+%Those spectra were therefore fit twice, and so they have two sets of inferred weights and two chances to identified as outliers.
+%The object-level weights were generally very similar between the overlapping bins, with a median absolute difference (MAD) of 0.003 and an upper 90th percentile of 0.01.
+%Of the 584 spectra identified as outliers in at least one bin, 135 of those belong to both.
+%61 spectra were outliers in both bins, with both per-object weights below 0.5, while 74 were outliers in only a single bin, with the other weight above 0.5.
+%The outliers in both bins were the also the most strongly identified.
+%For these, the mean of the lower scores (mean of $\mathrm{min} [\mathrm{score~A,~score~B}]$) was 0.26, the mean of the higher was 0.33, and the MAD of the scores 0.04.
+%The 74 singly identified spectra on the other hand straddle the cutoff, with a mean of the lower scores of 0.42, a mean of the higher scores of 0.62, and an increased MAD of the scores of 0.18.\\
+
 
 \begin{figure}
     \centering
     \includegraphics[width=0.98\linewidth]{figs/bin_00_K10_Q5.00_idx_00567_srcid_1363284299777747584_weight_0.009.pdf}
-    \caption{Spectra of some outliers, with the best-fit model overlaid, and the residuals below. Same as the toy model plot but for real data, and with highlighted regions for line locations instead of the known true outlier locations.}
+    \caption{Gaia/RVS spectrum (black) of Gaia DR3 1363284299777747584 (HD 162732; 88 Her) that we identified as an outlier ($w_i^{\rm object} = 9\times10^{-3}$) in bin 0, shown with the poor reconstruction (green). This system is a suspected binary system that hosts a Be star with an equatorial disk of gas.}
     \label{fig:gaia_spec_1}
-\end{figure}
-
-\tom{below here becomes rougher-draft}
-
-Figure~\ref{fig:gaia_spec_1} shows the spectrum of one of the identified outliers, with the best-fit model overlaid, and the residuals below.
-The spectrum is from bin 0, and it has a very low object-level weight of $w_i^{\rm object} = 0.009$, which is well below the threshold of $0.5$.
-The spectrum looks to have contributions from both the very broad lines expected of a hot star, as well as deep and narrow lines expected of a cool star.
-It's a hot and cool star binary.
-\tom{TODO: crossref Gaia ID and literature search object.}\\
-
-\begin{figure}
-    \centering
-    \includegraphics[width=0.98\linewidth]{figs/bin_13_K10_Q5.00_idx_00344_srcid_3136952686035250688_weight_0.173.pdf}
-    \caption{\placeholder{like above}}
-    \label{fig:gaia_spec_2}
 \end{figure}
 
 \begin{figure}
     \centering
     \includegraphics[width=0.98\linewidth]{figs/bin_01_K10_Q5.00_idx_14536_srcid_5309096898078973568_weight_0.985.pdf}
-    \caption{\hoggtodo{Any opinion about plotting fits to ``normal'' spectra? Thus far it's not included.} \hogg{Yes, we should plot both; why are you asking me this here? Ask me again in the relevant figure caption.} \tom{OK here is a potential such plot and I have moved the discussion here.}}
+    \caption{Gaia/RVS spectrum (black) of a more typical star (Gaia DR3 5309096898078973568) on the upper main-sequence, shown with the good reconstruction (green). Unlike the outlier spectrum shown in Figure~\ref{fig:gaia_spec_1}, this spectrum has a high object-level weight of $w_i^{\rm object} = 0.985$, consistent with it being a typical star in this bin.}
     \label{fig:gaia_spec_normal}
 \end{figure}
 
-Figure~\ref{fig:gaia_spec_2} shows 1 of the 2 outlier spectra from bin 13, with a weight of 0.173.
-The spectrum is of a cool star M-dwarf type thing.
-The Ca II IR triplet is clearly seen, indicative of magnetic or accretion activity \placeholder{citations}.
-\tom{TODO: crossref Gaia ID and literature search object.}\\
+
+One example spectrum classified as an outlier ($w_i^{\rm object} = 9\times10^{-3}$) in bin 0 is shown in Figure~\ref{fig:gaia_spec_1}. The reconstruction is a poor description of the data, highlighting how peculiar this spectrum is compared to others in the same bin (e.g., see Figure~\ref{fig:gaia_spec_normal}). Broad Paschen lines are present, consistent with a hot and fast-rotating star, while inconsistent with narrow lines with no significant broadening. This star is suspected binary system 88 Her (HD 162732; Gaia DR3 1363284299777747584) that hosts a well-known Be-shell star: a Be star with an equatorial disk of ejected gas, viewed edge-on through the rim of the disk \citep{Helmut:1995,Rivinius:2006}. \\
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.98\linewidth]{figs/bin_13_K10_Q5.00_idx_00344_srcid_3136952686035250688_weight_0.173.pdf}
+    \includegraphics[width=0.98\linewidth]{figs/bin_13_K10_Q5.00_idx_00350_srcid_3195919254111314816_weight_0.453.pdf}
+    \caption{Two M-dwarf outliers identified in bin 13: Gaia DR3 3136952686035250688 (top), and Gaia DR3 3195919254111314816 (bottom). Both show the model reconstructions in green, where the residual panels highlight emission in the Ca II triplet, consistent with stellar activity. The emission in the top panel is visibly obvious. The emission signature in lower panel is only discernible when compared to the model reconstruction of normal spectra, highlighting the utility of RHMF for identifying subtle outliers among large heteroskedastic datasets.}
+    \label{fig:gaia_spec_2}
+\end{figure}
+
+The two outliers identified in bin 13 (the M-dwarf bin) are shown in Figure~\ref{fig:gaia_spec_2}. Both show emission in the Ca II triplet lines, indicative of stellar activity that discriminates them from other spectra in the same bin. The emission in the top panel (Gaia DR3 3136952686035250688; $w_i^{\rm object} = 0.173$) is obvious by eye (without a model), while the more subtle emission in the lower panel (Gaia DR3 3195919254111314816; $w_i^{\rm object} = 0.453$) is only discernible when compared to the model reconstruction of normal spectra, highlighting the utility of RHMF for identifying subtle outliers.\\
 
 \begin{figure}
     \centering
@@ -576,13 +566,13 @@ The Ca II IR triplet is clearly seen, indicative of magnetic or accretion activi
     \label{fig:umap}
 \end{figure}
 
-Finally, we applied UMAP \citep{mcinnes2018} to the residual spectra for all the identified outliers.
-UMAP is a non-linear dimensionality reduction method something something.
-The resultant projection in shown in Figure~\ref{fig:umap}.
-Different regions in the projection correspond to different types of outliers.
-There is a corner for the binaries, a corner for cool stars with accretion signatures, and corners for \placeholder{stuff idk what it is}.
-There is also a bulk of objects near the middle that when inspected are more borderline cases with weights closer to 0.5 and mostly normal residuals.
-Throwing the residuals of all the outliers into UMAP thus seems like a nice way to categorise things in an unsupervised way, and also to identify the most promising outliers.\\
+%Finally, we applied UMAP \citep{mcinnes2018} to the residual spectra for all the identified outliers.
+%UMAP is a non-linear dimensionality reduction method something something.
+%The resultant projection in shown in Figure~\ref{fig:umap}.
+%Different regions in the projection correspond to different types of outliers.
+%here is a corner for the binaries, a corner for cool stars with accretion signatures, and corners for \placeholder{stuff idk what it is}.
+%There is also a bulk of objects near the middle that when inspected are more borderline cases with weights closer to 0.5 and mostly normal residuals.
+%Throwing the residuals of all the outliers into UMAP thus seems like a nice way to categorise things in an unsupervised way, and also to identify the most promising outliers.\\
 
 \section{Discussion} \label{sec:discussion}
 
