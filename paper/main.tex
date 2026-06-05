@@ -48,7 +48,7 @@
   We present Robust Heteroskedastic Matrix Factorization (RHMF), a replacement for Principal Component Analysis (PCA) that is robust to outliers, handles per-point uncertainties and missing data, and automatically flags per-point, per-object, and per-feature anomalies.
   It works by optimizing a Student-$t$ likelihood-based objective function that adapts to bad data and has a probabilistic interpretation.
   We deliver a fast \texttt{JAX} implementation, Robusta-HMF, and practical guidance for users.
-  We demonstrate uses on a toy dataset, on RVS spectra from Gaia DR3, and on \placeholder{DEMO 3}.
+  We demonstrate uses on a toy dataset, and on RVS spectra from Gaia DR3.
   In the Gaia case, outlier detection finds \placeholder{WEIRD STUFF}.
 %   In \placeholder{DEMO 3}, we accurately recover \placeholder{SOMETHING} despite heteroskedastic noise, hot pixels, missing data, and a variety of outliers.
 \end{abstract}
@@ -101,59 +101,13 @@ In Section~\ref{sec:toy} we demonstrate the approach on two example problems: a 
 The toy dataset is provided for illustration and validation of the method, and the Gaia RVS spectra demonstrate outlier recognition and triage. 
 In Section~\ref{sec:discussion} we discuss the strengths and shortcomings of the model, potential applications and extensions, and the relationship to other methods in the literature. 
 
-% Prior art by year:
-% \begin{enumerate}
-%     \item Wright+2009: Introduce the idea of $D = A + E$ decomposition where $E$ is sparse. Lagrangian framework that alternates between $A$ and $E$ with provable convergence. Requires an SVD in every step.
-%     % \item Wipf+2009: It's honestly unclear to me what I was thinking 2 months ago with this one. No idea how it's similar really.
-%     \item Lin+2010: Faster version (Candes was already out, the 2009 version). Lagrange multiplier based method.
-%     \item Candes+2011: Same problem as Wright. Solved with Principal Component Pursuit that minimises the low-rank part subject to sum of singular values, and the sparse part subject to L1. Algorithm is Principal Component Pursuit by Alternative Directions with Singular Value thresholding.
-% \end{enumerate}
-
-% Grouping the prior art:
-% \begin{enumerate}
-%     \item IRLS based: Polyak+2017, Centefanti+2025, Guyon+2012
-%     \item Candes extensions: Rodriguez+2013
-%     \item
-% \end{enumerate}
-
-% Other prior art that Tom has found:
-% \begin{enumerate}
-%     \item Wright+2009: Write problem with Langrange multiplier framework swap from L0 to L1 loss on sparse/outlier matrix to get a tractable optimization problem. If they used a different loss I think they would have what we do?
-%     % \item Wipf+2009: Actually kind of similar to ours but super expensive and I got a bit lost in the sauce quite fast. Start of section 2 has text about a very similar probabilistic view to ours.
-%     \item Candes+2011: Robust PCA suggestion but not IRLS-based. Called PCP.
-%     \item Polyak+2017: IRLS-based PCA using Huber loss
-%     \item Centofanti+2025: cellPCA. IRLS-based PCA that simultaneously learns per-object and per-"cell" (per $y_{ij}$) weights by combining two robust losses. The have a nested rescaling when evaluating the loss where each time is hyperbolic tangent as a loss. They handle the missing data case but not heteroskedasticity. I think our loss is much nicer because our latent weights have statistical meaning. Actually they also make a big deal out of their provable convergence. I think we do everything they do but better, apart from potentially their segregation between object and cell weights? We sort of have that though.
-%     \item Rodriguez+2013: fast-PCP. Basically Candes but fast via Lanczos.
-%     \item Cai+2021: LRPCA. Idk this one is confusing but they are doing some gradient-descent-ish thing.
-%     \item Guyon+2012: Candes with an L1 regularisation spatially (they are doing foreground/background identification for moving objects in security cameras and stuff). They do use an IRLS scheme to solve it.
-% \end{enumerate}
-
-% No one else has all of the following together as far as I can tell:
-% \begin{enumerate}
-%     \item Heteroskedastic measurement uncertainties
-%     \item Missing data
-%     \item Student-t/Cauchy loss
-%     \item Closed form ALS/IRLS update rules with guarantees
-%     \item A Bayesian hierarchical interpretation
-% \end{enumerate}
-
-% \section{Assumptions and choices}
-
 \section{Method} \label{sec:methods}
 
-% Structure planning
-% \begin{itemize}
-%     \item Structure of forward model: matrix factorization/low rank linear model.
-%     \item Assumptions we'll make: orthogonal basis vectors, heteroskedasticity, potentially missing data, provided measurement uncertainties that are not necessarily trustworthy, data on same grids (optional, shift operators exist).
-%     \item Statistics of the model. Heavy-tailed likelihood, which has an equivalent view of a normal likelihood with inverse Gamma distribution priors over the variance (centred on the provided measurement uncertainties).
-%     \item Solve methods. IRLS/ALS connection with proof in Appendix, in this case optimising the latent robust weights performs an implicit marginalization. Alternatively, directly optimize the likelihood and
-% \end{itemize}
 
 \subsection{Model setup and assumptions} \label{sec:assumptions}
 
 Let $N \in \mathbb{Z}^+$ be the number of objects (in our case, spectra) in the dataset, and $M\in\mathbb{Z}^+$ be the number of features (pixels) for each object.
 We then label the value in feature $j$ of object $i$ as $y_{ij}$, and we can also write the data as an $N \times M$ matrix ${\bf Y}$ with entries $y_{ij}$.
-%In general the $y_{ij}$ can be any real-valued data but for concreteness we will refer to them as pixel values in a catalogue of stellar spectra.
 We assume that the investigator has measurement uncertainties $\sigma_{ij}$ corresponding to each feature, and also that these uncertainties have the same units as $y_{ij}$.
 In practice we will often refer to ``weights'' instead, which are simply inverse variances $w_{ij} = \sigma_{ij}^{-2}$.\\
 
@@ -161,9 +115,7 @@ The model for the data is
 \begin{align}
     y_{ij} &= \sum_{k=1}^K a_{ik}\,g_{kj} + \rm{outliers} + \rm{noise}, \\
     \rm{or \,\, equivalently} \quad {\bf Y} &= {\bf A}\,{\bf G} + \rm{outliers} + \rm{noise}, \label{eq:model}
-    % {\bf Y} &= {\bf A} {\bf G} + \rm{outliers} + \rm{noise}
 \end{align}
-% \hogg{note my addition of thin spaces in the above} \tom{noted}
 which is a low dimensional linear embedding of rank $K\in\mathbb{Z}^+$.
 $a_{ik}$ are the entries of an $N \times K$ matrix ${\bf A}$ where each of the $N$ rows contains $K$ \emph{coefficients}, and $g_{kj}$ are the entries of a $K \times M$ matrix ${\bf G}$ where each of the $K$ rows contain \emph{basis vectors} of length $M$.
 The outliers appear explicitly in the above, but we do not model them as an explicit component unlike many other robust PCA methods as already discussed.
@@ -219,27 +171,19 @@ This setup can be equivalently viewed as a hierarchical model with latent, unkno
 \end{align}
 where the inverse Gamma distribution is a strictly positive distribution with \emph{shape} $\frac{\nu}{2}$ and \emph{scale} $\frac{\nu}{2} s^2 \sigma_{ij}^2$ parameters.
 The equivalence between the student-t likelihood and the hierarchical view is due to the fact that the inverse Gamma distribution is the conjugate prior distribution of an unknown Gaussian variance; marginalizing $\tau_{ij}$ from Eq.~\eqref{eq:hierachical_like} with Eq.~\eqref{eq:hierarchical_prior} yields Eq.~\eqref{eq:t_like} \citep[e.g.][]{lange1989}. \\
-% We show this fact more rigorously in Appendix~\ref{sec:proof}.\\
 
 For the applications we present here, $s$ and $\nu$ are not uniquely identifiable.
 This is because the likelihood depends only on the product $Q^2=\nu s^2$ (Eq.~\ref{eq:t_like}), so our Student-t maximum likelihood estimate (MLE) cannot distinguish them. 
 We therefore fix $\nu=1$ (which reduces to the Cauchy distribution) without loss of generality. \\
 
-% This is because our estimates are either maximum likelihood in the Student-t likelihood view, or type-II maximum likelihood (empirical Bayes) in the hierarchical view.
-% In practice we therefore fix $\nu=1$, which recovers the Cauchy distribution; because the fit depends only on the \emph{product} $Q^2=\nu s^2$, this entails no loss of generality.
-% This is seen most easily by noticing that Eq.~\eqref{eq:t_like} depends only on $Q$ and does not distinguish between $\nu$ and $s^2$ separately. 
 After the number of basis functions $K$, $Q$ now represents  the second hyperparameter of the model: a soft outlier threshold that controls where the transition between the quadratic and logarithmic penalties occurs.
 With $Q=1$ the transition occurs at about the same point as the measurement uncertainties, ${Q}>1$ means that the transition occurs at larger residuals than the measurement uncertainties, and ${Q}<1$ means that the transition occurs at smaller residuals than the measurement uncertainties. 
-% Away from $Q=1$, it is worth reminding that $Q$ scales with standard deviation, not variance.
 
 \subsection{Fitting Algorithm} \label{sec:fitting}
 
 While in principle it's possible to optimize Eq.~\eqref{eq:robust_opt} for all $a_{ik}$ and $g_{kj}$ simultaneously, we invoke a majorization-maximization scheme that implicitly minimizes the objective by iterating between re-weighting and least-squares solves.
 This approach is exactly the typical IRLS method for robust regression, but applied to HMF instead of linear regression.
 We prove that the algorithm below optimises the likelihood defined in Eq.~\eqref{eq:t_like} in Appendix~\ref{sec:proof}. \\
-% we will discuss the methodology and results in the context of both these views, re-weighting and sub-quadratic penalty cost function, interchangably.
-
-%\subsubsection{Initialization} % ARC says: I don't think you need subsubsections
 
 While the algorithm we present is guaranteed to converge to a local optimum, it is not guaranteed to converge to the global optimum, and so it is pertinant to provide a good initialization.
 The most straightforward approach is the singular-value decomposition
@@ -253,8 +197,6 @@ where ${\bf U}$ and ${\bf V}^\top$ are unitary matrices, and {\bf S} is a matrix
 This initialization is simply the first $K$ components of the PCA solution.
 In the case that the dataset is very large, it may be preferable to use a faster, approximate method such as the randomized SVD \citep{halko2011}.\\
 
-%\subsubsection{Iterative solver}
-
 Iteratively updating the parameters consists of four steps that cycle until convergence. The first is the \textbf{w-step}, which  updates the data weights to downweight outliers, given the current estimate of ${\bf A}$ and ${\bf G}$:
 \begin{align}
     r_{ij} &= y_{ij} - \sum_K a_{ik} g_{kj}, \\
@@ -266,24 +208,20 @@ This rule also respects data weights of zero, and shows clearly how $Q$ acts to 
 
 The \textbf{a-step} finds the best-fit values for the coefficients $a_{ik}$ given the current estimate of the basis vectors $g_{kj}$:
 \begin{align}
-    % {\bf X}_i &= {\bf G} {\bf W}_i {\bf G}^\top \\
     [{\bf X}_i]_{kk'} &= \sum_{j=1}^M g_{kj} w_{ij}^{\rm (new)} g_{jk'}, \\
-    % {\bf b} &= {\bf G} {\bf W}_i {\bf y}_i \\
     [{\bf b}_i]_k &= \sum_{j=1}^M g_{kj} w_{ij}^{\rm (new)} y_{ij}, \\
-    % {\bf G} {\bf W}_i \\
     \boldsymbol{\alpha}_i &= \solve{\left( {\bf X}_i, {\bf b}_i \right)}, \\
-   a_{ik}^{\rm (new)} &\leftarrow [{\boldsymbol{\alpha}}_i]_k %\quad {\rm for} \,\, i \,\, {\rm in} \,\, 1,...,N,
+   a_{ik}^{\rm (new)} &\leftarrow [{\boldsymbol{\alpha}}_i]_k
 \end{align}
 where the operator $\solve({\bf X}, {\bf b})$ returns ${\bf X}^{-1}\,{\bf b}$.
 This is just the WLS solution for the rows of ${\bf Y}$ given fixed ${\bf G}$.\\
 
 Next, the \textbf{g-step} finds the best-fit basis vectors $g_{kj}$ given the current estimate of the coefficients $a_{ik}$:
-% \arc{Below is $a_{ik}$ meant to be $a^{\rm (new)}_{il}$? I think so...}
 \begin{align}
     [{\bf X}_j]_{kk'} &= \sum_{i=1}^N a^{\rm (new)}_{ik} w_{ij}^{\rm (new)} a^{\rm (new)}_{ik'}, \\
     [{\bf b}_j]_k &= \sum_{i=1}^N a^{\rm (new)}_{ik} w_{ij}^{\rm (new)} y_{ij}, \\
     \boldsymbol{\gamma}_j &= \solve{\left( {\bf X}_j, {\bf b}_j \right)}, \\
-   g_{kj}^{\rm (new)} &\leftarrow [\boldsymbol{\gamma}_j]_k %\quad {\rm for} \,\, j \,\, {\rm in} \,\, 1,...,M,
+   g_{kj}^{\rm (new)} &\leftarrow [\boldsymbol{\gamma}_j]_k
 \end{align}
 which is just the WLS solution for the columns of ${\bf Y}$ given fixed ${\bf A}$.\\
 
@@ -292,8 +230,6 @@ The \textbf{rotation-step} suppresses the huge set of degeneracies in the model 
     \boldsymbol{\lambda}, {\bf V} &= \eig{\left( {\bf G} {\bf G}^\top \right)},\\
     {\bf A}^{\rm (new)} &\leftarrow {\bf A} {\bf V} \, {\rm diag} \left(\boldsymbol{\lambda}^{-1}\right) {\bf V}^\top, \\
     {\bf G}^{\rm (new)} &\leftarrow {\bf V} \, {\rm diag} \left(\boldsymbol{\lambda}\right) {\bf V}^\top {\bf G},
-    % {\bf R^{-1}} &=  \\
-    % {\bf R} &=
 \end{align}
 where the operator ${\rm eig}({\bf G} {\bf G}^\top)$ returns a $K$-vector and a $K\times K$ matrix, containing the eigenvalues and eigenvectors of ${\bf G} {\bf G}^\top$ respectively.
 $\boldsymbol{\lambda}^{-1}$ is shorthand for the element-wise reciprocal of the eigenvalues vector $\boldsymbol{\lambda}$.
@@ -388,7 +324,7 @@ Indeed, if the missing data segment contained an absorption line (which some of 
 \begin{figure}
     \centering
     \includegraphics[width=0.98\linewidth]{figs/absorption_line_residuals.pdf}
-    \caption{Randomly selected noisy toy spectrum that contains outlier absorptions lines, random outlier bad pixels, a pixel bad across many spectra, and a missing data segment. The top panel shows the data compared with the best-fit PCA, RPCA and RHMF models. The middle panel shows the RHMF model-subtracted residuals, demonstrating that the model has ignored the outlier pixels and lines, making them easy to identify by eye. The bottom panel shows the inferred robust weights, showing that the outlier pixels and lines have been down-weighted by the model, also useful for identification. The PCA, RPCA, and RHMF models are all fit with $K=5$ basis vectors, and the RHMF model is fit with $Q=5$. \tom{Update to support reading elements in greyscale.}}
+    \caption{Randomly selected noisy toy spectrum that contains outlier absorptions lines, random outlier bad pixels, a pixel bad across many spectra, and a missing data segment. The top panel shows the data compared with the best-fit PCA, RPCA and RHMF models. The middle panel shows the RHMF model-subtracted residuals, demonstrating that the model has ignored the outlier pixels and lines, making them easy to identify by eye. The bottom panel shows the inferred robust weights, showing that the outlier pixels and lines have been down-weighted by the model, also useful for identification. The PCA, RPCA, and RHMF models are all fit with $K=5$ basis vectors, and the RHMF model is fit with $Q=5$.}
     \label{fig:toy_residuals}
 \end{figure}
 
@@ -416,7 +352,7 @@ These weights exhibit random fluctuations near 1 across most of the spectrum, bu
 \begin{figure}
     \centering
     \includegraphics[width=0.88\linewidth]{figs/normal_vs_outlier_spectra_reconstructions.pdf}
-    \caption{Noisy toy spectra randomly selected from across the training and test sets, with the best-fit RHMF model predictions overlaid. The top 3 are ``normal'' spectra, while the bottom 3 are outlier spectra. In the normal spectra, the model picks up on the common structure and ignores pixel-level outliers, while in the outlier spectra the model does not attempt to fit the high-frequency sinusoidal structure at all, which is the intent. The shown model has $K=5$ and $Q=5$. \tom{Update to support reading elements in greyscale.}}
+    \caption{Noisy toy spectra randomly selected from across the training and test sets, with the best-fit RHMF model predictions overlaid. The top 3 are ``normal'' spectra, while the bottom 3 are outlier spectra. In the normal spectra, the model picks up on the common structure and ignores pixel-level outliers, while in the outlier spectra the model does not attempt to fit the high-frequency sinusoidal structure at all, which is the intent. The shown model has $K=5$ and $Q=5$.}
     \label{fig:toy_spectra}
 \end{figure}
 
@@ -429,7 +365,7 @@ This shows that the downweighting mechanism works on both a local per-data-point
 \begin{figure}
     \centering
     \includegraphics[width=0.55\linewidth]{figs/weights_per_object_clean_vs_outlier.pdf}
-    \caption{Distribution of the object-level weights $w_i^{\rm object}$ for the toy data, coloured by whether the spectrum is an outlier or not. The model clearly distinguishes the outlier spectra, which mostly have much lower weights than the normal spectra. The shown model has $K=5$ and $Q=5$. \tom{Update to support reading elements in greyscale.}}
+    \caption{Distribution of the object-level weights $w_i^{\rm object}$ for the toy data, coloured by whether the spectrum is an outlier or not. The model clearly distinguishes the outlier spectra, which mostly have much lower weights than the normal spectra. The shown model has $K=5$ and $Q=5$.}
     \label{fig:toy_weights}
 \end{figure}
 
@@ -442,7 +378,7 @@ In contrast, the outlier spectra have median weights mostly $\leq 0.8$, with onl
 \begin{figure}
     \centering
     \includegraphics[width=0.84\linewidth]{figs/test_set_score_heatmap.pdf}
-    \caption{Top: Validation scores calculated with Eq.~\eqref{eq:score} for the grid of $Q$ and $K$ values. The best score is obtained with $K=5$ and $Q=5$, which is the model shown in the other plots. Bottom left: F1 score for outlier identification on a per-object-per-pixel basis, based on a threshold of $0.5$ on the robust weights $w_{ij}^{\rm robust}$. Bottom right: F1 score for outlier identification on a per-object basis, based on a threshold of $0.9$ on the object-level weights $w_i^{\rm object}$. The F1 scores are calculated with respect to the known true outlier labels, and they demonstrate that both the best identification is obtained near the best validation score, but also that picking $K$ too large does not dramatically degrade the outlier identification} %. \tom{Update to support reading elements in greyscale.}}
+    \caption{Top: Validation scores calculated with Eq.~\eqref{eq:score} for the grid of $Q$ and $K$ values. The best score is obtained with $K=5$ and $Q=5$, which is the model shown in the other plots. Bottom left: F1 score for outlier identification on a per-object-per-pixel basis, based on a threshold of $0.5$ on the robust weights $w_{ij}^{\rm robust}$. Bottom right: F1 score for outlier identification on a per-object basis, based on a threshold of $0.9$ on the object-level weights $w_i^{\rm object}$. The F1 scores are calculated with respect to the known true outlier labels, and they demonstrate that both the best identification is obtained near the best validation score, but also that picking $K$ too large does not dramatically degrade the outlier identification}
     \label{fig:cv}
 \end{figure}
 
@@ -502,7 +438,7 @@ And while we recommend cross-validation in practice, it is worth noting that our
 \begin{figure}
     \centering
     \includegraphics[width=0.72\linewidth]{figs/stacked_hist.pdf}
-    \caption{Distribution of the object-level weights $w_i^{\rm object}$ for each bin, with a vertical grey dashed line showing the threshold of $0.5$ for outlier identification. The number of identified outliers with $w_i^{\rm object} < 0.5$, as well as the total number of spectra in each bin, is labelled next to the corresponding histogram. \tom{Maybe add a right panel showing the spectra on the HR diagram, colored by their object-level weight?}}
+    \caption{Distribution of the object-level weights $w_i^{\rm object}$ for each bin, with a vertical grey dashed line showing the threshold of $0.5$ for outlier identification. The number of identified outliers with $w_i^{\rm object} < 0.5$, as well as the total number of spectra in each bin, is labelled next to the corresponding histogram.}
     \label{fig:gaia_weights}
 \end{figure}
 
