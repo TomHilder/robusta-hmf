@@ -857,13 +857,13 @@ This guarantees that robust HMF with the iterative procedure converges to the St
 
 \section{Toy Dataset} \label{sec:toy_model_details}
 
-The toy dataset consisted of 8000 synthetic (toy) spectra, on 1200 pixel grid, logarithmically spaced between 400 and 600 nm.
+The toy dataset consisted of $N=8000$ synthetic (toy) spectra, on an $M=1200$ pixel grid, logarithmically spaced between 400 and 600 nm.
 Specifically, the pixel grid was generated using the \texttt{NumPy} function \texttt{geomspace(400, 600, 1200)}.
-The spectra were convolved with a Gaussian kernel to achieve a constant spectral resolution of $R = 2123$ (where we actually chose the standard deviation to be $\sigma = \bar{\lambda} / 5000$, where $\bar{\lambda}$ is the mean wavelength).\\
+The spectra were convolved with a Gaussian kernel to achieve a constant spectral resolution of $R = 2123$, where we actually chose the standard deviation to be $\sigma = \bar{\lambda} / 5000$, where $\bar{\lambda}$ is the mean wavelength.\\
 
-The non-outlier spectra were generated from the sum of 5 basis functions
+The non-outlier spectra were generated from the sum of 5 basis functions (and so have a true rank of 5), according the the following
 \begin{align}
-    \mathrm{spectrum}_{ij} &= a_i + b_i z_j + c_i \left[\frac{1}{2} \left( 3 z_j^2 - 1 \right)\right] + g_i \sum_{\mu \in \mathcal{C}} \exp{\left[ - \frac{1}{2} \left( \frac{\lambda_j - \mu}{1.4~\mathrm{nm}} \right)^2  \right]} + s_i \sin{\left( 2 \pi \left( z_j + 1 \right)  \right)},
+    \mathrm{spectrum}_{i}(j) &= a_i + b_i z_j + c_i \left[\frac{1}{2} \left( 3 z_j^2 - 1 \right)\right] - 0.45 g_i \sum_{\mu \in \mathcal{C}} \exp{\left[ - \frac{1}{2} \left( \frac{\lambda_j - \mu}{1.4~\mathrm{nm}} \right)^2  \right]} + s_i \sin{\left( 2 \pi \left( z_j + 1 \right)  \right)},
 \end{align}
 where the rescaled coordinate $z_j\in[-1, 1]$
 \begin{align}
@@ -871,12 +871,82 @@ where the rescaled coordinate $z_j\in[-1, 1]$
 \end{align}
 is such that the first basis functions are Legendre polynomials in $\log{\lambda}$ (these function are orthogonal in the interval $[-1, 1]$).
 The set of line centres $\mathcal{C}$ was chosen as
-\begin{align}
-    C = \left\{ \right\}
+\begin{align} 
+    C = \{\,
+        & 410.17~\mathrm{nm}, \\
+        & 434.05~\mathrm{nm}, \\
+        & 486.13~\mathrm{nm}, \\
+        & 516.73~\mathrm{nm}, \\
+        & 517.27~\mathrm{nm}, \\ 
+        & 518.36~\mathrm{nm}, \\
+        & 589.00~\mathrm{nm}, \\
+        & 589.60~\mathrm{nm} \,\}.
 \end{align}
+The $0.45$ prefactor in front of the absorption lines was set by hand to yield lines of a somewhat realistic looking depth.
+The coefficients $a_i, b_i, c_i, g_i, s_i$ were randomly drawn for each spectrum $i$ from the following distributions
+\begin{align}
+    a_i &\sim \mathcal{N} \left( 1.0, 0.1^2 \right), \\
+    b_i &\sim \mathrm{Exp} \left( 0.2 \right), \\
+    c_i &\sim \mathcal{N} \left( 0.0, 0.1^2 \right), \\
+    g_i &\sim \log{\mathcal{N}} \left( 0.0, 0.1^2 \right), \\
+    s_i &\sim \mathrm{N} \left( 0.1, 0.1 \right),
+\end{align}
+where $\mathcal{N}(\mu, \sigma^2)$ denotes the normal distribution with mean $\mu$ and variance $\sigma^2$, $\mathrm{Exp}(s)$ denotes the exponential distribution with scale $s$, and $\log{\mathcal{N}}(\mu, \sigma^2)$ denotes a log normal distribution where the mean and standard deviation are that of the underlying normal.\\
 
+Noise draws $\epsilon_{ij}$ were added to the spectra, generated as
+\begin{align}
+    \epsilon_{ij} \sim \mathcal{N} \left( 0, \sigma_{ij}^2\right),
+\end{align}
+The \emph{known}, per-pixel, Gaussian uncertainties $\sigma_{ij}$ where chosen as
+\begin{align}
+    \sigma_{ij} = 0.2 \, \alpha_i \, \beta_j \, \gamma_{ij},
+\end{align}
+with random per-spectrum multiplier
+\begin{align}
+    \alpha_i^* &\sim \log{\mathcal{N}} \left( 1.0, 2^2 \right), \\
+    \alpha_i &= \alpha_i^* / \bar{\alpha_i^*},
+\end{align}
+wavelength-dependent per-pixel multiplier
+\begin{align}
+    \beta_j &= \exp{\left[ - \frac{1}{2} \left( \frac{\lambda_j - \bar{\lambda}}{100~\mathrm{nm}} \right)^2  \right]},
+\end{align}
+and random per-spectrum-per-pixel jitter multiplier
+\begin{align}
+    \gamma_i^* &\sim \log{\mathcal{N}} \left( 0, 0.06^2 \right), \\
+    \gamma_i &= \gamma_i^* / \bar{\gamma_i^*},
+\end{align}
+where in all cases the hand-tuned numbers above were set to give a sensible range by eye, and the bar notation $\bar{x}$ denotes the mean.\\
 
-% \placeholder{Details of basis functions, distributions used to draw coefficients, distributions used to draw outliers.}
+A randomly selected 40 of the 8000 spectra were replaced with the following outlier model
+\begin{align}
+    \mathrm{outlier}_{i}(j) = 1 + A_i \sin{\left( 2\pi f_i \left[\frac{j}{M-1}\right] \right)},
+    % y_{ij} ;=; A_i \sin!\left( 2\pi , f_i , \frac{j}{M-1} \right) + 1.
+\end{align}
+which notably has constant frequency $f_i$ in the pixel index $j$, not wavelength.
+The amplitudes and frequencies were randomly drawn as
+\begin{align}
+    A_i &\sim \mathcal{U} \left( 0.1, 0.3 \right), \\
+    f_i &\sim \mathcal{U} \left( 10, 30 \right),
+\end{align}
+where $\mathcal{U} \left( l, r \right)$ denotes a bounded uniform distribution over the interval $[l,\,r]$.
+These outliers share effectively no common low-rank structure amoungst themselves nor with the spectrum model.\\
+
+Outlier ``columns'' were injected such that for 3 random selected pixel indices $j$, 30\% of all the spectra (selected randomly) had a factor $\delta_{ij} \sim \pm\,\mathcal{U} \left( 0.25, 0.45 \right)$ added in pixel $ij$, where the sign was also random.
+% Note that for a given column $j$, the factor added was therefore different in each spectrum affected.
+Individual outlier pixels were also added in 0.4\% of all pixels, for a total of 38,400.
+The pixel and spectrum indices were both drawn randomly, according to $\delta_{ij} \sim \pm\,\mathcal{U} \left( 0.25, 0.75 \right)$, where again the sign was random.
+Both column and pixel outliers were injected across all spectra, and so could affect both the normal and outlier spectra.\\
+
+10 normal (non-outlier) spectra also had 3 extra absorption lines added.
+Note that these spectra could also contain column and pixel outliers, and we did not prevent any of them from being coincident in location.
+Each of these were centred on a randomly (and uniformly) selected pixel, with a width (standard deviation) of 2 pixels, and a depth drawn as $d \sim \mathcal{U} \left( 0.3, 0.6 \right)$.
+Each of the 10 spectra had \emph{different} sets of lines added, in that the random sampling was done for each of the 30 lines.\\
+
+Continuous missing data segments were injected in 50\% of all spectra, selected randomly.
+The length of the segment was drawn uniformly between 50 and 200.
+The locations were also chosen randomly, except that overlap with pre-existing pixel outliers and the extra absorption lines was avoided.
+They were however, allowed to overlap with the column outliers, and to be placed in outlier spectra.
+Missing values were set to NaNs, and the corresponding data weights were set to zero.
 
 \raggedright\footnotesize
 \bibliographystyle{aasjournal}
