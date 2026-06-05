@@ -427,7 +427,8 @@ To demonstrate the application of RHMF, we applied it to Gaia/RVS spectra to loo
     \label{fig:hr_bins}
 \end{figure}
 
-For computational efficiency we ran RHMF on stars selected in local regions of color-magnitude along the main-sequence (Figure~\ref{fig:hr_bins}).
+We ran RHMF on stars in local regions of color-magnitude along the main-sequence (Figure~\ref{fig:hr_bins}).
+The motivation for local regions is largely interpretability, in that we want to be able to understand the common structure in the spectra of stars in a particular region of the Hertzprung-Russell diagram, and then identify spectra that deviate from that common structure.\footnote{An added benefit to running RHMF on local regions is computational efficiency.}
 %We fit RHMF models separately to local regions in color-magnitude space along the main sequence.
 %Figure~\ref{fig:hr_bins} demonstrates how we used these regions to define bins, where the analysis is then performed on each bin separately.
 We used 14 regions, evenly spaced in Gaia BP$-$RP color and nearly evenly spaced in G-band absolute magnitude. %\footnote{We found that to cover the main sequence, it was necessary to curve the bin centre locations downwards near bins 4-7.}.
@@ -504,15 +505,13 @@ The two outliers identified in bin 13 (the M-dwarf bin) are shown in Figure~\ref
 
 \section{Discussion} \label{sec:discussion}
 
-\arc{Would the following paragraph feel more at home in the discussion?}
-As we hinted at in Section~\ref{sec:assumptions}, the degree to which these weights can be used to identify outliers depends on the investigators beliefs about the data, in particular arround the provided data uncertainties.
-Spectra with underestimated uncertainties can easily appear outliers via these metrics, since they might recieve near-universal downweighting.
-This is somewhat remediated by inspecting the residual between the data and the model, because objects that are not outliers but merely had underestimated uncertainties should still be well described by the inferred basis.
-It is therefore much safer to use the weights as a guide for \emph{where to look} for interesting things in a large dataset, rather than a \emph{statistical measure} of the degree to which an object is an outlier.
-In the case where the uncertainties are well-known and truly Gaussian, and where $Q$ and $K$ have been set carefully, it is reasonable to use the population of weights as a means to ascribe a statistically-meaningful measure of outlier-y-ness.
-We caution that these conditions are hard to meet in practice.
+We have introduced a PCA-like model, which we call robust heteroskedastic matrix factorization.
+RHMF has all the nice properties of both HMF \citep{tsalmantza2012} and robust regression \citep{holland1977, hoaglin1983}, in that it can handle missing data, heteroskedastic noise, and outliers, all in a principled way.
+The usefulness of a model of this kind is two-fold: one may care about the low-rank structure without being burdened by outliers, or one can use the inference to identify outliers and then investigate them further.
+We demonstrated mostly the former in the toy example, and the latter in the Gaia/RVS example.
+Like all models, it has strengths (hopefully demonstrated in the preceeding sections), and shortcomings, which we will discuss below.\\
 
-\tom{Still rough draft.}
+
 
 % Section outline:
 % \begin{enumerate}
@@ -528,49 +527,35 @@ We caution that these conditions are hard to meet in practice.
 
 %%% LITTLE SUMMARY
 
-We presented a PCA-like model, which we have called robust heteroskedastic matrix factorization or RHMF.
-RHMF has all the nice properties of both HMF \citep{tsalmantza2012} and robust regression \citep{holland1977, hoaglin1983}, in that it can handle missing data, heteroskedastic noise, and outliers, all in a principled way.
-The usefulness of a model of this kind is two-fold: one may care about the low-rank structure without being burdened by outliers, or one can use the inference to identify outliers and then investigate them further.
-We demonstrated mostly the former in the toy example, and the latter in the Gaia example.
-Like all models, it has strengths (hopefully demonstrated in the preceeding sections), and shortcomings, which we will discuss below.\\
+
 
 %%% CV STUFF
 
-Unlike PCA, the number of basis vectors $K$ must be determined before fitting the model.
-One must additionally set the value of the soft outlier threshold $Q$.
+In PCA the number of basis vectors $K$ can be determined after fitting a model by looking at the variance explained by each component, and picking a cutoff threshold. In RHMF, this is not possible: the number of basis vectors $K$ must be determined before fitting the model. The user must also decide on the soft outlier threshold $Q$, which controls the aggressiveness of down-weighting outliers.
 We advocated for a data-driven, cross-validation approach to selecting these hyperparameters through assessing their predictive performance on held-out data.
-Typically, this might be done through some kind of reconstruction loss which would be a summary statistic over the uncertainty-weighted residuals between the prediction and data for the held-out data.
-This approach cannot possibly work for a model such as this, if holding-out whole spectra as we did here.
-Firstly, one must choose between weighting with the data uncertainty weights, or the total weights (including the robust downweighting).
-If one uses the former, they are doomed because increasing $K$ will always do better, because we are accidentally assessing the model's ability to fit the outliers, not ignore them.
-Using the total weights is doomed because the model could be downweighting real features, which should be contributing to the performance metric.\\
-
-For these reasons, we argued to do something Bayesian-ish, where we effectively check to see if the residuals for the held-out data, are predicted as according to our hypothesis.
-Models where the residuals look more like the expected distribution are said to have performed better.
-The specific metric we proposed simply looks at the width of the distribution of the z-score obtained with the inferred weights, and compares that width to what is expected from the likelihood (which is unity).
-We could also have compared the mean z-score to 0 instead.\\
+Typically, this might be done through some kind of reconstruction loss: a summary statistic over the uncertainty-weighted residuals between the model prediction on held-out data. 
+In general more basis vectors $K$ will always do better because the model is more flexible, so one must decide when they have \emph{enough} basis vectors, which is not a well-defined criterion.
+But there are additional nuances to cross-validation in this context. 
+For example, when evaluating performance on held-out data, should we use only the inverse variance of the data, or should we include the robust weights as well? If we use only the data weights, then increasing $K$ will always do better, because we are accidentally assessing the model's ability to fit the outliers, not ignore them. If we use the total weights (including the robust downweighting), then the model could be downweighting real features, which should be contributing to the performance metric.
+For these reasons, we advocated a practical approach\footnote{A Bayesian-ish approach}, where we test whether the residuals on the held-out data follow an expected unit-normal distribution when using the data and robust weights together. Models where the residuals look more like the expected distribution are said to have performed better.\\
+%For these reasons, we argued to do something Bayesian-ish, where we effectively check to see if the residuals for the held-out data, are predicted as according to our hypothesis.
+%The specific metric we proposed simply looks at the width of the distribution of the z-score obtained with the inferred weights, and compares that width to what is expected from the likelihood (which is unity).
+%We could also have compared the mean z-score to 0 instead.\\
 
 %%% OUTLIER ID
 
-In the toy model, we assessed the outlier identification performance against the true labels through calculating the F1 score over a grid of hyperparameter values.
+In the toy model, we assessed the outlier identification performance with the F1 score over a grid of hyperparameter values.
 Comparing with the cross-validation results, the F1 score per-pixel is maximized by the hyperparameters with the best validation score, and the per-object maximum is nearby.
 This is reassuring as it indicates that the validation metric is a sensible choice.
 Interestingly, the F1 scores only decrease slightly at larger $Q$ where the validation score degrades.
-It's possible that this is caused by the fact that the outliers truly are sparse and without shared low-rank structure, resulting in less-aggressive downweighting still performing well.
-It's unclear if this would generalise to realistic datasets, where the outliers may not quite satisfy those assumptions.
-Similarly, the F1 scores become constant at larger $K$, not degrading at all.
-This is very likely caused by the injected outliers very well satisfying the sparsity and uniqueness assumptions mentioned in Section~\ref{sec:assumptions}, since the outliers truly share no low-rank structure in the toy example.
-More realistically, larger $K$ would degrade F1.
-\tom{this paragraph is a mess and repetitive}\\
+It's plausible this is because outliers truly are sparse and without shared low-rank structure, leading to good performance without aggressive down-weighting, but it is unclear if this generalises to realistic datasets where outliers may not satisfy those assumptions. In addition to the main objects of interest making up the majority of the dataset with shared low-rank structure, there exists a second class of rare objects that consititute a small percentage of the population, which also share low-rank structure. Lower $K$ will prioritise common objects and identify the second class as outliers.
+Larger $K$ will fit the second class.
+Whether or not the second class are ``outliers'' is in the eyes of the beholder, but setting $K$ adequately for either view will require careful judgement. In any case, the model still has utility, it simply requires care in interpretation.\\
 
-A simple and realistic example in which the outlier identification becomes fraught, and violates the assumptions of the model, is the following.
-In addition to the main objects of interest making up the majority of the dataset with shared low-rank structure, there exists a second class of rare objects that consititute a small percentage of the population, which also share low-rank structure.
-Lower $K$ will prioritise the common objects and thus identify the second class as outliers.
-Larger $K$ will able to also fit that second class.
-Whether or not the second class are ``outliers'' is in the eyes of the beholder, but setting $K$ adequately for either view will require to be careful here.
-Of course, the model is still usable and maybe useful even in this case, one just has to be careful.\\
 
 %%% CAVEATS
+The degree to which the robust weights can be used to identify outliers depends on the investigators' beliefs about the data, and the model assumptions.
+In situations where the uncertainties are well-known and truly Gaussian, and where $Q$ and $K$ have been set carefully by some quantitative method such as cross-validation, it is reasonable to use the population of weights as a means to ascribe a staistically-meaningful measure of outlier-y-ness. However, these conditions are rarely met in practice. Spectra with under-estimated uncertainties can easily manifest as outliers through the robust weights, since they might receive near-universal down-weighting. This is somewhat remediated by close inspection of the residuals between the data and the model, as objects that are not genuine outliers (but just have under-estimated uncertainties) should remain well-described on average by the model predictions. It is reasonable to use the robust weights as a guide for \emph{where to look} for interesting objects in large heteroskedastic datasets, rather than a \emph{statistical measure} of the degree to which an object is truly an outlier.\\
 
 % Possible failure modes and stuff we give up with our assumptions.
 
@@ -580,27 +565,22 @@ Of course, the model is still usable and maybe useful even in this case, one jus
 %     \item
 % \end{itemize}
 
-An important caveat to the model that makes things a bit more annoying in practice, is that the inferred basis vectors depend on the chosen rank $K$, which therefore must be chosen before fitting.
-This is not the case in PCA and RPCA, where one can just pick the top $K$ components after the fact.
-The annoyance is that the workflow is then different to PCA, since it's not a matter of adding basis vectors until the knee in the explained variance curve, but rather of picking $K$ before the fit, and then doing cross-validation to check if that choice was good.\\
+Outlier identification will be sensitive to the choice of $K$ if those outliers share some low-rank structure.
+By construction this wasn't a problem in the toy model because we designed the outliers to be random, without shared low-rank structure.
+In Gaia/RVS spectra, many stars have slight deviations in their continuum normalisation, or common spectral signatures (e.g., binaries). When these features are shared across many spectra they can be captured by the basis functions, and will not be classified as outliers. 
+They can often still be identified after inspecting the model basis functions and noticing that one basis has a particular feature, and then looking at the coefficients for that basis to find the spectra that share that feature. But in the strict classification sense of RHMF, they will not be identified as outliers \emph{solely because} of that low-rank structure.\\
 
-Another point already alluded to is that the outlier identification is going to be sensitive to the choice of $K$ if the outliers share some low-rank structure between them.
-For the toy example, this wasn't really a problem, because we specifically designed the outliers not to share low-rank structure.
-The Gaia RVS example, more realisitically, has a continuum from stuff that's slightly weird to stuff that's super weird.
-The things one might consider ``outliers'' thus may actually constitute an additional class of similar objects with similar spectra.
-Identification of this kind of outlier will be sensitive to $K$.\\
+%More reassuringly, we also tried a range of $K$ and $Q$ values for the Gaia example, and we found that mostly it was the %same objects that were identified as outliers.
+%Increasing $K$ or $Q$ did reduce the number of outliers found, but in a way that only increased the false negative rate, and not the false positive rate, which is arguably more imporant when fishing for weird stuff.\\
 
-More reassuringly, we also tried a range of $K$ and $Q$ values for the Gaia example, and we found that mostly it was the same objects that were identified as outliers.
-Increasing $K$ or $Q$ did reduce the number of outliers found, but in a way that only increased the false negative rate, and not the false positive rate, which is arguably more imporant when fishing for weird stuff.\\
-
-For the toy example, we know for sure that our uncertainties are accurately characterised.
-As we alluded to in Section~\ref{sec:assumptions}, the model is fundamentally unable to distinguish between outliers, poorly characterised noise, and a point that is just really unlikely.
-In all cases, the robust weight will be decreased during fitting to reduce the influence of the point.
-This means that outlier identitication when you don't know the noise properties well is fraught.
-On the other hand, if you don't care about whether individual points are outliers, and just wnat a good basis, then it doesn't matter.\\
+%For the toy example, we know for sure that our uncertainties are accurately characterised.
+%As we alluded to in Section~\ref{sec:assumptions}, the model is fundamentally unable to distinguish between outliers, %poorly characterised noise, and a point that is just really unlikely.
+%In all cases, the robust weight will be decreased during fitting to reduce the influence of the point.
+%This means that outlier identitication when you don't know the noise properties well is fraught.
+%On the other hand, if you don't care about whether individual points are outliers, and just wnat a good basis, then it doesn't matter.\\
 
 %%% WAYS TO WEAKEN ASSUMPTIONS
-
+\arc{TOM IS GOING TO FIX THIS} We assumed Gaussian noise in our toy and realistic applications. Non-Gaussian noise can be handled by changing the likelihood function, but not without complications. 
 You can handle non-Gaussian noise by changing the likelihood function, which changes the loss.
 It's slightly complicated by the fact that the neat marginalisation of the prior on the data uncertainties is a special case that is closed form.
 If you want Poisson noise, plus the same inverse gamma prior on the uncertainties, I'm not sure you get a closed form loss with which to derive a weights updating rule.
@@ -608,26 +588,18 @@ Another funny quirk is that if you happen to have noise that is Student-t or Cau
 The model equivalently describes Gaussian-distributed noise with robustnes, or Student-t-distributed noise.
 Pretty weird.\\
 
-You can relax the uniform data grid assumption with either a shift operator (you can't infer the shifts but that's probably fine), or by having the basis functions themselves not live on a pixel grid, which would also involve a per-row shift operator that changes where the basis is evaluated.
-Maybe that's the same thing twice actually?\\
+%You can relax the uniform data grid assumption with either a shift operator (you can't infer the shifts but that's probably fine), or by having the basis functions themselves not live on a pixel grid, which would also involve a per-row shift operator that changes where the basis is evaluated.
+%Maybe that's the same thing twice actually?\\
 
-It's also perfectly fine to not have an orthogonal basis, it might just be a bit awkward and cause numerical problems.
-It \emph{is} important to have the rotation step to suppress the massive degeneracy between ${\bf A}$ and ${\bf G}$ as mentioned.
-But, you're free to do whatever you want.
-You could give the orthogonality condition to ${\bf A}$ instead, for example.\\
 
 %%% EXTENSIONS
 
-The method also comes along with a scalar objective function, which means that in principal it could be trained with stochastic gradient descent methods and mini-batching, and so can potentially scale to massive data sets, although that's beyond scope here.
-The main issue would be intialising without an SVD, but I think really you would just intialise on a small subsample of the full dataset and that would be fine.
-All that matters is that you can learn the basis functions, since the coefficients are completely determined by that.\\
+The method also comes along with a scalar objective function, which means that in principle it could be trained with stochastic gradient descent methods and mini-batching, trivially scaling to massive data sets. 
+Complications arise when tryint to initialise the model because naive SVD requires access to the full dataset, but usually subsampling the data is sufficient. All that matters is that you can learn the basis functions, since the coefficients are completely determined by that. In our case, the those basis vectors are orthogonal. That's not strictly required, but in practice the rotation step (which enforces orthogonality) is necessary during training to suppress degeneracy between ${\bf A}$ and ${\bf G}$. Naturally, orthogonality helps for numerical stability and interpretability, but you're free to do whatever you want. You could give the orthogonality condition to ${\bf A}$ instead, for example.\\
 
-We could extend the model such that the basis functions do not live on a pixel basis, but rather are something like sines and cosines, or wavelets, or something else.
-Doing sines and cosines with regularisation based on a kernel PSD, would allow the basis functions to be GPs effectively.
-It could be nice to use kernel design to get basis functons!\\
-
-Making the reweighting step more structured.
-Hierarchical weight structure, per-object, per-feature, per-pixel, etc.
+We could extend the model such that the basis functions do not live on a pixel basis, but rather are continuous functions that are represented with sinusoids, wavelets, or something else.
+Using sinusoids with regularisation based on the power spectral density of a kernel would allow the basis functions to be Gaussian Processes. 
+As we have shown here, RHMF has utility both in identifying outliers \emph{and} in learning a low-rank representation of heteroskedastic data. Using continuous functions would allow for extremely precise basis functions that could be evaluated at any point in the input space, unrestricted to the pixel grid of the data. This would be particularly useful, for example, for spectral components (e.g., stellar, tellurics) with different relative radial velocities, or for extreme precision radial velocity experiments where \emph{very-}sub-pixel precision is required.\\
 
 \begin{acknowledgments}
   The authors thank Hans-Walter Rix (MPIA), and the Stars group at MPIA for valuable discussions.
