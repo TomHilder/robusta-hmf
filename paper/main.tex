@@ -48,9 +48,11 @@
   We present Robust Heteroskedastic Matrix Factorization (RHMF), a replacement for Principal Component Analysis (PCA) that is robust to outliers, handles per-point uncertainties and missing data, and automatically flags per-point, per-object, and per-feature anomalies.
   It works by optimizing a Student-$t$ likelihood-based objective function that adapts to bad data and has a probabilistic interpretation.
   We deliver a fast \texttt{JAX} implementation, Robusta-HMF, and practical guidance for users.
-  We demonstrate uses on a toy dataset, and on RVS spectra from Gaia DR3.
-  In the Gaia case, outlier detection finds \placeholder{WEIRD STUFF}.
-%   In \placeholder{DEMO 3}, we accurately recover \placeholder{SOMETHING} despite heteroskedastic noise, hot pixels, missing data, and a variety of outliers.
+  We demonstrate the ability of the model to accurately identify and so mitigate the effects of different clases of outliers using a toy dataset of stellar spectra.
+  The quality of the identification is contingent on the choice of hyperparameters, but we show that these can be determined reliably with cross valiation.
+  We also apply RHMF to RVS spectra from Gaia DR3 in order to automatically flag main sequence stars that are strange relative to their neighbors in color-magnitude space.
+  We highlight specific examples, including a known binary hosting a Be star, as well as M-dwarfs showing Ca II lines indicative of accretion or magnetic activity.
+  The Ca II lines for one of the stars are not visible by eye, highlighting the value RHMF provides in searching for small discrepancies across large datasets.
 \end{abstract}
 
 \section{Introduction}
@@ -457,17 +459,6 @@ This is not completely explained by number counts: there are 193 outliers marked
 It is consistent with the fact that the upper main-sequence is more spectrally complex, and so there are more spectra that deviate from the common structure in the data, and thus more spectra with low weights.
 Naturally, having more components (increasing $K$) could capture common kinds of anomalies (e.g., emission lines), but it introduces a double-edged sword: a flexible model can capture more structure in the data, but some of that structure may be capturing relatively common astrophysics! It emphasizes a fundamental limitation: if the objects you consider are outliers share some low-rank structure between them, then higher $K$ components will capture that structure. Ultimately the investigator must decide on the balance between flexibility and interpretability.\\
 
-
-%57,173 spectra fell into overlapping bins.
-%Those spectra were therefore fit twice, and so they have two sets of inferred weights and two chances to identified as outliers.
-%The object-level weights were generally very similar between the overlapping bins, with a median absolute difference (MAD) of 0.003 and an upper 90th percentile of 0.01.
-%Of the 584 spectra identified as outliers in at least one bin, 135 of those belong to both.
-%61 spectra were outliers in both bins, with both per-object weights below 0.5, while 74 were outliers in only a single bin, with the other weight above 0.5.
-%The outliers in both bins were the also the most strongly identified.
-%For these, the mean of the lower scores (mean of $\mathrm{min} [\mathrm{score~A,~score~B}]$) was 0.26, the mean of the higher was 0.33, and the MAD of the scores 0.04.
-%The 74 singly identified spectra on the other hand straddle the cutoff, with a mean of the lower scores of 0.42, a mean of the higher scores of 0.62, and an increased MAD of the scores of 0.18.\\
-
-
 \begin{figure}
     \centering
     \includegraphics[width=0.98\linewidth]{figs/bin_00_K10_Q5.00_idx_00567_srcid_1363284299777747584_weight_0.009.pdf}
@@ -487,8 +478,8 @@ One example spectrum classified as an outlier ($w_i^{\rm object} = 9\times10^{-3
 
 \begin{figure}
     \centering
-    \includegraphics[width=0.98\linewidth]{figs/bin_13_K10_Q5.00_idx_00344_srcid_3136952686035250688_weight_0.173.pdf}
-    \includegraphics[width=0.98\linewidth]{figs/bin_13_K10_Q5.00_idx_00350_srcid_3195919254111314816_weight_0.453.pdf}
+    \includegraphics[width=0.96\linewidth]{figs/bin_13_K10_Q5.00_idx_00344_srcid_3136952686035250688_weight_0.173.pdf}
+    \includegraphics[width=0.97\linewidth]{figs/bin_13_K10_Q5.00_idx_00350_srcid_3195919254111314816_weight_0.453.pdf}
     \caption{Two M-dwarf outliers identified in bin 13: Gaia DR3 3136952686035250688 (top), and Gaia DR3 3195919254111314816 (bottom). Both show the model reconstructions in green, where the residual panels highlight emission in the Ca II triplet, consistent with stellar activity. The emission in the top panel is visibly obvious. The emission signature in lower panel is only discernible when compared to the model reconstruction of normal spectra, highlighting the utility of RHMF for identifying subtle outliers among large heteroskedastic datasets.}
     \label{fig:gaia_spec_2}
 \end{figure}
