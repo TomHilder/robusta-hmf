@@ -48,12 +48,11 @@
   We present Robust Heteroskedastic Matrix Factorization (RHMF), a replacement for Principal Component Analysis (PCA) that is robust to outliers, handles per-point uncertainties and missing data, and automatically flags per-point, per-object, and per-feature anomalies.
   It works by optimizing a Student-$t$ likelihood-based objective function that adapts to bad data and has a probabilistic interpretation.
   We deliver a fast \texttt{JAX} implementation, Robusta-HMF, and practical guidance for users.
-  We demonstrate the ability of the model to accurately identify and so mitigate the effects of different clases of outliers using a toy dataset of stellar spectra.
-  The quality of the identification is contingent on the choice of hyperparameters, but we show that these can be determined reliably with cross valiation.
-  We also apply RHMF to RVS spectra from Gaia DR3 in order to automatically flag main sequence stars that are strange relative to their neighbors in color-magnitude space.
-%   A clear split into ``normal'' and ``outlier'' populations is found at the cool end, and these populations gradually merge as the spectral complexity increases towards the hotter stars.
-  We highlight specific examples, including a known binary hosting a Be star, as well as M-dwarfs showing Ca II lines indicative of accretion or magnetic activity.
-  The Ca II lines for one of the stars are not visible by eye, highlighting the value RHMF provides in searching for small discrepancies across large datasets.
+  We demonstrate the ability of the model to identify and mitigate outliers of different classes.
+  Identification accuracy is is contingent on the choice of hyperparameters, but we show that these can be determined reliably with cross valiation.
+  We also apply RHMF to RVS spectra from Gaia DR3 to find main sequence stars that are strange relative to their neighbors in color-magnitude space.
+  We highlight specific examples, including a known binary hosting a Be star, and M-dwarfs showing Ca II lines indicative of accretion or magnetic activity.
+  The Ca II lines identified by the model are not visible by eye for one of these stars, highlighting the value RHMF provides in searching for small discrepancies across large datasets.
 \end{abstract}
 
 \section{Introduction}
@@ -418,7 +417,7 @@ However, this is likely contingent on the accuracy of the provided measurement u
 
 \subsection{Outliers in the Gaia RVS main sequence} \label{sec:gaia}
 
-To demonstrate the application of RHMF, we applied it to Gaia/RVS spectra to look for unusual main-sequence stars \citep{collaboration2016,collaboration2023,katz2023}. Here, \emph{unusual} is qualitatively defined by the spectrum deviating significantly from typical stars in neighboring color-magnitude bins, and quantified by the inferred robust weights. Examples classes could be binary systems, stars with peculiarly high rotation, stars with signatures of accretion or chromospheric activity, or perhaps other unknown unknowns.   \\
+To demonstrate RHMF in a more realistic setting, we applied it to Gaia/RVS spectra to look for unusual main-sequence stars \citep{collaboration2016,collaboration2023,katz2023}. Here, \emph{unusual} is qualitatively defined by the spectrum deviating significantly from typical stars in neighboring color-magnitude space, and quantified by the inferred robust weights. Examples classes could be binary systems, stars with peculiarly high rotation, stars with signatures of accretion or chromospheric activity, or perhaps other unknown unknowns.   \\
 
 \begin{figure}
     \centering
@@ -435,7 +434,8 @@ We used 14 regions, evenly spaced in Gaia BP$-$RP color and nearly evenly spaced
 The widths in color and magnitude were chosen to ensure that they slightly overlap, such that some stars belong to two bins. 
 Within each bin, we randomly selected half the spectra to perform RHMF, where we initialised the vectors with SVD and iterated until the maximum fractional g-step adjustment was $<10^{-4}$.
 We chose to use $K=10$ basis vectors and set $Q=5$ for all bins. We did not perform any cross-validation, primarily because we are interested in identifying \emph{potentially} interesting spectra (which will be vetted by humans), and so the exact classification performance is not of primary importance to us. 
-And while we recommend cross-validation in practice, it is worth noting that our toy example showed that outlier identification is relatively insensitive to the choise of $Q$ and $K$, provided that they are not too small. Given the vectors trained from a random subset of half the spectra in one bin, we used these to predict the held-out spectra in each bin.\\
+And while we recommend cross-validation in practice, it is worth noting that our toy example showed that outlier identification is relatively insensitive to the choise of $Q$ and $K$, provided that they are not too small.
+The vectors fit from the randomly selected half of the spectra in each bin were then used to predict coefficients and weights for the other half.\\
 
 
 
@@ -448,7 +448,7 @@ And while we recommend cross-validation in practice, it is worth noting that our
 
 %In terms of outlier identification, we were interested in finding spectra that may look mostly normal, but with one or a few unusual features, such as an unusual line.
 With basis coefficients, predicted model spectra, and robust weights for all spectra in each bin, we were then able to identify outlier spectra as those with low per-object weights.
-We calculated the per-object weights as the $w_i^{\rm object}$ 1\% percentile over $j$. Figure~\ref{fig:gaia_weights} shows the distributions of the per-object weights $w_i^{\rm object}$ calculated for all spectra in each bin.
+Here, the per-object weights $w_i^{\rm object}$ were calculated as the lowest 1\% percentile over $j$ from the per-pixel robust weights $w^\mathrm{robust}_{ij}$.
 We set a threshold of $0.5$, such that if $w_i^{\rm object} < 0.5$ then spectrum $i$ is identified as a potential outlier, this is shown as a vertical dashed line in the figure.
 The number of identified outliers is labelled for each bin, as well as the total number of spectra in that bin.\\
 %\arc{This might be a rabbit hole, and if it looks to be, I don't want to venture there. However, do we know what the expected \emph{distribution} is for the per-object weights? If I look at Figure 6 (object-level weights for each bin) then at first glance I thought \emph{`well, perhaps these more frequent outliers is just because of sampling: that all bins are distributed the same way and we are just sampling more outliers in some bins'}. But when I look more carefully, bin 0 has 193 outliers and 7k spectra, whereas bin 7 has 10k spectra and only 2 outliers. So the spectral complexity in bin 0 is higher than bin 7. I know that K and Q can be fiddled, but I am just wondering conceptually if there is some expected distribution of the per-object weights, because that could help guide the decision of Q and K given the number of input spectra and the rough `rate' of outliers that you are interested in investigating}\\
@@ -692,8 +692,7 @@ To see how this naturally leads to the 3-step algorithm outlined in Section~\ref
 \begin{equation}
     J(A,G,W) = \frac{1}{2}\sum_{ij} \left[ w_{ij} r_{ij}^2 + \phi(w_{ij}) \right],
 \end{equation}
-where $[A]_{ij} = a_{ij}$, $[G]_{ij} = g_{ij}$, $[W]_{ij} = w_{ij}$, and $r_{ij} = (w_{ij}^{\rm data})^{1/2} (y_{ij} - \sum_{k} a_{ik} g_{kj})$ is the data-weighted residual as in Eq.~\eqref{eq:t_loss},
-where we have reintroduced the $ij$ indices.
+where $[A]_{ij} = a_{ij}$, $[G]_{ij} = g_{ij}$, $[W]_{ij} = w_{ij}$, and $r_{ij} = (w_{ij}^{\rm data})^{1/2} (y_{ij} - \sum_{k} a_{ik} g_{kj})$ is the data-weighted residual as in Eq.~\eqref{eq:t_loss}, and where we have reintroduced the $ij$ indices.
 By construction,
 \begin{equation}
     L(A,G) = \min_W J(A,G,W),
