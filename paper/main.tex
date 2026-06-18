@@ -264,11 +264,20 @@ This should be repeated over a grid of $Q$ and $K$ values, and the best-fitting 
 %This is done by iterating the a-step and w-step on the test set data, keeping the basis vectors $g_{kj}$ fixed to the values inferred from the training set.
 %Convergence in this case can be judged by the a-step adjustment instead of the g-step adjustment, since the basis vectors are fixed. \tom{these last two sentences are repeats from 2 paragraphs back?}\\
 
-We propose evaluating the model by computing the held-out negative log-likelihood under the model of Eq.~\eqref{eq:hierachical_like}, evaluated with the inferred total weight $w^{\rm total}_{ij} = w^{\rm data}_{ij}\,w^{\rm robust}_{ij}$ substituted for the latent precision. Equivalently, using the Student-$t$ marginal form (Eq.~\eqref{eq:t_like}), the score reduces to the average loss
+We propose evaluating the model by measuring how closely the weighted residuals on the held-out data resemble a unit normal distribution.
+Under the model, the standardised residuals $r_{ij}\sqrt{w^{\rm data}_{ij}}$ for inlier data points are drawn from $\mathcal{N}(0,1)$ by construction.
+The inferred robust weights $w^{\rm robust}_{ij}$ further shrink outlier residuals toward zero, so the combined quantity
 \begin{equation}
-    \score{(Q,K) = \frac{1}{N_{\rm held}} \sum_{(i,j) \in {\rm held}} \log\!\left( 1 + \frac{w^{\rm data}_{ij}\,r_{ij}^2}{Q^2} \right),} \label{eq:score}
+    z_{ij} = r_{ij}\sqrt{w^{\rm data}_{ij}\,w^{\rm robust}_{ij}}
 \end{equation}
-up to an additive constant in $(Q,K)$. The held-out negative log-likelihood has well-defined behaviour as $K$ grows (it does not blow up, and it can be directly compared across $(Q,K)$ pairs), and is the standard model-selection criterion under the same likelihood being fit on the training set.\\
+should follow $\mathcal{N}(0,1)$ across the whole held-out population when the model is well calibrated and the outliers are correctly identified.
+We therefore define the cross-validation score as the Kullback--Leibler (KL) divergence \citep{kullback1951} from the empirical distribution of $z_{ij}$ to $\mathcal{N}(0,1)$.
+Approximating the empirical distribution as Gaussian with sample mean $\hat{\mu}_z$ and sample standard deviation $\hat{\sigma}_z$, the closed-form expression is
+\begin{equation}
+    \score(Q,K) = \mathrm{KL}\!\left(\mathcal{N}(\hat{\mu}_z,\,\hat{\sigma}_z^2)\,\Big\|\,\mathcal{N}(0,1)\right) = -\log\hat{\sigma}_z + \frac{\hat{\sigma}_z^2 + \hat{\mu}_z^2}{2} - \frac{1}{2}, \label{eq:score}
+\end{equation}
+which equals zero when $\hat{\mu}_z = 0$ and $\hat{\sigma}_z = 1$, and is strictly positive otherwise.
+This score has well-defined behaviour as $K$ grows and can be directly compared across $(Q,K)$ pairs: models that correctly capture the shared structure and correctly identify outliers will produce $z_{ij}$ values that more closely resemble unit normals, and hence smaller scores.\\
 
 \subsection{Feature- and object-level outlier identification} \label{sec:outlier_id}
 
@@ -386,13 +395,13 @@ In contrast, the outlier spectra have median weights mostly $\leq 0.8$, with onl
 \begin{figure}
     \centering
     \includegraphics[width=0.84\linewidth]{figs/test_set_score_heatmap.pdf}
-    \caption{Top: Validation scores calculated with Eq.~\eqref{eq:score} for the grid of $Q$ and $K$ values. The score is minimized at $K=5$ and $Q=5$, which is the model shown in the other plots. Bottom left: F1 score for outlier identification on a per-object-per-pixel basis, based on a threshold of $0.5$ on the robust weights $w_{ij}^{\rm robust}$. Bottom right: F1 score for outlier identification on a per-object basis, based on a threshold of $0.9$ on the object-level weights $w_i^{\rm object}$. The F1 scores are calculated with respect to the known true outlier labels, and they demonstrate that both the best identification is obtained near the best validation score, but also that picking $K$ too large does not dramatically degrade the outlier identification}
+    \caption{Top: Cross-validation scores (KL divergence from $\mathcal{N}(0,1)$, Eq.~\eqref{eq:score}) for the grid of $Q$ and $K$ values. The score is minimized at $K=5$ and $Q=5$, which is the model shown in the other plots. Bottom left: F1 score for outlier identification on a per-object-per-pixel basis, based on a threshold of $0.5$ on the robust weights $w_{ij}^{\rm robust}$. Bottom right: F1 score for outlier identification on a per-object basis, based on a threshold of $0.9$ on the object-level weights $w_i^{\rm object}$. The F1 scores are calculated with respect to the known true outlier labels, and they demonstrate that both the best identification is obtained near the best validation score, but also that picking $K$ too large does not dramatically degrade the outlier identification}
     \label{fig:cv}
 \end{figure}
 
-We performed cross-validation for the fitted RHMF model using the method and metric specified in Section~\ref{sec:cv}.
+We performed cross-validation for the fitted RHMF model using the KL-divergence specified in Section~\ref{sec:cv}.
 The validation score for each hyperparameter pair $(Q, K)$ is shown in the top panel of Figure~\ref{fig:cv}.
-The best score is achieved at $Q=5$, and at the true rank of $K=5$; this is the pair used in Figures~\ref{fig:toy_residuals} and \ref{fig:toy_spectra}. The score is more sensitive to the choice of $Q$ than $K$, as the $K>5$ cases with $Q=5$ fair similarly.
+The lowest divergence is achieved at $Q=5$, and at the true rank of $K=5$; this is the pair used in Figures~\ref{fig:toy_residuals} and \ref{fig:toy_spectra}. The score is more sensitive to the choice of $Q$ than $K$, as the $K>5$ cases with $Q=5$ fair similarly.
 $K<5$ performs poorly, reflecting the inability of the model to capture all the common structure in the data.
 The optimal $Q=5$ implies that the transition from the quadratic to logarithmic penalty in the residuals occurs near $5\sigma$ from zero. 
 At all fixed $K$, there is a local optimum in $Q$, and that optimum shifts to larger $Q$ as $K$ increases.
@@ -543,7 +552,7 @@ Typically, this might be done through some kind of reconstruction loss: a summar
 In general more basis vectors $K$ will always do better because the model is more flexible, so one must decide when they have \emph{enough} basis vectors, which is not a well-defined criterion.
 But there are additional nuances to cross-validation in this context. 
 For example, when evaluating performance on held-out data, should we use only the inverse variance of the data, or should we include the robust weights as well? If we use only the data weights, then increasing $K$ will always do better, because we are accidentally assessing the model's ability to fit the outliers, not ignore them. If we use the total weights (including the robust downweighting), then the model could be downweighting real features, which should be contributing to the performance metric.
-For these reasons, we advocated a practical approach\footnote{A Bayesian-ish approach}, where we test whether the residuals on the held-out data follow an expected unit-normal distribution when using the data and robust weights together (Eqn.~\eqref{eq:score}). Models where the residuals look more like the expected distribution are said to have performed better.\arc{I think we drop the score entirely and review this paragraph again}\\
+For these reasons, we advocated a practical approach where we measure how closely the weighted residuals on the held-out data follow a unit normal distribution (Eq.~\eqref{eq:score}). The key insight is that, under a well-calibrated model, applying the data precision weights and the inferred robust weights together should make the residuals look like draws from $\mathcal{N}(0,1)$: the data weights account for known measurement noise, while the robust weights shrink outlier residuals toward zero. We therefore score models by the KL divergence from the empirical distribution of these weighted residuals to $\mathcal{N}(0,1)$, with smaller values indicating a better fit to the held-out data.\\
 
 In the toy model, we assessed the outlier identification performance with the F1 score over a grid of hyperparameter values.
 Comparing with the cross-validation results, the F1 score per-pixel is maximized by the hyperparameters with the best validation score, and the per-object maximum is nearby.

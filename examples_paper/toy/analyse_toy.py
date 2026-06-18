@@ -26,7 +26,7 @@ PLOT_DIR = SCRIPT_DIR
 PAPER_PLOTS_DIR = (
     Path(__file__).parent.parent.parent.parent.parent / "papers/robust-hmf/paper/documents/figs"
 )
-assert PAPER_PLOTS_DIR.exists(), "PAPER_PLOTS_DIR does not exist, please update the path."
+PAPER_PLOTS_DIR_EXISTS = PAPER_PLOTS_DIR.exists()
 
 # N_SPECTRA and M_PIXELS are imported from run_toy_gen_and_fits
 
@@ -602,10 +602,13 @@ for rhmf, state in zip(rhmf_objs, test_states):
     residuals = rhmf.residuals(Y=test_spectra, state=state)
     robust_weights = rhmf.robust_weights(test_spectra, test_ivar, state=state)
 
-    # Z-score metric (existing) - all pixels
+    # KL divergence from N(0,1): fit Gaussian to weighted z-scores, use closed-form
+    # KL(N(mu, sigma^2) || N(0,1)) = -log(sigma) + (sigma^2 + mu^2)/2 - 0.5
     z_scores = residuals * np.sqrt(test_ivar) * np.sqrt(robust_weights)
-    score = np.std(z_scores)
-    scores.append(score)
+    mu_z = np.mean(z_scores)
+    sigma_z = np.std(z_scores)
+    kl_score = -np.log(sigma_z) + (sigma_z**2 + mu_z**2) / 2.0 - 0.5
+    scores.append(kl_score)
 
     # Per-pixel F1 score: treat weight < 0.5 as "predicted outlier"
     y_true_pixel = test_outlier_mask.flatten().astype(int)
@@ -645,8 +648,6 @@ cax_f1 = fig.add_subplot(gs_bot[0, 2])
 q_labels = [str(q) for q in Q_VALS]
 rank_labels = [str(r) for r in RANKS]
 
-top_cmap = "viridis"
-
 text_bbox = dict(
     boxstyle="square",
     facecolor="white",
@@ -655,11 +656,11 @@ text_bbox = dict(
 )
 text_loc = (0.08, 0.85)  # relative to axes
 
-# Top panel: CV score (z-score std)
+# Top panel: log10(KL divergence from N(0,1))
 im0 = ax_cv.imshow(
-    np.log(np.abs(scores - 1)),
+    np.log10(scores),
     origin="lower",
-    cmap=top_cmap,
+    cmap="viridis",
     aspect="auto",
 )
 ax_cv.set_xticks(np.arange(len(Q_VALS)), labels=q_labels)
@@ -674,7 +675,7 @@ ax_cv.text(
     va="bottom",
     bbox=text_bbox,
 )
-fig.colorbar(im0, cax=cax_cv, label="CV Score \n(Lower is Better)")
+fig.colorbar(im0, cax=cax_cv, label=r"$\log_{10}$ KL$(p_z \| \mathcal{N}(0,1))$" + "\n(Lower is Better)")
 
 bottom_cmap = "magma_r"
 
@@ -735,21 +736,28 @@ plt.savefig(PLOT_DIR / "test_set_score_heatmap.pdf", bbox_inches="tight")
 # plt.savefig(PAPER_PLOTS_DIR / "test_set_score_heatmap.pdf", bbox_inches="tight")
 plt.show()
 
-# Single panel CV plot
-plt.figure(figsize=(8, 4.5), dpi=100)
-im = plt.pcolormesh(
-    np.arange(len(Q_VALS)),
-    RANKS,
-    np.log(np.abs(scores - 1)),
-    shading="auto",
+# Single panel KL divergence plot
+fig_kl, ax_kl = plt.subplots(figsize=(8, 4.5), dpi=100)
+im_kl = ax_kl.imshow(
+    scores,
+    origin="lower",
     cmap="viridis",
+    aspect="auto",
+    vmin=0,
 )
-plt.xticks(np.arange(len(Q_VALS)), [str(q) for q in Q_VALS])
-plt.yticks(RANKS)
-plt.xlabel("Robust Scale Q")
-plt.ylabel("Rank K")
-plt.colorbar(im, label="Score")
-plt.savefig(PLOT_DIR / "test_set_cv_score_heatmap.pdf", bbox_inches="tight")
+ax_kl.set_xticks(np.arange(len(Q_VALS)), labels=[str(q) for q in Q_VALS])
+ax_kl.set_yticks(np.arange(len(RANKS)), labels=[str(r) for r in RANKS])
+ax_kl.set_xlabel("Robust Scale Q")
+ax_kl.set_ylabel("Rank K")
+fig_kl.colorbar(im_kl, ax=ax_kl, label=r"KL$(p_z \| \mathcal{N}(0,1))$" + "\n(Lower is Better)")
+fig_kl.suptitle(
+    r"$\textsf{\textbf{Toy Example: KL Divergence vs. Hyperparameters}}$",
+    fontsize="18",
+    c="dimgrey",
+    y=1.01,
+)
+plt.tight_layout()
+plt.savefig(PLOT_DIR / "test_set_kl_divergence_heatmap.pdf", bbox_inches="tight")
 plt.show()
 
 # === Scatter plot of coefficients for fitted and inferred coefficients for some model === #
@@ -935,5 +943,6 @@ fig.suptitle(
     y=0.97,
 )
 plt.savefig(PLOT_DIR / "normal_vs_outlier_spectra_reconstructions.pdf", bbox_inches="tight")
-plt.savefig(PAPER_PLOTS_DIR / "normal_vs_outlier_spectra_reconstructions.pdf", bbox_inches="tight")
+if PAPER_PLOTS_DIR_EXISTS:
+    plt.savefig(PAPER_PLOTS_DIR / "normal_vs_outlier_spectra_reconstructions.pdf", bbox_inches="tight")
 plt.show()
