@@ -56,14 +56,14 @@
   We deliver a fast \texttt{JAX} implementation, \texttt{Robusta-HMF}, and practical guidance for users. We demonstrate the ability of the model to identify and mitigate outliers of different classes.
   Identification accuracy is is contingent on the choice of hyperparameters, but we show that these can be determined reliably with cross validation.
   We also apply RHMF to RVS spectra from Gaia DR3 to find main sequence stars that are strange relative to their neighbors in color-magnitude space.
-  We highlight specific examples, including a known binary hosting a Be star, and M-dwarfs with subtle emission in the Ca II triplet lines, indicative of accretion or magnetic activity, which would not be obvious to identify either by eye or with other matrix factorization methods.
+  We highlight specific examples, including a known binary hosting a Be star, and M-dwarfs with subtle emission in the Ca II triplet lines, indicative of accretion or magnetic activity, which would not be obvious to identify either by eye or with other matrix factorization methods. \tom{other matrix methods might be overclaiming}
   \end{abstract}
 
 \section{Introduction}
 
 Most stellar spectra are well-described by a low-dimensional manifold. There are a handful of physical parameters -- effective temperature, surface gravity, metallicity, $\alpha$-element enhancement, and perhaps projected rotation and a continuum shape -- that account for most of the variation across thousands of pixels of a given spectrum, for most stars of most types. This is both an expectation of stellar atmosphere theory \citep{hubeny2014} and an empirical finding from data-driven analyses of large spectroscopic surveys \citep[e.g.][]{ness2015, casey2016, ting2019}. A central task of modern stellar spectroscopy is to identify this manifold from the data, represent it compactly, and place every observed spectrum on it. In doing so, we can improve any subsequent label estimation, de-noise spectra, and find astrophysical outliers: often the most scientifically interesting objects.\\
 
-This work tackles two practical problems that arise in pursuit of this goal. The first problem is manifold recovery and projection: how can we learn a low-dimensional basis from a collection of spectra, and for each spectrum, find the coefficients that reconstruct it from that basis? A good embedding of this type is useful in equal measure for label estimation, denoising, and compression. The hard part is not the linear algebra; the hard part are the data. Real surveys are heteroskedastic, with missing segments, corrupted pixels, and innumerable other peculiarities. Under these conditions, standard methods to find a low-dimensional embedding will often fail.\\
+This work tackles two practical problems that arise in pursuit of this goal. The first is manifold recovery and projection: how can we learn a low-dimensional basis from a collection of spectra, and for each spectrum, find the coefficients that reconstruct it from that basis? A good embedding of this type is useful in equal measure for label estimation, denoising, and compression. The hard part is not the linear algebra, but rather the data. Real surveys are heteroskedastic, with missing segments, corrupted pixels, and innumerable other peculiarities. Under these conditions, standard methods to find a low-dimensional embedding will often fail.\\
 
 The second problem is identifying ``outliers'' and handling them appropriately. With a good low-dimensional manifold, objects (stars) and features (pixels) that are \emph{not} represented on the manifold are of particular interest. Colloquially, these are heterogeneously categorised as \emph{outliers}, but not all outliers are created equal. Some are data flaws (cosmic-ray hits, detector defects), and some are mistakes (data reduction errors, underestimated uncertainties). These are the chaff, which we must recognise only so they do not contaminate the inferred manifold. The other outliers are the fascinating freaks: the rare stars, unlike all others, that can be most informative about astrophysics.\\
 
@@ -77,16 +77,16 @@ The $K$ \emph{components} delivered by PCA are orthonormal basis vectors contain
 PCA simultaneously learns both the basis vectors and the coefficients, and it has the nice property that the basis vectors are orthogonal and ordered by explained variance. Like most matrix factorization methods, PCA requires complete, rectangular data, and treats every data point as equally important. As a consequence, it is extremely sensitive to outliers: a single bad data point in a single row can spoil many or all of the delivered basis vectors.
 This is because PCA aims to minimize the unexplained variance, and the empirical variance in a block of data can easily be dominated by a few outliers.\\
 
-\citet{candes2011} originally proposed a \emph{robust PCA}, where the decomposition of ${\bf Y}$ is into both a low-rank component ${\bf L}$ and a sparse component ${\bf S}$, such that ${\bf Y} = {\bf L} + {\bf S}$.
-Under some reasonable conditions, \citet{candes2011} showed that this decomposition can be performed exactly.
-Since then, the method has been iterated on in many ways, focusing mostly on speed \citep{lin2010}, scalability \citep{rodriguez2013, halko2011}, or including some form of regularisation \citep{guyon2012, wohlberg2012}.
-A subset of these many methods have provable convergence \citep{netrapalli2014}, are non-linear \citep{scholkopf1998, wohlberg2012}, or have a probabilistic interpretation \citep{tipping1999}.\\
-
 Unrelated to the successes of PCA, weighted least squares (WLS) or $\chi^2$ fitting \citep{legendre1805} has been used extensively, but is similarly sensitive to outliers.
 Astronomers have mostly dealt with this using $\sigma$-clipping \citep{hoaglin1983}, which removes data points with large residuals relative to their measurement uncertainties.
 This adds \emph{robustness}: the ability of a model to deal with anomalous data points that violate the assumptions of the model.
 $\sigma$-clipping is however an ad-hoc fix, and is \emph{conditioned on the assumption} that your current estimate of the model is correct, or at least good enough to identify outliers. For this reason, $\sigma$-clipping is subject to a form of ``mode collapse'' in which large amounts of data are excluded and the inferred model fails to be representative of most of the data.
 Fortunately, statisticians developed iteratively reweighted least squares \citep[IRLS;][]{holland1977}, a family of methods that has all the good properties of WLS, while being robust to outliers, and is generally far less prone to mode collapse. IRLS is a workhorse in many domains, including astronomy \citep[e.g.][]{magnier2020}.\\
+
+\citet{candes2011} originally proposed a \emph{robust PCA}, where the decomposition of ${\bf Y}$ is into both a low-rank component ${\bf L}$ and a sparse component ${\bf S}$, such that ${\bf Y} = {\bf L} + {\bf S}$.
+Under some reasonable conditions, \citet{candes2011} showed that this decomposition can be performed exactly.
+Since then, the method has been iterated on in many ways, focusing mostly on speed \citep{lin2010}, scalability \citep{rodriguez2013, halko2011}, or including some form of regularisation \citep{guyon2012, wohlberg2012}.
+A subset of these many methods have provable convergence \citep{netrapalli2014}, are non-linear \citep{scholkopf1998, wohlberg2012}, or have a probabilistic interpretation \citep{tipping1999}.\\
 
 
 Unfortunately, none of these methods handle the common issues of missing data segments, or varying measurement uncertainties across the data (known as heteroskedasticity). In spectroscopy for example, there are often detector defects, hot pixels, or cosmic ray hits that cause missing data.
@@ -622,17 +622,16 @@ As we have shown here, RHMF has utility both in identifying outliers \emph{and} 
 In Eqns.~\eqref{eq:robust_opt} and \eqref{eq:t_like} we wrote the model as optimizing a Student t likelihood.
 The corresponding negative log-likelihood is
 \begin{align}
-    \mathcal{L}(A,G) = \frac{Q^2}{2} \sum_{ij} \log\left(1 + \frac{r_{ij}^2}{Q^2}\right), \label{eq:t_loss}
+    \mathcal{L}(A,G) = \frac{Q^2}{2} \sum_{ij} \log\left(1 + \frac{w_{ij}^{\rm data}\,r_{ij}^2}{Q^2}\right), \label{eq:t_loss}
 \end{align}
-which is identical to the loss function in Eq.~\eqref{eq:robust_opt} up to the constant $Q^2 / 2$, where $r_{ij} = (w_{ij}^{\rm data})^{1/2} (y_{ij} - \sum_{k} a_{ik} g_{kj})$ is now the \emph{data weighted} residual\arc{Can we avoid redefining $r$ to be something else? Can we keep it to be consistent with the paper and show $wr^2$ when we mean the weighted squared residuals?}, that is, the residual weighted with the measurement uncertainty weights.
+which is identical to the loss function in Eq.~\eqref{eq:robust_opt} up to the constant $Q^2 / 2$, where $r_{ij} = y_{ij} - \sum_{k} a_{ik} g_{kj}$ is the residual and $w_{ij}^{\rm data}$ the measurement precision, exactly as in the main text.
 In the remainder of this section, we prove that the alternating least squares plus weight-updating step algorithm does actually minimize this negative log-likelihood.
-Throughout this appendix, $w_{ij} \in (0,1]$ denotes the robust weight, while the input measurement precisions $w_{ij}^{\rm data}$ are absorbed into the data-weighted residual $r_{ij}$ as in Eq.~\eqref{eq:t_loss}. 
-The weights appearing in the auxiliary objective below are therefore purely the robust weights.\\
+Throughout this appendix, $w_{ij} \in (0,1]$ denotes the robust weight, kept distinct from the input measurement precisions $w_{ij}^{\rm data}$.\\
 
-For convenience, we will drop the $ij$ indices for the parts of the following that are general.
+For convenience, we will drop the $ij$ indices for the parts of the following that are general; $w^{\rm data}$ then denotes the (fixed, positive) measurement precision of the element under consideration.
 We claim that the loss Eq.~\eqref{eq:t_loss} for any $r$ can be expressed in the following way
 \begin{equation}
-    \rho(r) = \min_{0<w\leq1} \left[ \tfrac{1}{2} w r^2 + \phi(w) \right], \label{eq:rho_loss}
+    \rho(r) = \min_{0<w\leq1} \left[ \tfrac{1}{2} w\, w^{\rm data} r^2 + \phi(w) \right], \label{eq:rho_loss}
 \end{equation}
 where
 \begin{equation}
@@ -642,13 +641,13 @@ That is, performing the minimization in Eq.~\eqref{eq:rho_loss} is identical to 
 
 We will now prove the claim. First, define
 \begin{align}
-    J\left( w ; r \right) &= \tfrac{1}{2} w r^2 + \tfrac{Q^2}{2} \left( w - 1 - \log{w}\right), \label{eq:J_def}
+    J\left( w ; r \right) &= \tfrac{1}{2} w\, w^{\rm data} r^2 + \tfrac{Q^2}{2} \left( w - 1 - \log{w}\right), \label{eq:J_def}
 \end{align}
 where the $;$ notation just indicates that $J$ is a function of $w$ given a particular $r$.
 Differentiating with respect to $w$ gives
 \begin{equation}
     \frac{\partial J}{\partial w}
-    = \tfrac{1}{2}r^2 + \frac{Q^2}{2}\left(1 - \frac{1}{w}\right),
+    = \tfrac{1}{2}w^{\rm data} r^2 + \frac{Q^2}{2}\left(1 - \frac{1}{w}\right),
 \end{equation}
 and again
 \begin{align}
@@ -658,24 +657,23 @@ Since the second derivative is guaranteed positive, we know that the critical po
 Setting $\partial_w J=0$ to find the critical point $\hat{w}$ yields
 \begin{align}
     \hat{w}(r) &= {\rm argmin}_w \, J (w ; r) \\
-    &= \frac{1}{1 + (r/Q)^2}, \label{eq:w_hat}
+    &= \frac{1}{1 + w^{\rm data} r^2/Q^2}, \label{eq:w_hat}
 \end{align}
-and note that $\hat{w} \in (0, 1]$ because $(r/Q)^2 \geq 0$.\\
-
-We now prove the claim. First set $t = (r/Q)^2 \geq 0$, then
+and note that $\hat{w} \in (0, 1]$ because $w^{\rm data} r^2/Q^2 \geq 0$.
+Now, we substitute $t = w^{\rm data} r^2/Q^2 \geq 0$, such that
 \begin{equation}
-    \hat{w} = \frac{1}{1+t}, \qquad r^2 = Q^2 t,
+    \hat{w} = \frac{1}{1+t}, \qquad w^{\rm data} r^2 = Q^2 t,
 \end{equation}
 and then substitute $\hat{w}$ into Eq.~\eqref{eq:J_def} to do the minimization in Eq.~\eqref{eq:rho_loss}
 \begin{align}
-    J (\hat{w} ; r) &= \tfrac{1}{2} \hat{w} r^2 + \phi(\hat{w}),
+    J (\hat{w} ; r) &= \tfrac{1}{2} \hat{w}\, w^{\rm data} r^2 + \phi(\hat{w}),
 \end{align}
 substituting and simplifying one piece at a time:
 \begin{align}
-    \Rightarrow \tfrac{1}{2} \hat{w} r^2 &= \frac{Q^2}{2} \frac{t}{1 + t} \\
+    \Rightarrow \tfrac{1}{2} \hat{w}\, w^{\rm data} r^2 &= \frac{Q^2}{2} \frac{t}{1 + t} \\
     \Rightarrow \phi(\hat{w}) &= \frac{Q^2}{2} \left( \hat{w} - 1 - \log{\hat{w}} \right) \\
     &= \frac{Q^2}{2} \left( -\frac{t}{1 + t} + \log(1 + t) \right) \\
-    \Rightarrow J (\hat{w} ; r) &= \frac{Q^2}{2} \log{\left( 1 + \left( \tfrac{r}{Q}\right)^2 \right)}.
+    \Rightarrow J (\hat{w} ; r) &= \frac{Q^2}{2} \log{\left( 1 + \frac{w^{\rm data} r^2}{Q^2} \right)}.
 \end{align}
 Thus
 \begin{align}
@@ -686,9 +684,9 @@ as claimed.\\
 
 To see how this naturally leads to the 3-step algorithm outlined in Section~\ref{sec:fitting}, we first define a new objective:
 \begin{equation}
-    J(A,G,W) = \frac{1}{2}\sum_{ij} \left[ w_{ij} r_{ij}^2 + \phi(w_{ij}) \right],
+    J(A,G,W) = \frac{1}{2}\sum_{ij} \left[ w_{ij}\, w_{ij}^{\rm data}\, r_{ij}^2 + \phi(w_{ij}) \right],
 \end{equation}
-where $[A]_{ij} = a_{ij}$, $[G]_{ij} = g_{ij}$, $[W]_{ij} = w_{ij}$, and $r_{ij} = (w_{ij}^{\rm data})^{1/2} (y_{ij} - \sum_{k} a_{ik} g_{kj})$ is the data-weighted residual as in Eq.~\eqref{eq:t_loss}, and where we have reintroduced the $ij$ indices.
+where $[A]_{ij} = a_{ij}$, $[G]_{ij} = g_{ij}$, $[W]_{ij} = w_{ij}$, and $r_{ij} = y_{ij} - \sum_{k} a_{ik} g_{kj}$ is the residual as in Eq.~\eqref{eq:t_loss}, and where we have reintroduced the $ij$ indices.
 By construction,
 \begin{equation}
     L(A,G) = \min_W J(A,G,W),
@@ -700,9 +698,10 @@ and if
 then
 \begin{align}
     \left[ \hat{W} \right]_{ij} &= \hat{w} (r_{ij}) \\
-    &= \frac{1}{1 + (r_{ij} / Q)^2}, \\
-    &= \frac{Q^2}{Q^2 + r_{ij}^2}.
+    &= \frac{1}{1 + w_{ij}^{\rm data}\, r_{ij}^2 / Q^2}, \\
+    &= \frac{Q^2}{Q^2 + w_{ij}^{\rm data}\, r_{ij}^2}.
 \end{align}
+The optimizer of the free variable $w_{ij}$ is therefore exactly the robust weight $w_{ij}^{\rm robust}$ of Eq.~\eqref{eq:w_robust}.
 This immediately yields the three-step procedure (the rotation isn't relevant for convergence)
 \begin{align*}
     \text{w-step:} \quad & w_{ij} \leftarrow \hat{w}(r_{ij}), \\
@@ -711,9 +710,10 @@ This immediately yields the three-step procedure (the rotation isn't relevant fo
 \end{align*}
 where the a-step optimises the quadratic
 \begin{align}
-    \mathcal{Q}(A \, | \, G, W) &= \frac{1}{2} \sum_{ij} w_{ij} r_{ij}^2,
+    \mathcal{Q}(A \, | \, G, W) &= \frac{1}{2} \sum_{ij} w_{ij}\, w_{ij}^{\rm data}\, r_{ij}^2,
 \end{align}
-and the g-step optimises $\mathcal{Q}(G \, | \, A, W)$.\\
+and the g-step optimises $\mathcal{Q}(G \, | \, A, W)$.
+The least-squares solves therefore use the combined weight $w_{ij}\, w_{ij}^{\rm data} = w_{ij}^{\rm (new)}$, matching the algorithm of Section~\ref{sec:fitting}.\\
 
 More explicitly, consider one outer cycle starting at $(A^{(t)}, G^{(t)})$.
 Choose $W^{(t)} = \hat{w}(r(A^{(t)},G^{(t)}))$.
