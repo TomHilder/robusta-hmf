@@ -300,6 +300,7 @@ We will demonstrate using the median per-object weight in the toy example (Secti
 
 \subsection{Implementation}
 
+\hogg{This section should give the GitHub location and the pip install (or uv add) instructions. And the github location should be repeated as the last line of the main text. I'll add that now.}
 We implemented the RHMF algorithm in an open-source Python package called \texttt{Robusta-HMF} \citep{hilder2026}.
 \texttt{Robusta-HMF} is designed for both those want an out-of-the-box solution for RHMF (and HMF), and also for those who want to extend/modify the algorithm for their own purposes.
 The code is written in \texttt{JAX} \citep{jax2018github}, which provides just-in-time compilation, GPU and TPU support, and automatic differentiation.
@@ -563,6 +564,8 @@ Complications arise when trying to initialise the model because naive SVD requir
 We could extend the model such that the basis functions do not live on a pixel basis, but rather are continuous functions that are represented with sinusoids, wavelets, or something else.
 Using sinusoids with regularisation based on the power spectral density of a kernel would allow the basis functions to be Gaussian Processes. 
 As we have shown here, RHMF has utility both in identifying outliers \emph{and} in learning a low-rank representation of heteroskedastic data. Using continuous functions would allow for extremely precise basis functions that could be evaluated at any point in the input space, unrestricted to the pixel grid of the data. This would be particularly useful, for example, for spectral components (e.g., stellar, tellurics) with different relative radial velocities, or for extreme precision radial velocity experiments where \emph{very-}sub-pixel precision is required.\\
+
+An installable version of the Robusta-HMF code in python is available at \url{https://github.com/TomHilder/robusta-hmf}, along with all of the code used to make the figures in this paper.
 
 \begin{acknowledgments}
   The authors thank Hans-Walter Rix (MPIA), and the Stars group at MPIA for valuable discussions.
