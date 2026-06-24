@@ -4,6 +4,7 @@
 \usepackage{amsfonts}
 \usepackage{graphicx}
 \usepackage{xcolor}
+\usepackage{parskip}
 \usepackage[normalem]{ulem}
 \providecommand{\add}[1]{{\color{blue}#1}}
 \providecommand{\del}[1]{{\color{red}\sout{#1}}}
@@ -14,7 +15,9 @@
 \addtolength{\textwidth}{-0.50in}
 \addtolength{\oddsidemargin}{0.25in}
 \setlength{\evensidemargin}{\oddsidemargin}
-\raggedbottom\frenchspacing % Hogg won't post to arXiv without this.
+\raggedbottom\frenchspacing
+\setlength{\parskip}{0.5\baselineskip}
+\setlength{\parindent}{0pt}
 
 % math macros
 \DeclareMathOperator{\rank}{rank}
@@ -60,51 +63,48 @@
 
 \section{Introduction}
 
-Most stellar spectra are well described by a low-dimensional manifold. There are a handful of physical parameters---effective temperature, surface gravity, metallicity, $\alpha$-element enhancement, and perhaps projected rotation and a continuum shape---that account for most of the variation across thousands of pixels of a given spectrum, for most stars of most types. This is both an expectation of stellar atmosphere theory \citep{hubeny2014} and an empirical finding from data-driven analyses of large spectroscopic surveys \citep[e.g.][]{ness2015, casey2016, ting2019}. \hogg{I don't think the Ting paper is data-driven in the relevant sense, but there are some Bovy papers maybe??} A central task of modern stellar spectroscopy is to identify this manifold from the data, represent it compactly, and place every observed spectrum on it. In doing so, we can improve any subsequent label estimation, de-noise spectra, and find astrophysical outliers: often the most scientifically interesting objects.\\
+Most stellar spectra are well described by a low-dimensional manifold. There are a handful of physical parameters---effective temperature, surface gravity, metallicity, $\alpha$-element enhancement, and perhaps projected rotation and a continuum shape---that account for most of the variation across thousands of pixels of a given spectrum, for most stars of most types. This is both an expectation of stellar atmosphere theory \citep{hubeny2014} and an empirical finding from data-driven analyses of large spectroscopic surveys \citep[e.g.][]{ness2015, casey2016, ting2019}. \hogg{I don't think the Ting paper is data-driven in the relevant sense, but there are some Bovy papers maybe??} A central task of modern stellar spectroscopy is to identify this manifold from the data, represent it compactly, and place every observed spectrum on it. In doing so, we can improve any subsequent label estimation, de-noise spectra, and find astrophysical outliers: often the most scientifically interesting objects.
 
-\hogg{You know that you can just add a non-zero parskip and never have to use the double-slash line break operator, anywhere?}\\
+This work tackles two practical problems that arise in pursuit of this goal. The first is manifold recovery and projection: How can we learn a low-dimensional basis from a collection of spectra, and for each spectrum, find the coefficients that reconstruct it from that basis? A good embedding of this type is useful in equal measure for label estimation, denoising, and compression. The hard part is not the linear algebra, but rather the data. Real surveys are heteroskedastic, with missing segments, corrupted pixels, and innumerable other peculiarities. Under these conditions, standard methods to find a low-dimensional embedding will often fail or perform poorly.
 
-This work tackles two practical problems that arise in pursuit of this goal. The first is manifold recovery and projection: How can we learn a low-dimensional basis from a collection of spectra, and for each spectrum, find the coefficients that reconstruct it from that basis? A good embedding of this type is useful in equal measure for label estimation, denoising, and compression. The hard part is not the linear algebra, but rather the data. Real surveys are heteroskedastic, with missing segments, corrupted pixels, and innumerable other peculiarities. Under these conditions, standard methods to find a low-dimensional embedding will often fail or perform poorly.\\
-
-The second problem is identifying ``outliers'' and handling them appropriately. With a good low-dimensional manifold, objects (stars) and features (pixels) that are \emph{not} represented on the manifold are of particular interest. Colloquially, these are heterogeneously categorised as \emph{outliers}, but not all outliers are created equal. Some are data flaws (cosmic-ray hits, detector defects), and some are mistakes (data reduction errors, underestimated uncertainties). These are the chaff, which we must recognise only so they do not contaminate the inferred manifold. The other outliers are the fascinating freaks: the rare stars, unlike all others, that can be most informative about astrophysics.\\
+The second problem is identifying ``outliers'' and handling them appropriately. With a good low-dimensional manifold, objects (stars) and features (pixels) that are \emph{not} represented on the manifold are of particular interest. Colloquially, these are heterogeneously categorised as \emph{outliers}, but not all outliers are created equal. Some are data flaws (cosmic-ray hits, detector defects), and some are mistakes (data reduction errors, underestimated uncertainties). These are the chaff, which we must recognise only so they do not contaminate the inferred manifold. The other outliers are the fascinating freaks: the rare stars, unlike all others, that can be most informative about astrophysics.
 
 Matrix factorization methods are often used to solve these problems. Principal component analysis \citep[PCA;][]{pearson1901, hotelling1933}, non-negative matrix factorization \citep{lee1999}, heteroskedastic matrix factorization \citep{tsalmantza2012}, and their relatives offer data-driven approaches to simplifying, de-noising, and lowering the dimensionality of complex datasets, without the need for a detailed physical model.
 They are generally fast and straightforward to fit with numerical linear algebra or straightforward optimization schemes.
 In stellar spectroscopy, these methods are used to find a low-dimensional embedding of the spectra of a population of stars, which can then be used for label transfer \citep{ness2015,casey2016}, classification \citep{refiorentin2007}, or instrument calibration \citep{zhao2021,casey2026}.
-In high-contrast imaging, they are used to build a data-driven model of the quasistatic starlight in a sequence of exposures, in order to subtract that signal from each frame and look for faint companions in the stacked residuals \citep{soummer2012, amara2012, fergus2014}.\\ % include reduced order models and their utility in GW data analysis?
+In high-contrast imaging, they are used to build a data-driven model of the quasistatic starlight in a sequence of exposures, in order to subtract that signal from each frame and look for faint companions in the stacked residuals \citep{soummer2012, amara2012, fergus2014}.
 
-\hogg{Technically this paragraph needs a statement of which integer is $M$ and which integer is $N$. That said, it reads fine and can be left as-is.}
 PCA is the most widely used of these methods, by a long margin. It approximates a full-rank rectangular $N \times M$ data matrix ${\bf Y}$ with a matrix ${\bf L}$ of lower rank $K \le {\rm min} \, (N, M)$ by minimizing the sum of squared residuals between ${\bf Y}$ and ${\bf L}$ \citep{eckart1936}.
 The $K$ \emph{components} delivered by PCA are orthonormal basis vectors contained in the $K$ rows of some $K \times M$ matrix ${\bf G}$, while the \emph{coefficients} are the $N$ rows of an $N \times K$ matrix ${\bf A}$, such that ${\bf L} = {\bf A}\,{\bf G}$.
 PCA simultaneously learns both the basis vectors and the coefficients, and it has the nice property that the basis vectors are orthonormal and ordered by explained variance. Like most matrix factorization methods, PCA requires complete, rectangular data, and treats every data point as equally important. As a consequence, it is extremely sensitive to outliers: a single bad data point in a single row can spoil many or all of the delivered basis vectors.
-This is because PCA aims to minimize the unexplained variance, and the empirical variance in a block of data can easily be dominated by a few outliers.\\
+This is because PCA aims to minimize the unexplained variance, and the empirical variance in a block of data can easily be dominated by a few outliers.
 
 Unrelated to the successes of PCA, weighted least squares (WLS) or $\chi^2$ fitting \citep{legendre1805} has been used extensively, but is similarly sensitive to outliers.
 Astronomers have mostly dealt with this using $\sigma$-clipping \citep{hoaglin1983}, which removes data points with large residuals relative to their measurement uncertainties.
 This adds \emph{robustness}: the ability of a model to deal with anomalous data points that violate the assumptions of the model.
 $\sigma$-clipping is however an ad-hoc fix, and is \emph{conditioned on the assumption} that your current estimate of the model is correct, or at least good enough to identify outliers. For this reason, $\sigma$-clipping is subject to a form of ``mode collapse'' in which large amounts of data are excluded and the inferred model fails to be representative of most of the data.
-Fortunately, statisticians developed iteratively reweighted least squares \citep[IRLS;][]{holland1977}, a family of methods that has all the good properties of WLS, while being robust to outliers, and is generally far less prone to mode collapse. IRLS is a workhorse in many domains, including astronomy \citep[e.g.][]{magnier2020}.\\
+Fortunately, statisticians developed iteratively reweighted least squares \citep[IRLS;][]{holland1977}, a family of methods that has all the good properties of WLS, while being robust to outliers, and is generally far less prone to mode collapse. IRLS is a workhorse in many domains, including astronomy \citep[e.g.][]{magnier2020}.
 
 \citet{candes2011} originally proposed a \emph{robust PCA}, where the decomposition of ${\bf Y}$ is into both a low-rank component ${\bf L}$ and a sparse component ${\bf S}$, such that ${\bf Y} = {\bf L} + {\bf S}$.
 Under some reasonable conditions, \citet{candes2011} showed that this decomposition can be performed exactly.
 Since then, the method has been iterated on in many ways, focusing mostly on speed \citep{lin2010}, scalability \citep{rodriguez2013, halko2011}, or including some form of regularisation \citep{guyon2012, wohlberg2012}.
-A subset of these many methods have provable convergence \citep{netrapalli2014}, are non-linear \citep{scholkopf1998, wohlberg2012}, or have a probabilistic interpretation \citep{tipping1999}.\\
+A subset of these many methods have provable convergence \citep{netrapalli2014}, are non-linear \citep{scholkopf1998, wohlberg2012}, or have a probabilistic interpretation \citep{tipping1999}.
 
 Unfortunately, none of these methods handle the common issues of missing data segments, or varying measurement uncertainties across the data (known as heteroskedasticity).
 \citet{tsalmantza2012} introduced heteroskedastic matrix factorisation (HMF) as a PCA replacement that handles both these cases by weighting each point by its inverse uncertainty variance.
-However, HMF is still very sensitive to outliers and anomalies unless already downweighted, and it does not have a principled way to identify these unknown outliers. \\
+However, HMF is still very sensitive to outliers and anomalies unless already downweighted, and it does not have a principled way to identify these unknown outliers. 
 
 The method we present in this paper---which we call Robust HMF, or RHMF---is a straightforward generalisation of HMF that addresses both goals at once.
 Like HMF, it supports missing data and heteroskedastic measurement uncertainties. Unlike HMF, it adds robustness to outliers through an iteratively reweighted least squares (IRLS) scheme, and automatically downweights entries on both a per-feature (e.g., pixel) and a per-object level.
 This automatic downweighting provides a continuous measure of discrepancy (outlier-y-ness, if you will) that can be used to identify anomalous features (pixels) or objects (stars), such as unusual spectra or emission lines.
 The algorithm uses a simple alternating linear least squares scheme with provable convergence properties and competitive performance.
-We show that the model also has a probabilistic interpretation as either heavy-tailed maximum likelihood estimation, or equivalently as a hierarchical Bayesian model with latent variances.\\
+We show that the model also has a probabilistic interpretation as either heavy-tailed maximum likelihood estimation, or equivalently as a hierarchical Bayesian model with latent variances.
 
 To our knowledge, no published robust matrix factorization method has all of these properties together: heteroskedasticity, missing data, robustness to outliers, and a probabilistic interpretation.
 However, the ingredients we draw on are not individually new. The closest competitor analogue is cellPCA \citep{centofanti2024}, which handles casewise outliers, cellwise outliers, and missing entries in a single IRLS objective, but assumes homoskedasticity.
 Heavy-tailed and IRLS-based approaches to robust subspace recovery have a long history more broadly \citep[for reviews see][]{bouwmans2015,polyak2017}. Unlike \citet{candes2011} and its descendants \citep[e.g.,][]{zhou2010,yin2019}, we do not explicitly learn a sparse outlier matrix ${\bf S}$, and instead rely on the inferred robust weights to quantify outlier-y-ness. 
 The loss family we use is also a direct descendant of Truncated Cauchy NMF \citep{guan2019}, since fixing $\nu=1$ in our Student-$t$ likelihood recovers a Cauchy loss.
-What RHMF adds to this body of work is the combination, at survey scale, of: a probabilistic / hierarchical-Bayes formulation that exposes the latent variances; per-pixel heteroskedasticity carried through the model from the start, rather than added as a post-hoc reweighting of an outlier-only loss; coherent variational down-weighting at both the pixel and the object level inside a single objective; and a \texttt{JAX} implementation that scales to spectroscopic-survey-size data. Our novelty claim is therefore the package of these properties at scale, not any one of them in isolation.\\
+What RHMF adds to this body of work is the combination, at survey scale, of: a probabilistic / hierarchical-Bayes formulation that exposes the latent variances; per-pixel heteroskedasticity carried through the model from the start, rather than added as a post-hoc reweighting of an outlier-only loss; coherent variational down-weighting at both the pixel and the object level inside a single objective; and a \texttt{JAX} implementation that scales to spectroscopic-survey-size data. Our novelty claim is therefore the package of these properties at scale, not any one of them in isolation.
 
 In Section~\ref{sec:methods} we present the model, the algorithm by which it is fit, and discuss using it for outlier identification. 
 In Section~\ref{sec:experiments} we demonstrate the approach on two example problems: a toy dataset, and with Gaia RVS spectra. 
@@ -119,7 +119,7 @@ In Section~\ref{sec:discussion} we discuss the strengths and shortcomings of the
 Let $N \in \mathbb{Z}^+$ be the number of objects (in our case, spectra) in the dataset, and $M\in\mathbb{Z}^+$ be the number of features (pixels) for each object.
 We then label the value in feature $j$ of object $i$ as $y_{ij}$, and we can also write the data as an $N \times M$ matrix ${\bf Y}$ with entries $y_{ij}$.
 We assume that the investigator has measurement uncertainties $\sigma_{ij}$ corresponding to each feature, and also that these uncertainties have the same units as $y_{ij}$.
-In practice we will often refer to ``weights'' instead, which are simply inverse variances $w_{ij} = \sigma_{ij}^{-2}$.\\
+In practice we will often refer to ``weights'' instead, which are simply inverse variances $w_{ij} = \sigma_{ij}^{-2}$.
 
 The model for the data is
 \begin{align}
@@ -130,7 +130,7 @@ which is a low dimensional linear embedding of rank $K\in\mathbb{Z}^+$.
 $a_{ik}$ are the entries of an $N \times K$ matrix ${\bf A}$ where each of the $N$ rows contains $K$ \emph{coefficients}, and $g_{kj}$ are the entries of a $K \times M$ matrix ${\bf G}$ where each of the $K$ rows contain \emph{basis vectors} of length $M$.
 The outliers appear explicitly in the above, but we do not model them as an explicit component unlike many other robust PCA methods as already discussed.
 The choice of the rank $K$, or the number of basis vectors to include, is a hyperparameter to be set by the user.
-Because of the objective function we will adopt, and unlike with PCA, the rank $K$ cannot be chosen \emph{after} fitting.\\
+Because of the objective function we will adopt, and unlike with PCA, the rank $K$ cannot be chosen \emph{after} fitting.
 
 We make the following assumptions:
 \begin{enumerate}
@@ -160,7 +160,7 @@ Models of this family (e.g., PCA, where all $w_{ij} = 1$, and HMF), are usually 
 \end{align}
 where the hat notation denotes the best-fitting values of ${\bf A}$ and ${\bf G}$, and Equation~\ref{eq:gaussian_like} denotes that each $y_{ij}$ is \emph{drawn from} a Normal distribution with mean $a_{ik} g_{kj}$ and variance $\sigma_{ij}^2$.
 These two lines are equivalent; the top line minimizes the negative log likelihood defined implicitly by the second line.
-This setup induces a quadratic penalty in the residuals $r_{ij} = y_{ij} - \sum_k a_{ik}g_{kj}$, which causes outliers to have a large influence on the fit.\\
+This setup induces a quadratic penalty in the residuals $r_{ij} = y_{ij} - \sum_k a_{ik}g_{kj}$, which causes outliers to have a large influence on the fit.
 
 
 We introduce robustness to the model by replacing the likelihood with a heavy-tailed distribution.
@@ -172,7 +172,7 @@ The cost function (negative log likelihood) and likelihood therefore become %\fo
 \end{align}
 where the number of degrees of freedom $\nu\in\mathbb{Z}^+$ and the scale $s\in\mathbb{R}^+$ are parameters that control the heaviness of the distribution's tails.
 In the limit $\nu \rightarrow \infty$ with $s=1$ this converges to the Normal likelihood.
-This modification to the cost function results in a quadratic penalty for small residuals, and a logarithmic penalty for large residuals, reducing the influence of outliers on the fit.\\
+This modification to the cost function results in a quadratic penalty for small residuals, and a logarithmic penalty for large residuals, reducing the influence of outliers on the fit.
 
 This setup can be equivalently viewed as a hierarchical model with latent, unknown variances $\tau_{ij}^2$
 \begin{align}
@@ -180,11 +180,11 @@ This setup can be equivalently viewed as a hierarchical model with latent, unkno
     \tau_{ij}^2 &\sim {\rm InverseGamma} \left( \frac{\nu}{2}, \frac{\nu}{2} s^2 \sigma_{ij}^2 \right) \label{eq:hierarchical_prior}
 \end{align}
 where the inverse Gamma distribution is a strictly positive distribution with shape $\frac{\nu}{2}$ and scale $\frac{\nu}{2} s^2 \sigma_{ij}^2$ parameters.
-The equivalence between the Student-t likelihood and the hierarchical view is due to the existence of a closed-form marginal likelihood for this choice of prior; marginalizing $\tau_{ij}$ from Eq.~\eqref{eq:hierachical_like} with Eq.~\eqref{eq:hierarchical_prior} yields Eq.~\eqref{eq:t_like} \citep[e.g.][]{lange1989}.\\
+The equivalence between the Student-t likelihood and the hierarchical view is due to the existence of a closed-form marginal likelihood for this choice of prior; marginalizing $\tau_{ij}$ from Eq.~\eqref{eq:hierachical_like} with Eq.~\eqref{eq:hierarchical_prior} yields Eq.~\eqref{eq:t_like} \citep[e.g.][]{lange1989}.
 
 For the applications we present here, $s$ and $\nu$ are not uniquely identifiable.
 This is because the likelihood depends only on the product $Q^2=\nu s^2$ (Eq.~\ref{eq:t_like}), so our Student-t maximum likelihood estimate (MLE) cannot distinguish them. 
-We therefore fix $\nu=1$ (which reduces to the Cauchy distribution) without loss of generality. \\
+We therefore fix $\nu=1$ (which reduces to the Cauchy distribution) without loss of generality.
 
 After the number of basis functions $K$, $Q$ now represents  the second hyperparameter of the model: a soft outlier threshold that controls where the transition between the quadratic and logarithmic penalties occurs.
 With $Q=1$ the transition occurs at about the same point as the measurement uncertainties, ${Q}>1$ means that the transition occurs at larger residuals than the measurement uncertainties, and ${Q}<1$ means that the transition occurs at smaller residuals than the measurement uncertainties. 
@@ -193,7 +193,7 @@ With $Q=1$ the transition occurs at about the same point as the measurement unce
 
 While in principle it's possible to optimize Eq.~\eqref{eq:robust_opt} for all $a_{ik}$ and $g_{kj}$ simultaneously, we invoke a majorization-maximization scheme that implicitly minimizes the objective by iterating between re-weighting and least-squares solves.
 This approach is exactly the typical IRLS method for robust regression, but applied to HMF instead of linear regression.
-We prove that the algorithm below optimises the likelihood defined in Eq.~\eqref{eq:t_like} in Appendix~\ref{sec:proof}. \\
+We prove that the algorithm below optimises the likelihood defined in Eq.~\eqref{eq:t_like} in Appendix~\ref{sec:proof}.
 
 While the algorithm we present is guaranteed to converge to a local optimum, it is not guaranteed to converge to the global optimum, and so it is pertinent to provide a good initialization.
 The most straightforward approach is the singular-value decomposition
@@ -205,7 +205,7 @@ The most straightforward approach is the singular-value decomposition
 \end{align}
 where ${\bf U}$ and ${\bf V}^\top$ are unitary matrices, and {\bf S} is a matrix with diagonal entries equal to the singular values of ${\bf Y}$ in non-decreasing order, and zeros elsewhere.
 This initialization is simply the first $K$ components of the PCA solution.
-In the case that the dataset is very large, it may be preferable to use a faster, approximate method such as the randomized SVD \citep{halko2011}.\\
+In the case that the dataset is very large, it may be preferable to use a faster, approximate method such as the randomized SVD \citep{halko2011}.
 
 Iteratively updating the parameters consists of four steps that cycle until convergence. The first is the \textbf{w-step}, which  updates the data weights to downweight outliers, given the current estimate of ${\bf A}$ and ${\bf G}$:
 \begin{align}
@@ -214,7 +214,7 @@ Iteratively updating the parameters consists of four steps that cycle until conv
     w^{\rm (new)}_{ij} &\leftarrow w^{\rm data}_{ij}\, w^{\rm robust}_{ij},
 \end{align}
 where we note that $w^{\rm robust}_{ij} \in (0, 1]$ provides a measure of outlier-y-ness on the $j$th feature in the $i$th object, and that $w_{ij}^{\rm (new)} = \tau_{ij}^{-2}$.
-This rule also respects data weights of zero, and shows clearly how $Q$ acts to control how aggressively large residuals cause downweighting.\\
+This rule also respects data weights of zero, and shows clearly how $Q$ acts to control how aggressively large residuals cause downweighting.
 
 The \textbf{a-step} finds the best-fit values for the coefficients $a_{ik}$ given the current estimate of the basis vectors $g_{kj}$:
 \begin{align}
@@ -224,7 +224,7 @@ The \textbf{a-step} finds the best-fit values for the coefficients $a_{ik}$ give
    a_{ik}^{\rm (new)} &\leftarrow [{\boldsymbol{\alpha}}_i]_k
 \end{align}
 where the operator $\solve({\bf X}, {\bf b})$ returns ${\bf X}^{-1}\,{\bf b}$.
-This is just the WLS solution for the rows of ${\bf Y}$ given fixed ${\bf G}$.\\
+This is just the WLS solution for the rows of ${\bf Y}$ given fixed ${\bf G}$.
 
 Next, the \textbf{g-step} finds the best-fit basis vectors $g_{kj}$ given the current estimate of the coefficients $a_{ik}$:
 \begin{align}
@@ -233,7 +233,7 @@ Next, the \textbf{g-step} finds the best-fit basis vectors $g_{kj}$ given the cu
     \boldsymbol{\gamma}_j &= \solve{\left( {\bf X}_j, {\bf b}_j \right)}, \\
    g_{kj}^{\rm (new)} &\leftarrow [\boldsymbol{\gamma}_j]_k
 \end{align}
-which is just the WLS solution for the columns of ${\bf Y}$ given fixed ${\bf A}$.\\
+which is just the WLS solution for the columns of ${\bf Y}$ given fixed ${\bf A}$.
 
 The \textbf{rotation-step} suppresses the huge set of degeneracies in the model by enforcing a standard orientation in either the data or the model space. Here, we will require that the basis vectors be orthonormal:
 \begin{align}
@@ -243,7 +243,7 @@ The \textbf{rotation-step} suppresses the huge set of degeneracies in the model 
 \end{align}
 where the operator ${\rm eig}({\bf G} {\bf G}^\top)$ returns a $K$-vector and a $K\times K$ matrix, containing the eigenvalues and eigenvectors of ${\bf G} {\bf G}^\top$ respectively.
 $\boldsymbol{\lambda}^{-1}$ is shorthand for the element-wise reciprocal of the eigenvalues vector $\boldsymbol{\lambda}$.
-Note that here the eigendecomposition is guaranteed to be performed on a real and symmetric matrix, and so allows for slightly faster numerical routines than the general case.\\
+Note that here the eigendecomposition is guaranteed to be performed on a real and symmetric matrix, and so allows for slightly faster numerical routines than the general case.
 
 We assess convergence every few cycles by a dimensionless estimate of the size of the g-step adjustment.
 The outputs of the procedure are the full matrices ${\bf A}$ and ${\bf G}$.
@@ -259,7 +259,7 @@ Depending on the application, it may be sufficient to set these to reasonable va
 We discuss when hyperparameter choice matters further in Section~\ref{sec:discussion}.
 Assuming that is does matter, we advocate for a held-out data cross-validation approach which is both straightforward and prior-independent.
 The data should be partitioned randomly into a training set, and the model should be fit on the training set only.
-This should be repeated over a grid of $Q$ and $K$ values, and the best-fitting model for each pair of hyperparameters should be used to predict the test set data.\\
+This should be repeated over a grid of $Q$ and $K$ values, and the best-fitting model for each pair of hyperparameters should be used to predict the test set data.
 %This is done by iterating the a-step and w-step on the test set data, keeping the basis vectors $g_{kj}$ fixed to the values inferred from the training set.
 %Convergence in this case can be judged by the a-step adjustment instead of the g-step adjustment, since the basis vectors are fixed. \tom{these last two sentences are repeats from 2 paragraphs back?}\\
 
@@ -276,7 +276,7 @@ Approximating the empirical distribution as Gaussian with sample mean $\hat{\mu}
     \score(Q,K) = \mathrm{KL}\!\left(\mathcal{N}(\hat{\mu}_z,\,\hat{\sigma}_z^2)\,\Big\|\,\mathcal{N}(0,1)\right) = -\log\hat{\sigma}_z + \frac{\hat{\sigma}_z^2 + \hat{\mu}_z^2}{2} - \frac{1}{2}, \label{eq:score}
 \end{equation}
 which equals zero when $\hat{\mu}_z = 0$ and $\hat{\sigma}_z = 1$, and is strictly positive otherwise.
-This score has well-defined behaviour as $K$ grows and can be directly compared across $(Q,K)$ pairs: models that correctly capture the shared structure and correctly identify outliers will produce $z_{ij}$ values that more closely resemble unit normals, and hence smaller scores.\\
+This score has well-defined behaviour as $K$ grows and can be directly compared across $(Q,K)$ pairs: models that correctly capture the shared structure and correctly identify outliers will produce $z_{ij}$ values that more closely resemble unit normals, and hence smaller scores.
 
 \subsection{Feature- and object-level outlier identification} \label{sec:outlier_id}
 
@@ -288,25 +288,27 @@ A simple example is to take the per-object median
 \begin{align}
     w^{\rm object}_i &= \operatorname*{median}_{j} \left( w_{ij}^{\rm robust} \right), \label{eq:w_spec}
 \end{align}
-and then to look at the distribution of $w^{\rm object}_i$ across the data set to see the degree to which any one object deviates from the population.\\
+and then to look at the distribution of $w^{\rm object}_i$ across the data set to see the degree to which any one object deviates from the population.
 
 One is free to choose whatever metric over $w^{\rm robust}_{ij}$ best suits a particular dataset.
 For example, in stellar spectra, the median weight per-object could be a bad measure, in that the spectra of interest could be mostly typical, but with one unusual line.
 The minimum or the 0.01 quantile weight per object, might be better choices in that case.
 One could also look for contiguous stretches of pixels (features) with an average weight below a threshold.
 For example, if a goal is to find objects that are unusual in particular features (e.g., specific absorption lines in a star), then the measure could be the median weight per-object over some narrow wavelength range.
-We will demonstrate using the median per-object weight in the toy example (Section~\ref{sec:toy}), and using the 0.01 quantile in the \textsl{Gaia} example (Section~\ref{sec:gaia}). \\
+We will demonstrate using the median per-object weight in the toy example (Section~\ref{sec:toy}), and using the 0.01 quantile in the \textsl{Gaia} example (Section~\ref{sec:gaia}).
 
 \subsection{Implementation}
 
-\hogg{This section should give the GitHub location and the pip install (or uv add) instructions. And the github location should be repeated as the last line of the main text. I'll add that now.}
 We implemented the RHMF algorithm in an open-source Python package called \texttt{Robusta-HMF} \citep{hilder2026}.
-\texttt{Robusta-HMF} is designed for both those want an out-of-the-box solution for RHMF (and HMF), and also for those who want to extend/modify the algorithm for their own purposes.
+\texttt{Robusta-HMF} is designed both those who want an out-of-the-box solution for RHMF (and HMF), and also for those who want to extend/modify the algorithm for their own purposes.
 The code is written in \texttt{JAX} \citep{jax2018github}, which provides just-in-time compilation, GPU and TPU support, and automatic differentiation.
-The API is designed to be easy to use, with a \texttt{scikit-learn}-esque \citep{scikit-learn} interface for fitting the model and making predictions. \\
+The API is designed to be easy to use, with a \texttt{scikit-learn}-esque \citep{scikit-learn} interface for fitting the model and making predictions.
 
 The package additionally supports custom initialization and convergence criteria, and is easily extensible to other robust losses and likelihood functions, as well as adding regularization or other constraints on the model.
-It also supports direct optimization of the likelihood with gradient-based methods as an alternative to the IRLS scheme, which may be preferable in some cases (although beyond the scope of this paper). For all the data experiments in the following sections, we use the implementation in \texttt{Robusta-HMF}, and the code to reproduce them is available in the same repository.\\
+It also supports direct optimization of the likelihood with gradient-based methods as an alternative to the IRLS scheme, which may be preferable in some cases (although beyond the scope of this paper).
+
+\texttt{Robusta-HMF} is available for installation from the Python Packaging Index, e.g. \texttt{pip install robusta-hmf} or \texttt{uv add robusta-hmf}.
+It is also available at \url{https://github.com/TomHilder/robusta-hmf}, and the code to reproduce both data experiments in the following sections is available in the sam repository.
 
 \section{Data experiments} \label{sec:experiments}
 
@@ -324,19 +326,19 @@ We then corrupted the dataset in following ways:
     \item We injected individual \emph{outlier pixels} at random locations, consisting of a fixed 0.4\% of all pixels in the data. We did not set the corresponding measurement weights to zero as these are intended to represent \emph{unknown} bad pixels.
     \item In 10 non-outlier spectra (hereafter \emph{normal spectra}) we injected 3 absorption lines at random wavelength locations with random amplitudes. We refer to these as \emph{outlier lines}.
 \end{enumerate}
-The exact details of the basis function functional form, the random sampling used for the coefficients, and the random sampling used to generate the noise, missing data, and each type of outlier, is provided in Appendix~\ref{sec:toy_model_details}.\\
+The exact details of the basis function functional form, the random sampling used for the coefficients, and the random sampling used to generate the noise, missing data, and each type of outlier, is provided in Appendix~\ref{sec:toy_model_details}.
 
 We fit the model with 35 different combinations of the hyperparameters $Q$ and $K$ to the same random subset of 4,000 spectra, with the other 4,000 held out for validation.
 The values of $Q$ were chosen to span a range from very aggressive downweighting of outliers ($Q=0.5$) to very little downweighting at all ($Q=10$), and the values of $K$ were chosen to span a range from underfitting ($K=3$) to overfitting ($K=7$) the true underlying model.
 The values we tested were $Q\in\left\{ 0.5, 1, 2, 3, 4, 5, 10\right\}$ and $K\in\left\{ 3, 4, 5, 6, 7\right\}$.
-For each fit, we initialized with an SVD, and iterated the algorithm until the maximum fractional change in any entry of ${\bf G}$ was less than $10^{-2}$, checking for convergence every 10 cycles. \hogg{This sounds not quite right. If there are 7000 pixels, $10^-2$ is actually \emph{order unity}. Shouldn't it be something like $10^2/\sqrt{M}$ or something like that? It should somehow depend on the normalization standard for $G$.} \arc{I think this is OK, right? It is saying the \emph{maximum fractional change in any entry of ${\bf G}$.} It would be wrong if it were the \emph{mean} fractional change, but it's hard to conclude it is wrong without knowing what the distribution of fractional changes are. My guess is that if the \emph{maximum} fractional change is $10^{-2}$ then the rest are likely far lower in magnitude.} \hogg{yes fine with me; delete this discussion at will.}\\
+For each fit, we initialized with an SVD, and iterated the algorithm until the maximum fractional change in any entry of ${\bf G}$ was less than $10^{-2}$, checking for convergence every 10 cycles.
 
 We also fit a standard PCA model, and a robust PCA (RPCA) model using the method of \citet{candes2011} as implemented in the \texttt{robust-pca} Python package \citep{ganguli2026}.
 For both of these we used the same training set as in the RHMF case, and stuck to the true underlying model rank of $K=5$ as a best-case scenario for these methods.
 Since these methods do not support providing data weights nor missing data, we set the missing data points to zero and ignored the measurement uncertainties.
 Given that the data points in the spectra are all near 1, it might be more realistic for this case to set the missing data points to 1, or to the mean of the dataset, or similar.
 However in full generality the investigator may not have a good way to set the missing data, and so we chose to set them to zero for illustrative purposes.
-Indeed, if the missing data segment contained an absorption line (which some of them do), setting the missing data to 1 or the mean would be a similarly bad choice.\\
+Indeed, if the missing data segment contained an absorption line (which some of them do), setting the missing data to 1 or the mean would be a similarly bad choice.
 
 \begin{figure}
     \centering
@@ -355,14 +357,14 @@ It is also unable to handle the missing data, causing the model to completely fa
 The RPCA model (blue) fares better at capturing the underlying structure due to the robustness.
 However, it is still negatively impacted by the heteroskedasticity, and it deviates from the data severely in the missing data region and mildly elsewhere.
 The RHMF model (green) captures the underlying structure very well, as it is able to ignore the outliers, handle the heteroskedasticity, and handle the missing data.
-The correct low-rank structure is captured, the model is smooth and continuous, the lines fit the data well, and the model interpolates well across the missing data region.\\
+The correct low-rank structure is captured, the model is smooth and continuous, the lines fit the data well, and the model interpolates well across the missing data region.
 
 The middle panel of Fig~\ref{fig:toy_residuals} shows the residuals after subtracting the best-fit RHMF model from the data.
 At all regions where outliers are present, the residuals are large, as is intended since the model deliberately does not capture them.
 Elsewhere the residuals are small and contain only noise.
 The outlier lines are easy to identify by eye in the residuals.
 The bottom panel of Fig~\ref{fig:toy_residuals} shows the inferred robust weights $w_{ij}^{\rm robust}$.
-These weights exhibit random fluctuations near 1 across most of the spectrum, but drop to values of $\lesssim 0.5$ in outlier locations, with the outlier lines dropping even to $\lesssim 0.2$.\\
+These weights exhibit random fluctuations near 1 across most of the spectrum, but drop to values of $\lesssim 0.5$ in outlier locations, with the outlier lines dropping even to $\lesssim 0.2$.
 % In combination with the residuals, the weights can thus be used to identify outliers in the spectra by eye, and the population of weights across a single spectrum or across the whole dataset can be used to measure the degree to which a particular spectrum or pixel is outlying, as we will show below.
 % Above line not really needed after update to Section~\ref{sec:outlier_id}.
 
@@ -377,7 +379,7 @@ Figure~\ref{fig:toy_spectra} shows 6 spectra selected randomly from the whole da
 The top three are normal spectra, the bottom three are outlier spectra, and the RHMF best-fit to each is overlaid.
 For the normal spectra (blue), the model accurately captures the underlying model, despite the outlier contamination, missing data, and heteroskedastic noise.
 For the outlier spectra (orange), the model completely ignores their structure.
-This shows that the downweighting mechanism works on both a local per-data-point level, but also across whole spectra that have little shared underlying structure with the rest of the dataset.\\
+This shows that the downweighting mechanism works on both a local per-data-point level, but also across whole spectra that have little shared underlying structure with the rest of the dataset.
 
 \begin{figure}
     \centering
@@ -390,7 +392,7 @@ To demonstrate outlier spectrum identification, we show the per-object median ro
 These are split into the two known true labels of either ``normal'' (blue) or ``outlier'' (orange).
 This includes both the training and test sets.
 While these two populations are not perfectly segregated, we see that \emph{all} the normal spectra retain median weights near unity.
-In contrast, the outlier spectra have median weights mostly $\leq 0.8$, with only a few in the $> 0.9$ region.\\
+In contrast, the outlier spectra have median weights mostly $\leq 0.8$, with only a few in the $> 0.9$ region.
 
 \begin{figure}
     \centering
@@ -406,7 +408,7 @@ $K<5$ performs poorly, reflecting the inability of the model to capture all the 
 The optimal $Q=5$ implies that the transition from the quadratic to logarithmic penalty in the residuals occurs near $5\sigma$ from zero. 
 At all fixed $K$, there is a local optimum in $Q$, and that optimum shifts to larger $Q$ as $K$ increases.
 This likely reflects the fact that the $K<5$ models, which are not flexible enough to capture all the common structure, can compensate by downweighting more aggressively (smaller $Q$) such that the low-rank structure of interested is no longer captured in the inferred basis.
-Luckily, it is relatively easy to diagnose this issue by looking for shared structure in the residuals across many spectra.\\
+Luckily, it is relatively easy to diagnose this issue by looking for shared structure in the residuals across many spectra.
 
 In the bottom two panels of Figure~\ref{fig:cv} we assess the ability of the model to automatically identify outliers on both a per-pixel and a per-object basis, using the inferred robust weights.
 To do this, we set a hard threshold for each the pixel-level robust weights $w_{ij}^{\rm robust}$ and the object-level weights $w_i^{\rm object}$.
@@ -418,19 +420,19 @@ These quantities are defined as
     \mathrm{recall} &= \frac{\mathrm{true~positives}}{\mathrm{true~positives} + \mathrm{false~negatives}}, \\
     \mathrm{F1} &= \frac{2 \cdot \mathrm{precision} \cdot \mathrm{recall}}{\mathrm{precision} + \mathrm{recall}}.
 \end{align}
-An F1 score of 1 indicates perfect classification; no false positives nor false negatives.\\
+An F1 score of 1 indicates perfect classification; no false positives nor false negatives.
 
 Both the F1 panels reveal similar behaviour: the outlier identification is relatively \emph{insensitive} to $Q$ and $K$, provided that both are sufficiently large.
 The models with $K<5$ struggle in that they cannot capture the underlying structure with a true rank of $5$, leading to false positives.
 This can be partially remediated by increasing $Q$ to downweight less aggressively, but it is clearly not ideal.
 $Q<3$ causes false positives despite large enough $K$, because the downweighting is too aggressive.
 These results demonstrate that the best outlier identification is obtained near the best validation score, but also that picking $K$ or $Q$ too large does not dramatically degrade the outlier identification.
-However, this is likely contingent on the accuracy of the provided measurement uncertainties, as well as the degree to which the outliers do not share low-rank structure with the rest of the data.\\
+However, this is likely contingent on the accuracy of the provided measurement uncertainties, as well as the degree to which the outliers do not share low-rank structure with the rest of the data.
 % \tom{Maybe not explained adequately, or maybe move to discussion. Likely this will get trimmed after writing discussion.}\\
 
 \subsection{Outliers in the Gaia RVS main sequence} \label{sec:gaia}
 
-To demonstrate RHMF in a more realistic setting, we applied it to Gaia/RVS spectra to look for unusual main-sequence stars \citep{collaboration2016,collaboration2023,katz2023}. Here, \emph{unusual} is qualitatively defined by the spectrum deviating significantly from typical stars in neighboring color-magnitude space, and quantified by the inferred robust weights. Examples classes could be binary systems, stars with peculiarly high rotation, stars with signatures of accretion or chromospheric activity, or perhaps other unknown unknowns.   \\
+To demonstrate RHMF in a more realistic setting, we applied it to Gaia/RVS spectra to look for unusual main-sequence stars \citep{collaboration2016,collaboration2023,katz2023}. Here, \emph{unusual} is qualitatively defined by the spectrum deviating significantly from typical stars in neighboring color-magnitude space, and quantified by the inferred robust weights. Examples classes could be binary systems, stars with peculiarly high rotation, stars with signatures of accretion or chromospheric activity, or perhaps other unknown unknowns.
 
 \begin{figure}
     \centering
@@ -448,7 +450,7 @@ The widths in color and magnitude were chosen to ensure that they slightly overl
 Within each bin, we randomly selected half the spectra to fit using RHMF, where we initialised the vectors with SVD and iterated until the maximum fractional g-step adjustment was $<10^{-4}$.
 We chose to use $K=10$ basis vectors and set $Q=5$ for all bins. We did not perform any cross-validation, primarily because we are interested in identifying \emph{potentially} interesting spectra (which will be vetted by humans), and so the exact classification performance is not of primary importance to us.
 And while we recommend cross-validation in practice, it is worth noting that our toy example showed that outlier identification is relatively insensitive to the choice of $Q$ and $K$, provided that they are not too small.
-The vectors fit from the randomly selected half of the spectra in each bin were then used to predict coefficients and weights for the other half.\\
+The vectors fit from the randomly selected half of the spectra in each bin were then used to predict coefficients and weights for the other half.
 
 
 
@@ -463,7 +465,7 @@ The vectors fit from the randomly selected half of the spectra in each bin were 
 With basis coefficients, predicted model spectra, and robust weights for all spectra in each bin, we were then able to identify outlier spectra as those with low per-object weights.
 Here, the per-object weights $w_i^{\rm object}$ were calculated as the lowest 1\% percentile over $j$ from the per-pixel robust weights $w^\mathrm{robust}_{ij}$.
 We set a threshold of $0.5$, such that if $w_i^{\rm object} < 0.5$ then spectrum $i$ is flagged as a potential outlier, this is shown as a vertical dashed line in the figure.
-The number of identified outliers is labelled for each bin, as well as the total number of spectra in that bin.\\
+The number of identified outliers is labelled for each bin, as well as the total number of spectra in that bin.
 %\arc{This might be a rabbit hole, and if it looks to be, I don't want to venture there. However, do we know what the expected \emph{distribution} is for the per-object weights? If I look at Figure 6 (object-level weights for each bin) then at first glance I thought \emph{`well, perhaps these more frequent outliers is just because of sampling: that all bins are distributed the same way and we are just sampling more outliers in some bins'}. But when I look more carefully, bin 0 has 193 outliers and 7k spectra, whereas bin 7 has 10k spectra and only 2 outliers. So the spectral complexity in bin 0 is higher than bin 7. I know that K and Q can be fiddled, but I am just wondering conceptually if there is some expected distribution of the per-object weights, because that could help guide the decision of Q and K given the number of input spectra and the rough `rate' of outliers that you are interested in investigating}\\
 % Need to remember to return to the point that we did not tune the threshold, which might matter a bit since the distribution varies across the bins. Of course, we just pick three outliers to show anyway, but it might matter for a systematic study
 
@@ -475,7 +477,7 @@ It is consistent with the fact that the upper main-sequence is more spectrally c
 We note, however, that this is not the only interpretation: the variation in flagged-outlier rate is also consistent with the threshold $w_i^{\rm object}<0.5$ not corresponding to a calibrated false-positive rate, with the true rate varying across bins simply because the distribution of $w_i^{\rm object}$ varies with the underlying spectral diversity. Disentangling ``the upper main sequence has more genuinely peculiar stars'' from ``our threshold is differently strict in different bins'' requires the injection-recovery experiment mentioned above; we cannot resolve it from the current data.
 Naturally, having more components (increasing $K$) could capture common kinds of anomalies (e.g., emission lines).
 However, this introduces a double-edged sword: a flexible model can capture more structure in the data, but some of that structure may be capturing relatively common astrophysics! 
-This emphasizes a fundamental limitation: if the objects you consider are outliers share some low-rank structure between them, then higher $K$ components will capture that structure. Ultimately the investigator must decide on the balance between flexibility and interpretability.\\
+This emphasizes a fundamental limitation: if the objects you consider are outliers share some low-rank structure between them, then higher $K$ components will capture that structure. Ultimately the investigator must decide on the balance between flexibility and interpretability.
 
 \begin{figure}
     \centering
@@ -491,7 +493,7 @@ This emphasizes a fundamental limitation: if the objects you consider are outlie
     \label{fig:gaia_spec_normal}
 \end{figure}
 
-As a method-confidence check, we first verified that RHMF assigns very low object-level weight to a spectrum that is obviously off the main-sequence manifold. The lowest-weight object in bin 0, shown in Figure~\ref{fig:gaia_spec_1}, is 88 Her (HD 162732; Gaia DR3 1363284299777747584) with $w_i^{\rm object} = 9\times10^{-3}$. The reconstruction is poor, as expected for a spectrum with broad Paschen lines indicative of a hot, fast-rotating star (Figure~\ref{fig:gaia_spec_normal}). This system is a known suspected binary hosting a Be-shell star with an equatorial disk of ejected gas viewed edge-on \citep{abt1995,Rivinius:2006}; the classification is taken from the literature and is not a finding of this work. We include it solely to demonstrate that the method does the obvious thing on an obvious case.\\
+As a method-confidence check, we first verified that RHMF assigns very low object-level weight to a spectrum that is obviously off the main-sequence manifold. The lowest-weight object in bin 0, shown in Figure~\ref{fig:gaia_spec_1}, is 88 Her (HD 162732; Gaia DR3 1363284299777747584) with $w_i^{\rm object} = 9\times10^{-3}$. The reconstruction is poor, as expected for a spectrum with broad Paschen lines indicative of a hot, fast-rotating star (Figure~\ref{fig:gaia_spec_normal}). This system is a known suspected binary hosting a Be-shell star with an equatorial disk of ejected gas viewed edge-on \citep{abt1995,Rivinius:2006}; the classification is taken from the literature and is not a finding of this work. We include it solely to demonstrate that the method does the obvious thing on an obvious case.
 
 \begin{figure}
     \centering
@@ -501,7 +503,7 @@ As a method-confidence check, we first verified that RHMF assigns very low objec
     \label{fig:gaia_spec_2}
 \end{figure}
 
-A more compelling demonstration is in bin 13 (the M-dwarf bin), shown in Figure~\ref{fig:gaia_spec_2}. Both flagged objects show emission in the Ca II triplet, consistent with chromospheric activity or accretion. In the top panel (Gaia DR3 3136952686035250688; $w_i^{\rm object} = 0.173$) the emission is conspicuous to the eye and would likely be caught by a sufficiently careful by-hand inspection of the bin. The lower panel (Gaia DR3 3195919254111314816; $w_i^{\rm object} = 0.453$) is less apparent: the emission is sub-percent in depth, is comparable to the level of per-pixel uncertainties, and is essentially invisible in the raw spectrum. Yet it stands out cleanly once compared against the RHMF reconstruction built from the surrounding M-dwarf population. This is precisely the regime in which RHMF should be most useful: subtle, line-localised deviations that a fixed-template or PCA-based search would either average over or absorb into the basis. Both examples here are presented as case studies, not as a population-level result; a systematic characterisation of anomalous populations identified by RHMF is a natural extension of this work.\\
+A more compelling demonstration is in bin 13 (the M-dwarf bin), shown in Figure~\ref{fig:gaia_spec_2}. Both flagged objects show emission in the Ca II triplet, consistent with chromospheric activity or accretion. In the top panel (Gaia DR3 3136952686035250688; $w_i^{\rm object} = 0.173$) the emission is conspicuous to the eye and would likely be caught by a sufficiently careful by-hand inspection of the bin. The lower panel (Gaia DR3 3195919254111314816; $w_i^{\rm object} = 0.453$) is less apparent: the emission is sub-percent in depth, is comparable to the level of per-pixel uncertainties, and is essentially invisible in the raw spectrum. Yet it stands out cleanly once compared against the RHMF reconstruction built from the surrounding M-dwarf population. This is precisely the regime in which RHMF should be most useful: subtle, line-localised deviations that a fixed-template or PCA-based search would either average over or absorb into the basis. Both examples here are presented as case studies, not as a population-level result; a systematic characterisation of anomalous populations identified by RHMF is a natural extension of this work.
 
 \section{Discussion} \label{sec:discussion}
 
@@ -509,7 +511,7 @@ We have introduced a generalization of PCA, which we call robust heteroskedastic
 RHMF has all the nice properties of both HMF \citep{tsalmantza2012} and robust regression \citep{holland1977, hoaglin1983}, in that it can handle missing data, heteroskedastic noise, and outliers, all in a principled way.
 The usefulness of a model of this kind is two-fold: one may care about the low-rank structure without being burdened by outliers, or one can use the inference to identify outliers and then investigate them further.
 We demonstrated the former in the toy example, and the latter in the Gaia/RVS example.
-Like all models, it has strengths (hopefully demonstrated in the preceding sections), and shortcomings, which we will discuss below.\\
+Like all models, it has strengths (hopefully demonstrated in the preceding sections), and shortcomings, which we will discuss below.
 
 %%% CV STUFF
 
@@ -519,7 +521,7 @@ Typically, this might be done through some kind of reconstruction loss: a summar
 In general more basis vectors $K$ will always do better because the model is more flexible, so one must decide when they have \emph{enough} basis vectors, which is not a well-defined criterion.
 But there are additional nuances to cross-validation in this context. 
 For example, when evaluating performance on held-out data, should we use only the inverse variance of the data, or should we include the robust weights as well? If we use only the data weights, then increasing $K$ will always do better, because we are accidentally assessing the model's ability to fit the outliers, not ignore them. If we use the total weights (including the robust downweighting), then the model could be downweighting real features, which should be contributing to the performance metric.
-For these reasons, we advocated a practical approach where we measure how closely the weighted residuals on the held-out data follow a unit normal distribution (Eq.~\eqref{eq:score}). The key insight is that, under a well-calibrated model, applying the data precision weights and the inferred robust weights together should make the residuals look like draws from $\mathcal{N}(0,1)$: the data weights account for known measurement noise, while the robust weights shrink outlier residuals toward zero. We therefore score models by the KL divergence from the empirical distribution of these weighted residuals to $\mathcal{N}(0,1)$, with smaller values indicating a better fit to the held-out data.\\
+For these reasons, we advocated a practical approach where we measure how closely the weighted residuals on the held-out data follow a unit normal distribution (Eq.~\eqref{eq:score}). The key insight is that, under a well-calibrated model, applying the data precision weights and the inferred robust weights together should make the residuals look like draws from $\mathcal{N}(0,1)$: the data weights account for known measurement noise, while the robust weights shrink outlier residuals toward zero. We therefore score models by the KL divergence from the empirical distribution of these weighted residuals to $\mathcal{N}(0,1)$, with smaller values indicating a better fit to the held-out data.
 
 In the toy model, we assessed the outlier identification performance with the F1 score over a grid of hyperparameter values.
 Comparing with the cross-validation results, the F1 score per-pixel is maximized by the hyperparameters with the best validation score, and the per-object maximum is nearby.
@@ -529,7 +531,7 @@ It's plausible this is because outliers truly are sparse and without shared low-
 For example, consider the case where in addition to the main objects of interest making up the majority of the dataset with shared low-rank structure, there exists a second class of rare objects that constitute a small percentage of the population, which also share low-rank structure.
 Lower $K$ will prioritise common objects and identify the second class as outliers, but larger $K$ will additionally fit the second class instead of downweighting them.
 Whether or not the second class are ``outliers'' is in the eyes of the beholder, but setting $K$ adequately for either view will require careful judgement. 
-In any case, the model still has utility, it simply requires care in interpretation.\\
+In any case, the model still has utility, it simply requires care in interpretation.
 
 %%% CAVEATS
 
@@ -538,12 +540,12 @@ In situations where the uncertainties are well-known and truly Gaussian, and whe
 However, these conditions are rarely met in practice. 
 Spectra with under-estimated uncertainties can easily manifest as outliers through the robust weights, since they might receive near-universal down-weighting. 
 This is somewhat remediated by close inspection of the residuals between the data and the model, as objects that are not genuine outliers (but just have under-estimated uncertainties) should remain well-described on average by the model predictions. 
-It is reasonable to use the robust weights as a guide for \emph{where to look} for interesting objects in large heteroskedastic datasets, rather than a \emph{statistical measure} of the degree to which an object is truly an outlier.\\
+It is reasonable to use the robust weights as a guide for \emph{where to look} for interesting objects in large heteroskedastic datasets, rather than a \emph{statistical measure} of the degree to which an object is truly an outlier.
 
 As already mentioned, outlier identification will be sensitive to the choice of $K$ if those outliers share some low-rank structure.
 By construction this wasn't a problem in the toy model because we designed the outliers to be random, without shared low-rank structure.
 In Gaia/RVS spectra, many stars have slight deviations in their continuum normalisation, or common spectral signatures (e.g., binaries). When these features are shared across many spectra they can be captured by the basis functions, and will not be classified as outliers. 
-They can often still be identified after inspecting the model basis functions and noticing that one basis has a particular feature, and then looking at the coefficients for that basis to find the spectra that share that feature. But in the strict classification sense of RHMF, they will not be identified as outliers \emph{solely because} of that low-rank structure.\\
+They can often still be identified after inspecting the model basis functions and noticing that one basis has a particular feature, and then looking at the coefficients for that basis to find the spectra that share that feature. But in the strict classification sense of RHMF, they will not be identified as outliers \emph{solely because} of that low-rank structure.
 
 %%% WAYS TO WEAKEN ASSUMPTIONS
 
@@ -553,16 +555,16 @@ Deriving a weight-updating step (as in Appendix~\ref{sec:proof}) requires a clos
 Changing the likelihood from the Gaussian form we have in Eq.~\eqref{eq:hierachical_like} will destroy the analytic marginalisation that yields a Student-t distribution, for most other choices of likelihood.
 This can be remedied by selecting a different prior, such that there still exists a closed-form marginal likelihood.
 A sufficient, but not necessary, condition for this is prior conjugacy \citep{andrews1974,diaconis1979,west1987}.
-This is exploited in the model presented here, as the inverse gamma distribution is the conjugate prior for a normal likelihood with unknown variances \citep[e.g.][]{bernardo2009bayesian}.\\
+This is exploited in the model presented here, as the inverse gamma distribution is the conjugate prior for a normal likelihood with unknown variances \citep[e.g.][]{bernardo2009bayesian}.
 
 %%% EXTENSIONS
 
 The method also comes along with a scalar objective function, which means that in principle it could be trained with stochastic gradient descent methods and mini-batching, trivially scaling to massive data sets. 
-Complications arise when trying to initialise the model because naive SVD requires access to the full dataset, but usually subsampling the data is sufficient. All that matters is that you can learn the basis functions, since the coefficients are completely determined by that. In our case, the those basis vectors are orthogonal. That's not strictly required, but in practice the rotation step (which enforces orthogonality) is necessary during training to suppress degeneracy between ${\bf A}$ and ${\bf G}$. Naturally, orthogonality helps for numerical stability and interpretability, but you're free to do whatever you want. You could give the orthogonality condition to ${\bf A}$ instead, for example.\\
+Complications arise when trying to initialise the model because naive SVD requires access to the full dataset, but usually subsampling the data is sufficient. All that matters is that you can learn the basis functions, since the coefficients are completely determined by that. In our case, the those basis vectors are orthogonal. That's not strictly required, but in practice the rotation step (which enforces orthogonality) is necessary during training to suppress degeneracy between ${\bf A}$ and ${\bf G}$. Naturally, orthogonality helps for numerical stability and interpretability, but you're free to do whatever you want. You could give the orthogonality condition to ${\bf A}$ instead, for example.
 
 We could extend the model such that the basis functions do not live on a pixel basis, but rather are continuous functions that are represented with sinusoids, wavelets, or something else.
 Using sinusoids with regularisation based on the power spectral density of a kernel would allow the basis functions to be Gaussian Processes. 
-As we have shown here, RHMF has utility both in identifying outliers \emph{and} in learning a low-rank representation of heteroskedastic data. Using continuous functions would allow for extremely precise basis functions that could be evaluated at any point in the input space, unrestricted to the pixel grid of the data. This would be particularly useful, for example, for spectral components (e.g., stellar, tellurics) with different relative radial velocities, or for extreme precision radial velocity experiments where \emph{very-}sub-pixel precision is required.\\
+As we have shown here, RHMF has utility both in identifying outliers \emph{and} in learning a low-rank representation of heteroskedastic data. Using continuous functions would allow for extremely precise basis functions that could be evaluated at any point in the input space, unrestricted to the pixel grid of the data. This would be particularly useful, for example, for spectral components (e.g., stellar, tellurics) with different relative radial velocities, or for extreme precision radial velocity experiments where \emph{very-}sub-pixel precision is required.
 
 An installable version of the Robusta-HMF code in python is available at \url{https://github.com/TomHilder/robusta-hmf}, along with all of the code used to make the figures in this paper.
 
@@ -595,7 +597,7 @@ The corresponding negative log-likelihood is
 \end{align}
 which is identical to the loss function in Eq.~\eqref{eq:robust_opt} up to the constant $Q^2 / 2$, where $r_{ij} = y_{ij} - \sum_{k} a_{ik} g_{kj}$ is the residual and $w_{ij}^{\rm data}$ the measurement precision, exactly as in the main text.
 In the remainder of this section, we prove that the alternating least squares plus weight-updating step algorithm does actually minimize this negative log-likelihood.
-Throughout this appendix, $w_{ij} \in (0,1]$ denotes the robust weight, kept distinct from the input measurement precisions $w_{ij}^{\rm data}$.\\
+Throughout this appendix, $w_{ij} \in (0,1]$ denotes the robust weight, kept distinct from the input measurement precisions $w_{ij}^{\rm data}$.
 
 For convenience, we will drop the $ij$ indices for the parts of the following that are general; $w^{\rm data}$ then denotes the (fixed, positive) measurement precision of the element under consideration.
 We claim that the loss Eq.~\eqref{eq:t_loss} for any $r$ can be expressed in the following way
@@ -606,7 +608,7 @@ where
 \begin{equation}
     \phi(w) = \frac{Q^2}{2}\,(w - 1 - \log w).
 \end{equation}
-That is, performing the minimization in Eq.~\eqref{eq:rho_loss} is identical to evaluating Eq.~\eqref{eq:t_loss}.\\
+That is, performing the minimization in Eq.~\eqref{eq:rho_loss} is identical to evaluating Eq.~\eqref{eq:t_loss}.
 
 We will now prove the claim. First, define
 \begin{align}
@@ -649,7 +651,7 @@ Thus
     \rho(r) &= J ( \hat{w} ; r ) \\
     &= \min_{0<w\leq1} \left[ \tfrac{1}{2} w r^2 + \phi(w) \right],
 \end{align}
-as claimed.\\
+as claimed.
 
 To see how this naturally leads to the 3-step algorithm outlined in Section~\ref{sec:fitting}, we first define a new objective:
 \begin{equation}
@@ -682,7 +684,7 @@ where the a-step optimises the quadratic
     \mathcal{Q}(A \, | \, G, W) &= \frac{1}{2} \sum_{ij} w_{ij}\, w_{ij}^{\rm data}\, r_{ij}^2,
 \end{align}
 and the g-step optimises $\mathcal{Q}(G \, | \, A, W)$.
-The least-squares solves therefore use the combined weight $w_{ij}\, w_{ij}^{\rm data} = w_{ij}^{\rm (new)}$, matching the algorithm of Section~\ref{sec:fitting}.\\
+The least-squares solves therefore use the combined weight $w_{ij}\, w_{ij}^{\rm data} = w_{ij}^{\rm (new)}$, matching the algorithm of Section~\ref{sec:fitting}.
 
 More explicitly, consider one outer cycle starting at $(A^{(t)}, G^{(t)})$.
 Choose $W^{(t)} = \hat{w}(r(A^{(t)},G^{(t)}))$.
@@ -707,13 +709,13 @@ Thus chaining the inequalities and $L(A,G) = \min_W J(A, G, W)$ gives
 \begin{equation}
     L(A^{(t+1)}, G^{(t+1)}) \le L(A^{(t)}, G^{(t)}).
 \end{equation}
-This guarantees that robust HMF with the iterative procedure converges to the Student-t maximum likelihood estimate.\\
+This guarantees that robust HMF with the iterative procedure converges to the Student-t maximum likelihood estimate.
 
 \section{Toy Dataset} \label{sec:toy_model_details}
 
 The toy dataset consisted of $N=8000$ synthetic (toy) spectra, on an $M=1200$ pixel grid, logarithmically spaced between 400 and 600 nm.
 Specifically, the pixel grid was generated using the \texttt{NumPy} function \texttt{geomspace(400, 600, 1200)}.
-The spectra were convolved with a Gaussian kernel to achieve a constant spectral resolution of $R = 2123$, where we actually chose the standard deviation to be $\sigma = \bar{\lambda} / 5000$, where $\bar{\lambda}$ is the mean wavelength.\\
+The spectra were convolved with a Gaussian kernel to achieve a constant spectral resolution of $R = 2123$, where we actually chose the standard deviation to be $\sigma = \bar{\lambda} / 5000$, where $\bar{\lambda}$ is the mean wavelength.
 
 The non-outlier spectra were generated from the sum of 5 basis functions (and so have a true rank of 5), according the the following
 \begin{align}
@@ -745,7 +747,7 @@ The coefficients $a_i, b_i, c_i, g_i, s_i$ were randomly drawn for each spectrum
     g_i &\sim \log{\mathcal{N}} \left( 0.0, 0.1^2 \right), \\
     s_i &\sim \mathrm{N} \left( 0.1, 0.1 \right),
 \end{align}
-where $\mathcal{N}(\mu, \sigma^2)$ denotes the normal distribution with mean $\mu$ and variance $\sigma^2$, $\mathrm{Exp}(s)$ denotes the exponential distribution with scale $s$, and $\log{\mathcal{N}}(\mu, \sigma^2)$ denotes a log normal distribution where the mean and standard deviation are that of the underlying normal.\\
+where $\mathcal{N}(\mu, \sigma^2)$ denotes the normal distribution with mean $\mu$ and variance $\sigma^2$, $\mathrm{Exp}(s)$ denotes the exponential distribution with scale $s$, and $\log{\mathcal{N}}(\mu, \sigma^2)$ denotes a log normal distribution where the mean and standard deviation are that of the underlying normal.
 
 Noise draws $\epsilon_{ij}$ were added to the spectra, generated as
 \begin{align}
@@ -769,7 +771,7 @@ and random per-spectrum-per-pixel jitter multiplier
     \gamma_i^* &\sim \log{\mathcal{N}} \left( 0, 0.06^2 \right), \\
     \gamma_i &= \gamma_i^* / \bar{\gamma_i^*},
 \end{align}
-where in all cases the hand-tuned numbers above were set to give a sensible range by eye, and the bar notation $\bar{x}$ denotes the mean.\\
+where in all cases the hand-tuned numbers above were set to give a sensible range by eye, and the bar notation $\bar{x}$ denotes the mean.
 
 A randomly selected 40 of the 8000 spectra were replaced with the following outlier model
 \begin{align}
@@ -783,18 +785,18 @@ The amplitudes and frequencies were randomly drawn as
     f_i &\sim \mathcal{U} \left( 10, 30 \right),
 \end{align}
 where $\mathcal{U} \left( l, r \right)$ denotes a bounded uniform distribution over the interval $[l,\,r]$.
-These outliers share effectively no common low-rank structure amongst themselves nor with the spectrum model.\\
+These outliers share effectively no common low-rank structure amongst themselves nor with the spectrum model.
 
 Outlier ``columns'' were injected such that for 3 random selected pixel indices $j$, 30\% of all the spectra (selected randomly) had a factor $\delta_{ij} \sim \pm\,\mathcal{U} \left( 0.25, 0.45 \right)$ added in pixel $ij$, where the sign was also random.
 % Note that for a given column $j$, the factor added was therefore different in each spectrum affected.
 Individual outlier pixels were also added in 0.4\% of all pixels, for a total of 38,400.
 The pixel and spectrum indices were both drawn randomly, according to $\delta_{ij} \sim \pm\,\mathcal{U} \left( 0.25, 0.75 \right)$, where again the sign was random.
-Both column and pixel outliers were injected across all spectra, and so could affect both the normal and outlier spectra.\\
+Both column and pixel outliers were injected across all spectra, and so could affect both the normal and outlier spectra.
 
 10 normal (non-outlier) spectra also had 3 extra absorption lines added.
 Note that these spectra could also contain column and pixel outliers, and we did not prevent any of them from being coincident in location.
 Each of these were centred on a randomly (and uniformly) selected pixel, with a width (standard deviation) of 2 pixels, and a depth drawn as $d \sim \mathcal{U} \left( 0.3, 0.6 \right)$.
-Each of the 10 spectra had \emph{different} sets of lines added, in that the random sampling was done for each of the 30 lines.\\
+Each of the 10 spectra had \emph{different} sets of lines added, in that the random sampling was done for each of the 30 lines.
 
 Continuous missing data segments were injected in 50\% of all spectra, selected randomly.
 The length of the segment was drawn uniformly between 50 and 200.
