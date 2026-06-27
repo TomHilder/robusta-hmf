@@ -18,6 +18,13 @@ Forward-looking work. Empty this list as items are done; if it stays empty indef
 retire this file.
 
 **Engineering / hardening**
+- **Fix NLL scaling** — `likelihoods.py` `loss()` multiplies the log-sum by an ad-hoc
+  prefactor $Q^2 = \nu s^2$ (`StudentTLikelihood`) / $s^2$ (`CauchyLikelihood`). This is
+  neither the paper's Eq. (170) objective (no prefactor) nor the true Student-t NLL prefactor
+  $(\nu+1)/2$ (which is $1$ for Cauchy, $\nu=1$). Harmless for the ALS argmin, but misleading
+  as a "negative log-likelihood" and it rescales the SGD gradient. Pick one convention — drop
+  the prefactor (match Eq. 170) or use $(\nu+1)/2$ — and apply it consistently across
+  `StudentTLikelihood.loss` and `CauchyLikelihood.loss`.
 - **Docs** — user-facing documentation (README, usage/API docs, docstrings).
 - **Better tests** — expand coverage beyond the current ALS/rotation unit tests
   (`test_hmf.py` is currently commented out); add end-to-end and edge-case tests.
