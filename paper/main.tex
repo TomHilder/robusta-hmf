@@ -237,12 +237,14 @@ which is just the WLS solution for the columns of ${\bf Y}$ given fixed ${\bf A}
 
 The \textbf{rotation-step} suppresses the huge set of degeneracies in the model by enforcing a standard orientation in either the data or the model space. Here, we will require that the basis vectors be orthonormal:
 \begin{align}
-    \boldsymbol{\lambda}, {\bf V} &= \eig{\left( {\bf G} {\bf G}^\top \right)},\\
-    {\bf A}^{\rm (new)} &\leftarrow {\bf A} {\bf V} \, {\rm diag} \left(\boldsymbol{\lambda}^{-1}\right) {\bf V}^\top, \\
-    {\bf G}^{\rm (new)} &\leftarrow {\bf V} \, {\rm diag} \left(\boldsymbol{\lambda}\right) {\bf V}^\top {\bf G},
+    \boldsymbol{\lambda}, {\bf V} &= \eig{\left( {\bf G} {\bf G}^\top + \epsilon {\bf \, I}\right)},\\
+    % \left[ \boldsymbol{\lambda} \right]_k &\leftarrow \max \! \left( \left[ \boldsymbol{\lambda} \right]_k, \epsilon \right), \\
+    {\bf A}^{\rm (new)} &\leftarrow {\bf A} {\bf V} \, {\rm diag} \left(\boldsymbol{\lambda}^{1/2} \right) {\bf V}^\top, \\
+    {\bf G}^{\rm (new)} &\leftarrow {\bf V} \, {\rm diag} \left(\boldsymbol{\lambda}^{-1/2}\right)  {\bf V}^\top {\bf G},
 \end{align}
-where the operator ${\rm eig}({\bf G} {\bf G}^\top)$ returns a $K$-vector and a $K\times K$ matrix, containing the eigenvalues and eigenvectors of ${\bf G} {\bf G}^\top$ respectively.
-$\boldsymbol{\lambda}^{-1}$ is shorthand for the element-wise reciprocal of the eigenvalues vector $\boldsymbol{\lambda}$.
+where the operator ${\rm eig}(\cdot)$ returns a $K$-vector and a $K\times K$ matrix, containing eigenvalues and eigenvectors respectively.
+$\epsilon$ is a small value (we use $10^{-6}$) added to the diagonal of ${\bf G} {\bf G}^\top$ to avoid numerical issues that can sometimes occur near the start of training, due to $\mathbf{G}\mathbf{G}^\top$ having near-zero eigenvalues\footnote{For the same reason, also explicitly floor all eigenvalues $[\boldsymbol{\lambda}]_k$ to $\epsilon$ after the eigendecomposition.}.
+% $\boldsymbol{\lambda}^{-1}$ is shorthand for the element-wise reciprocal of the eigenvalues vector $\boldsymbol{\lambda}$.
 Note that here the eigendecomposition is guaranteed to be performed on a real and symmetric matrix, and so allows for slightly faster numerical routines than the general case.
 
 We assess convergence every few cycles by a dimensionless estimate of the size of the g-step adjustment.
