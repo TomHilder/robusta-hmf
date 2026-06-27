@@ -140,11 +140,9 @@ Four metrics computed on test set: `std_z` (std of z-scores, target 1.0), `chi2_
 
 ### Current State
 
-- Pipeline is functional but somewhat WIP
-- Default model grid is narrow (K=[5], Q=[3.0]) — needs expanding for full analysis
-- May need cleanup/refactoring to match toy example's patterns
-- `w_quantiles.py` is known to be incorrect — ignore it
-- Overlapping bins don't deduplicate outlier detections across bins
+- Pipeline is complete; analyses for the paper are final.
+- Former WIP items are now resolved or moot (analyses are finalised): the model grid was expanded as needed for the published analysis, cross-bin outlier overlap was handled, and `w_quantiles.py` is not used in the final pipeline.
+- No open Gaia tasks remain.
 
 ### Supporting Scripts
 

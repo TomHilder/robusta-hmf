@@ -2,11 +2,14 @@
 
 ## Goal
 
-Develop `robusta-hmf`, a robust heteroskedastic matrix factorisation library in JAX. The library is being used in a paper with three example applications: a toy validation/demo, a Gaia RVS outlier identification pipeline, and a third (TBD) example demonstrating how robustness improves the delivered basis.
+Develop `robusta-hmf`, a robust heteroskedastic matrix factorisation library in JAX. The library is presented in a paper with two example applications: a toy validation/demo and a Gaia RVS outlier identification pipeline. (A third example was planned but scrapped for scope.)
 
 ## Milestones
 
-To be defined with user.
+- **Library** — implemented and in use (ALS + SGD, Student-t robust weighting). ✅
+- **Toy example** — synthetic validation with known ground truth, complete. ✅
+- **Gaia RVS example** — outlier identification pipeline + analyses, complete. ✅
+- **Paper** — effectively done (manuscript drafted, co-author comments addressed). ✅
 
 ## Tasks
 
@@ -28,6 +31,7 @@ To be defined with user.
 | 14 | Save all_source_ids.npy + cross-bin outlier consistency | done | — | save_bin_results() saves all_source_ids.npy. summarise_bins.py reports multi-bin outlier consistency. save_source_ids.py one-off script. UMAP filtering of inconsistent outliers. |
 | 15 | Fix line list air-to-vacuum wavelengths | done | — | Verified 10 lines (Ca II, N I, Fe I, Si I) against NIST — all match air. Applied Edlen/Morton conversion to all 5 CSV files. CSVs are gitignored; convert_air_to_vacuum.py committed for reference. |
 | 16 | Line markers on top panel + variant line-set plots | done | — | Refactored plot_spectrum_residual(): markers on both panels, 4 variants (strong, abundance, CN, all) saved in subdirs. |
+| 17 | Finalise analyses + manuscript | done | — | Toy + Gaia RVS analyses finalised. Paper effectively done (drafted, co-author comments addressed). Third example scrapped for scope. |
 
 ## Decisions
 
@@ -40,15 +44,16 @@ Record key decisions here as they are made. Append only — do not delete previo
 | 2026-02-10 | Git author | — | Tom Hilder <tom.hilder.dlhp@gmail.com> | From pyproject.toml |
 | 2026-02-10 | git push permission | Auto-allow, require confirmation | Require confirmation | Safer default for shared repo |
 | 2026-02-10 | WebFetch domains | None, standard set, custom | Standard set | github.com, pypi.org, arxiv.org, docs.kidger.site, jax.readthedocs.io |
+| 2026-06-27 | Paper scope | Three examples, two examples | Two examples | Third example (robustness improving delivered basis) scrapped to keep scope manageable. |
 
 ## Session State
 
 _Updated at the end of each session or major phase._
 
-**Last updated**: 2026-02-17
-**Status**: Tasks 1–16 complete.
-**Next steps**: Re-run `replot_outliers.py` to regenerate residual plots with line markers on both panels + variant subdirectories. Verify line markers align with spectral features. Then continue with next task (TBD).
-**Resume instructions**: Read this file top-to-bottom to pick up context. See CLAUDE.md for project conventions. Run scripts from `examples_paper/gaia_rvs/` using `builtin cd <path> && uv run python <script>`. NEVER use `builtin uv`. Line list CSVs now contain correct vacuum wavelengths (converted from air via convert_air_to_vacuum.py).
+**Last updated**: 2026-06-27
+**Status**: Tasks 1–17 complete. The library, both example analyses (toy + Gaia RVS), and the manuscript are effectively done. No third example (scrapped for scope). No open tasks.
+**Next steps**: None queued. Remaining work is whatever the user brings next (e.g. revision rounds, referee responses, or new directions).
+**Resume instructions**: Read this file top-to-bottom to pick up context. See CLAUDE.md for project conventions. Run scripts from `examples_paper/gaia_rvs/` using `builtin cd <path> && uv run python <script>`. NEVER use `builtin uv`. Line list CSVs contain correct vacuum wavelengths (converted from air via convert_air_to_vacuum.py).
 
 ## Log
 
@@ -71,3 +76,4 @@ _Updated at the end of each session or major phase._
 | 2026-02-17 | Discovered line list CSVs have air wavelengths mislabelled as vacuum. Confirmed via NIST Ca II 8542 = 854.209 nm (air) matching CSV, while Gaia spectrum shows dip at ~854.4 nm (vacuum). Task 15 created. |
 | 2026-02-17 | Task 15: Verified 10 lines across Ca II (3), N I (4), Fe I (2), Si I (1) against NIST — all match air wavelengths exactly. Applied Edlen/Morton air-to-vacuum conversion (~0.234 nm shift at 850 nm) to all 5 CSV files. CSVs are gitignored; convert_air_to_vacuum.py committed for reference. |
 | 2026-02-17 | Task 16: Refactored plot_spectrum_residual() — line markers now on both panels; generates 4 variants (strong/abundance/CN/all) with subdirs per bin folder. Extracted _make_residual_figure() helper + LINE_SET_VARIANTS config. |
+| 2026-06-27 | Task 17: Project wrapped up. Toy + Gaia RVS analyses finalised; manuscript effectively done (drafted, co-author comments addressed — see git history for paper-writing commits). Third example scrapped for scope. Docs brought up to date (PLAN.md, codebase-report.md, CLAUDE.md). Gaia "known issues" resolved/moot now analyses are final. |

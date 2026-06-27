@@ -6,10 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **robusta-hmf** — Robust heteroskedastic matrix factorisation in JAX. A library for decomposing data matrices Y ≈ A @ G.T with per-pixel noise weights and Student-t robust downweighting of outliers. Built on Equinox (see equinox-report.md) and Optax.
 
-The library is being used in a paper with three example applications:
+The library is presented in a paper with two example applications:
 1. **Toy** (`examples_paper/toy/`): Synthetic validation with known ground truth — complete
-2. **Gaia RVS** (`examples_paper/gaia_rvs/`): Outlier identification in Gaia DR3 stellar spectra — WIP
-3. **Third example** (TBD): Demonstrating how robustness improves the delivered basis
+2. **Gaia RVS** (`examples_paper/gaia_rvs/`): Outlier identification in Gaia DR3 stellar spectra — complete
+
+(A third example was planned but scrapped for scope. The paper and both analyses are effectively done.)
 
 ## Code Style
 
