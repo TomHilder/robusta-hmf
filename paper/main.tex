@@ -57,7 +57,9 @@
 
 \begin{abstract}
   We present Robust Heteroskedastic Matrix Factorization (RHMF), a generalization of Principal Component Analysis (PCA) that is robust to outliers, handles per-feature uncertainties and missing data, and automatically flags per-point and per-object anomalies.
-  It works by optimizing a Student-$t$ likelihood-based objective function that adapts to bad data and has a probabilistic interpretation.
+  RHMF is useful both in recovering a low-dimensional embedding unspoiled by bad data or anomalies, and in identifying those anomalies.
+  It utilises an iterative reweighting algorithm that implicitly maximizes a Student-$t$ likelihood.
+  This admits an equivalent probabilistic interpretation as fitting a hierarchical model with per-data-point latent variances.
   We deliver a fast \texttt{JAX} implementation, \texttt{Robusta-HMF}, and practical guidance for users. We demonstrate the ability of the model to identify and mitigate outliers of different classes.
   Identification accuracy is contingent on the choice of hyperparameters, but we show that these can be set reliably by cross-validation.
   We also apply RHMF to RVS spectra from Gaia DR3 to find main sequence stars that are strange relative to their neighbors in color-magnitude space.
