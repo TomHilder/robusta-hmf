@@ -12,20 +12,33 @@
 \providecommand{\maddm}[1]{{\color{blue}#1}}
 \providecommand{\mdelm}[1]{{\color{red}#1}}
 
-\addtolength{\textwidth}{-0.50in}
-\addtolength{\oddsidemargin}{0.25in}
+% adjust margins
+\addtolength{\textwidth}{-1.0in} % Hogg adjusting just a tiny bit narrower bc bleeding eyes.
+\addtolength{\oddsidemargin}{0.5in}
 \setlength{\evensidemargin}{\oddsidemargin}
-\raggedbottom\frenchspacing
+\raggedbottom\frenchspacing % Hogg will die on these hills
 \setlength{\parskip}{0.5\baselineskip}
 \setlength{\parindent}{0pt}
+
+% fix aastex abstract hard-coding.
+% this piece of code is ALSO hard-coded; the 0.05 here matches a 0.05 at the abstract below.
+% my god aastex is a mess.
+\makeatletter
+\long\def\frontmatter@abstractheading{%
+ \begingroup
+  \centering
+\ifmodern\else\hskip-0.05\textwidth \fi \abstractname
+  \vskip 1mm
+  \par
+ \endgroup
+}%
+\makeatother
 
 % math macros
 \DeclareMathOperator{\rank}{rank}
 \DeclareMathOperator{\solve}{solve}
 \DeclareMathOperator{\svd}{svd}
 \DeclareMathOperator{\eig}{eig}
-
-
 \DeclareMathOperator*{\argmin}{argmin}
 \DeclareMathOperator*{\argmax}{argmax}
 \DeclareMathOperator*{\score}{score}
@@ -55,7 +68,7 @@
 \author[0000-0003-4996-9069]{Hans-Walter Rix}
 \affiliation{Max-Planck-Institut f\"ur Astronomie, K\"onigstuhl 17, D-69117 Heidelberg, Germany}
 
-\begin{abstract}
+\begin{abstract}\noindent\hsize=\textwidth\leftskip=0.05\textwidth\rightskip=\leftskip % trust in Hogg
   We present Robust Heteroskedastic Matrix Factorization (RHMF), a generalization of Principal Component Analysis (PCA) that is robust to outliers, handles per-feature uncertainties and missing data, and automatically flags per-point and per-object anomalies.
   RHMF is useful both in recovering a low-dimensional embedding unspoiled by bad data or anomalies, and in identifying those anomalies.
   It utilises an iterative reweighting algorithm that implicitly maximizes a Student-$t$ likelihood.
