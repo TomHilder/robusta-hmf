@@ -559,10 +559,10 @@ We could extend the model such that the basis functions do not live on a pixel b
 Using sinusoids with regularisation based on the power spectral density of a kernel would allow the basis functions to be Gaussian Processes. 
 As we have shown here, RHMF has utility both in identifying outliers \emph{and} in learning a low-rank representation of heteroskedastic data. Using continuous functions would allow for extremely precise basis functions that could be evaluated at any point in the input space, unrestricted to the pixel grid of the data. This would be particularly useful, for example, for spectral components (e.g., stellar, tellurics) with different relative radial velocities, or for extreme precision radial velocity experiments where \emph{very-}sub-pixel precision is required.
 
+% ADVICE
+
 The RHMF algorithm presented here is intended for the common astronomical survey setting in which one has a large collection of nominally similar objects, per-feature uncertainties that are of variable (and potentially imperfectly known) quality, scattered missing entries, and a small fraction of `anomalous' objects or features.
 RHMF simultaneously serves two purposes: it recovers a low-rank description of the bulk of the data, which is (ideally) undistorted by bad data or anomalies; and, RHMF provides per-feature and per-object measures of data that depart from that low-rank description.
-
-% ADVICE
 
 We recommend the following workflow as a practical default, that may be useful in many applications.
 (1) Initialise the basis with a (possibly randomized) singular-value decomposition of the data.
@@ -789,7 +789,6 @@ where in all cases the hand-tuned numbers above were set to give a sensible rang
 A randomly selected 40 of the 8000 spectra were replaced with the following outlier model
 \begin{align}
     \mathrm{outlier}_{i}(j) = 1 + A_i \sin{\left( 2\pi f_i \left[\frac{j}{M-1}\right] \right)},
-    % y_{ij} ;=; A_i \sin!\left( 2\pi , f_i , \frac{j}{M-1} \right) + 1.
 \end{align}
 which notably has constant frequency $f_i$ in the pixel index $j$, not in the wavelength.
 The amplitudes and frequencies were randomly drawn as
@@ -801,7 +800,6 @@ where $\mathcal{U} \left( l, r \right)$ denotes a bounded uniform distribution o
 These outliers share effectively no common low-rank structure amongst themselves nor with the spectrum model.
 
 Outlier ``columns'' were injected such that for 3 random selected pixel indices $j$, 30\% of all the spectra (selected randomly) had a factor $\delta_{ij} \sim \pm\,\mathcal{U} \left( 0.25, 0.45 \right)$ added in pixel $ij$, where the sign was also random.
-% Note that for a given column $j$, the factor added was therefore different in each spectrum affected.
 Individual outlier pixels were also added in 0.4\% of all pixels, for a total of 38,400.
 The pixel and spectrum indices were both drawn randomly, according to $\delta_{ij} \sim \pm\,\mathcal{U} \left( 0.25, 0.75 \right)$, where again the sign was random.
 Both column and pixel outliers were injected across all spectra, and so could affect both the normal and outlier spectra.
