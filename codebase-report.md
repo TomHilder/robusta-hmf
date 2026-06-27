@@ -159,7 +159,7 @@ Four metrics computed on test set: `std_z` (std of z-scores, target 1.0), `chi2_
 | Package | Role |
 |---------|------|
 | jax | Array computation, JIT, autodiff, vmap |
-| equinox | Module system, filtered transforms (see equinox-report.md) |
+| equinox | Module system, filtered transforms |
 | optax | Gradient-based optimizers (adafactor for SGD mode) |
 | pandas | DataFrame operations (outlier summaries) |
 | numpy | Array operations in examples |

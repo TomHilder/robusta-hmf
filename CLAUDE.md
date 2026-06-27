@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**robusta-hmf** — Robust heteroskedastic matrix factorisation in JAX. A library for decomposing data matrices Y ≈ A @ G.T with per-pixel noise weights and Student-t robust downweighting of outliers. Built on Equinox (see equinox-report.md) and Optax.
+**robusta-hmf** — Robust heteroskedastic matrix factorisation in JAX. A library for decomposing data matrices Y ≈ A @ G.T with per-pixel noise weights and Student-t robust downweighting of outliers. Built on Equinox and Optax.
 
 The library is presented in a paper with two example applications:
 1. **Toy** (`examples_paper/toy/`): Synthetic validation with known ground truth — complete
@@ -44,48 +44,13 @@ Never chain `git add` and `git commit` with `&&`. Run them as separate sequentia
 
 ## Project Management
 
-### PLAN.md is the master document
+`PLAN.md` (top-level) is a lightweight status + outstanding-work doc for the project. Read it at the start of a session for context. It has three short sections:
+- **Status** — one-line summary of where the project is (currently: library + paper complete, maintenance mode).
+- **Outstanding** — forward-looking work and parked ideas that have nowhere else to live (releases, paper revisions, deferred designs).
+- **Log** — thin, append-only; add an entry when you do something notable.
 
-**CRITICAL — you MUST use PLAN.md for every task.** Before starting any task, read PLAN.md. After completing any task, update PLAN.md (Tasks table, Log, Session State) and commit. This is not optional. A task is not done until PLAN.md reflects it.
-
-`PLAN.md` (top-level) is the single source of truth for planning, tracking, and execution. It contains:
-- The overall project plan and milestones
-- Current task breakdown with status (pending / in-progress / done)
-- Assignment of tasks to sub-agents
-- A decisions log recording key choices and their reasoning
-- A session state section with resume instructions and next steps
-- Notes on blockers encountered
-
-### Workflow
-
-1. **Claude (you) is the coordinator.** You manage PLAN.md and delegate work to Task tool sub-agents.
-2. **Sub-agents** are spawned via the Task tool for specific, well-scoped pieces of work. When delegating to a sub-agent, always provide:
-   - The specific file paths it needs to read or modify
-   - The relevant section of PLAN.md (copy it into the prompt — sub-agents can't read your context)
-   - Clear expected outputs (e.g. "write file X that passes test Y")
-3. **After a sub-agent completes**, review its output, commit the work, and update PLAN.md to reflect the new status.
-4. **Parallelise when possible** — launch independent sub-agents concurrently.
-5. **Use sub-agents to protect context** — delegate research, exploration, and large file reads to sub-agents so the main conversation stays lean. Only the summary comes back.
-
-### Keeping things in sync
-
-- Read PLAN.md at the start of every new conversation to pick up where we left off.
-- Update PLAN.md immediately when: a task starts, a task completes, a task is blocked, the plan changes, or a new task is identified.
-- Never let PLAN.md drift from reality. If you did something, it must be reflected there.
-
-### Error handling
-
-When you hit an error during a task:
-- If it's a code/logic/type error: fix it yourself and continue.
-- If it's an environment/access/network error or something you can't resolve after one attempt: stop, report it clearly to the user as a blocker, and update PLAN.md. Do not loop on errors you cannot fix.
-
-### Context management
-
-- **Compaction**: When the conversation is compacted (automatic or via `/compact`), always preserve: the current state of PLAN.md, the list of files modified in this session, and any pending tasks or blockers.
-- **Compact between phases**: After completing a major milestone or phase of work, run `/compact` to keep the conversation lean before starting the next phase.
-- **End of session**: Before the conversation ends, update the "Session State" section of PLAN.md with what was accomplished, what's in progress, and what to do next.
+It's a running record, not a gate — small changes don't need a formal task entry, and git history is the detailed record. Commit conventions are in the Git section above. If `Outstanding` stays empty indefinitely, PLAN.md has outlived its usefulness and can be retired.
 
 ## Reference
 
-- [equinox-report.md](equinox-report.md) — Equinox dependency report: key APIs, how robusta-hmf uses Equinox, design patterns.
 - [codebase-report.md](codebase-report.md) — Codebase overview: library architecture, public API, toy example pipeline, Gaia RVS pipeline, module map.
