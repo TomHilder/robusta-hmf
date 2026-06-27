@@ -568,6 +568,24 @@ We could extend the model such that the basis functions do not live on a pixel b
 Using sinusoids with regularisation based on the power spectral density of a kernel would allow the basis functions to be Gaussian Processes. 
 As we have shown here, RHMF has utility both in identifying outliers \emph{and} in learning a low-rank representation of heteroskedastic data. Using continuous functions would allow for extremely precise basis functions that could be evaluated at any point in the input space, unrestricted to the pixel grid of the data. This would be particularly useful, for example, for spectral components (e.g., stellar, tellurics) with different relative radial velocities, or for extreme precision radial velocity experiments where \emph{very-}sub-pixel precision is required.
 
+The RHMF algorithm presented here is intended for the common astronomical survey setting in which one has a large collection of nominally similar objects, per-feature uncertainties that are of variable (and potentially imperfectly known) quality, scattered missing entries, and a small fraction of `anomalous' objects or features.
+RHMF simultaneously serves two purposes: it recovers a low-rank description of the bulk of the data, which is (ideally) undistorted by bad data or anomalies; and, RHMF provides per-feature and per-object measures of data that depart from that low-rank description.
+
+We recommend the following workflow as a practical default, that may be useful in many applications.
+(1) Initialise the basis with a (possibly randomized) singular-value decomposition of the data.
+This is computationally inexpensive and is often adequate even when computed from a representative subsample.
+(2) In the absence of strong prior information, one may wish to adopt a soft initial outlier threshold in the range $Q\sim 3$--$5$ (recall that $Q$ is roughly the scale at which departures from the model start looking like outliers, in units of standard deviations).
+This default should provide a reasonable first balance between robustness and false-positive outlier identification.
+(3) Choose the rank ($K$) using the held-out KL-divergence score of Eq.~\eqref{eq:score}, evaluated on a modest grid of $(Q, K)$ values (and potentially update $Q$), rather than selecting $K$ only after fitting as one might for PCA.
+(4) Inspect the residuals ${\bf Y} - {\bf A} {\bf G}^\top$ in conjunction with the validation score.
+A well-described inlier population should leave residuals that are largely unstructured across objects.
+In contrast, coherent residual structure shared across many onjects may indicate the presence of additional shared structure not represented by the current model.
+This can either be due to an outlier population with common low-rank structure (as discussed above), or because the chosen rank is not sufficient to describe all inlier structure.
+This is largely up to interpretation may be informed by pre-existing knowledge of the dataset: one must \emph{decide} whether to increase $K$ and absorb this structure into the model, or retain it as anomalous.
+This choice is application-dependent and cannot be resolved by the model alone; it requires scientific judgement.
+
+In many applications, little further tuning should be required for RHMF to provide a robust low-rank embedding of heteroskedastic data with missing entries, together with per-pixel and per-object outlier scores derived from a single objective function.
+
 An installable version of the Robusta-HMF code in python is available at \url{https://github.com/TomHilder/robusta-hmf}, along with all of the code used to make the figures in this paper.
 
 \begin{acknowledgments}
