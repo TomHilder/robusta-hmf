@@ -318,7 +318,7 @@ It is also available at \url{https://github.com/TomHilder/robusta-hmf}, and the 
 
 \subsection{Toy Spectra} \label{sec:toy}
 
-We generated 8,000 synthetic spectra (objects) with 1,200 pixels (features) on the same wavelength grid, from a linear sum of a few polynomials and a low- and fixed-frequency sinusoid to represent continuum, and absorption lines present in all the spectra. %\arc{what details about absorption lines?}
+We generated 8,000 synthetic spectra (objects) with 1,200 pixels (features) on the same wavelength grid, from a linear sum of a few polynomials and a low- and fixed-frequency sinusoid to represent continuum, and absorption lines present in all the spectra.
 The true underlying model is therefore linear with rank 5.
 We then corrupted the dataset in following ways:
 \begin{enumerate}
@@ -466,7 +466,7 @@ The number of identified outliers is labelled for each bin, as well as the total
 For the lower main-sequence bins (K and M-type stars; bins 6 through 14) we see similar behaviour in the distributions of weights as in the toy example, with a large population of spectra with large weights (inliers), and a very sparse tail of spectra with weights ranging from $\lesssim 0.5$ to $\lesssim 0.1$ (outliers).
 In the upper main-sequence (closer to A and F-type stars; bins 0 through 5), the tail of the distribution is better populated, making it more difficult to identify a well-defined outlier separation.
 This is not completely explained by number counts: there are 193 outliers marked in bin 0 from 6,846 spectra; and just 2 outlier in bin 7 from 9,286 spectra.
-It is consistent with the fact that the upper main-sequence is more spectrally complex\arc{Do we mean more spectrally diverse? A-type stars are just hydrogen, so they are not that complex, but there could be higher spectral variance due to their wide range of rotational broadening.}, and so there are more spectra that deviate from the common structure in the data, and thus more spectra with low weights.
+It is consistent with the fact that the upper main-sequence is more spectrally diverse, and so there are more spectra that deviate from the common structure in the data, and thus more spectra with low weights.
 We note, however, that this is not the only interpretation: the variation in flagged-outlier rate is also consistent with the threshold $w_i^{\rm object}<0.5$ not corresponding to a calibrated false-positive rate, with the true rate varying across bins simply because the distribution of $w_i^{\rm object}$ varies with the underlying spectral diversity. Disentangling ``the upper main sequence has more genuinely peculiar stars'' from ``our threshold is differently strict in different bins'' requires the injection-recovery experiment mentioned above; we cannot resolve it from the current data.
 Naturally, having more components (increasing $K$) could capture common kinds of anomalies (e.g., emission lines).
 However, this introduces a double-edged sword: a flexible model can capture more structure in the data, but some of that structure may be capturing relatively common astrophysics! 
