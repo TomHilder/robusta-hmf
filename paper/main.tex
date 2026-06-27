@@ -150,7 +150,6 @@ We make the following assumptions:
 In the end, although we are thinking about having outlier features, we will in fact inflate the uncertainties (lower the weights) on such features such that they are no longer outliers.
 Thus the model does not explicitly classify features into binary outlier and non-outlier classes.
 This distinguishes our approach from standard low-rank-plus-sparse approaches \citep{candes2011}.
-% ARC asks: while the full problem may not be convex, is each individual update step guaranteed to be convex?
 Related to this, our method is not convex, so there is an additional implicit assumption that the optimization scheme, including its initialization, finds a good local solution.
 This is generally true when the outliers are rare and the heteroskedasticity is not extreme.
 
@@ -168,7 +167,7 @@ This setup induces a quadratic penalty in the residuals $r_{ij} = y_{ij} - \sum_
 
 We introduce robustness to the model by replacing the likelihood with a heavy-tailed distribution.
 Here, we choose Student's t-distribution, but our method is generalizable to any heavy-tailed distribution.
-The cost function (negative log likelihood) and likelihood therefore become %\footnote{Note that strictly there is a $\nu s^2/2$ prefactor for the full negative log-likelihood.}
+The cost function (negative log likelihood) and likelihood therefore becomes
 \begin{align}
     \hat{\bf A}, \hat{\bf G} &= \argmin_{\bf A, G} \left[ \sum_{ij} \log\left(1 + \frac{w_{ij} r_{ij}^2}{\nu s^2}\right) \right], \label{eq:robust_opt} \\
     {\rm or \,\, equivalently} \quad y_{ij} &\sim {\rm StudentT}_\nu \left( \sum_k a_{ik} g_{kj}, s^2 \sigma_{ij}^2 \right) \label{eq:t_like}
@@ -370,8 +369,6 @@ Elsewhere the residuals are small and contain only noise.
 The outlier lines are easy to identify by eye in the residuals.
 The bottom panel of Fig~\ref{fig:toy_residuals} shows the inferred robust weights $w_{ij}^{\rm robust}$.
 These weights exhibit random fluctuations near 1 across most of the spectrum, but drop to values of $\lesssim 0.5$ in outlier locations, with the outlier lines dropping even to $\lesssim 0.2$.
-% In combination with the residuals, the weights can thus be used to identify outliers in the spectra by eye, and the population of weights across a single spectrum or across the whole dataset can be used to measure the degree to which a particular spectrum or pixel is outlying, as we will show below.
-% Above line not really needed after update to Section~\ref{sec:outlier_id}.
 
 \begin{figure}
     \centering
@@ -433,7 +430,6 @@ This can be partially remediated by increasing $Q$ to downweight less aggressive
 $Q<3$ causes false positives despite large enough $K$, because the downweighting is too aggressive.
 These results demonstrate that the best outlier identification is obtained near the best validation score, but also that picking $K$ or $Q$ too large does not dramatically degrade the outlier identification.
 However, this is likely contingent on the accuracy of the provided measurement uncertainties, as well as the degree to which the outliers do not share low-rank structure with the rest of the data.
-% \tom{Maybe not explained adequately, or maybe move to discussion. Likely this will get trimmed after writing discussion.}\\
 
 \subsection{Outliers in the Gaia RVS main sequence} \label{sec:gaia}
 
@@ -448,16 +444,12 @@ To demonstrate RHMF in a more realistic setting, we applied it to Gaia/RVS spect
 
 We ran RHMF on stars in local regions of color-magnitude along the main-sequence (Figure~\ref{fig:hr_bins}).
 The motivation for local regions is largely interpretability, in that we want to be able to understand the common structure in the spectra of stars in a particular region of the Hertzprung-Russell diagram, and then identify spectra that deviate from that common structure.\footnote{An added benefit to running RHMF on local regions is computational efficiency.}
-%We fit RHMF models separately to local regions in color-magnitude space along the main sequence.
-%Figure~\ref{fig:hr_bins} demonstrates how we used these regions to define bins, where the analysis is then performed on each bin separately.
-We used 14 regions, evenly spaced in Gaia BP$-$RP color and nearly evenly spaced in G-band absolute magnitude. %\footnote{We found that to cover the main sequence, it was necessary to curve the bin centre locations downwards near bins 4-7.}.
+We used 14 regions, evenly spaced in Gaia BP$-$RP color and nearly evenly spaced in G-band absolute magnitude.
 The widths in color and magnitude were chosen to ensure that they slightly overlap, such that some stars belong to two bins. 
 Within each bin, we randomly selected half the spectra to fit using RHMF, where we initialised the vectors with SVD and iterated until the maximum fractional g-step adjustment was $<10^{-4}$.
 We chose to use $K=10$ basis vectors and set $Q=5$ for all bins. We did not perform any cross-validation, primarily because we are interested in identifying \emph{potentially} interesting spectra (which will be vetted by humans), and so the exact classification performance is not of primary importance to us.
 And while we recommend cross-validation in practice, it is worth noting that our toy example showed that outlier identification is relatively insensitive to the choice of $Q$ and $K$, provided that they are not too small.
 The vectors fit from the randomly selected half of the spectra in each bin were then used to predict coefficients and weights for the other half.
-
-
 
 \begin{figure}
     \centering
@@ -466,15 +458,11 @@ The vectors fit from the randomly selected half of the spectra in each bin were 
     \label{fig:gaia_weights}
 \end{figure}
 
-%In terms of outlier identification, we were interested in finding spectra that may look mostly normal, but with one or a few unusual features, such as an unusual line.
 With basis coefficients, predicted model spectra, and robust weights for all spectra in each bin, we were then able to identify outlier spectra as those with low per-object weights.
 Here, the per-object weights $w_i^{\rm object}$ were calculated as the lowest 1\% percentile over $j$ from the per-pixel robust weights $w^\mathrm{robust}_{ij}$.
 We set a threshold of $0.5$, such that if $w_i^{\rm object} < 0.5$ then spectrum $i$ is flagged as a potential outlier, this is shown as a vertical dashed line in the figure.
 The number of identified outliers is labelled for each bin, as well as the total number of spectra in that bin.
-%\arc{This might be a rabbit hole, and if it looks to be, I don't want to venture there. However, do we know what the expected \emph{distribution} is for the per-object weights? If I look at Figure 6 (object-level weights for each bin) then at first glance I thought \emph{`well, perhaps these more frequent outliers is just because of sampling: that all bins are distributed the same way and we are just sampling more outliers in some bins'}. But when I look more carefully, bin 0 has 193 outliers and 7k spectra, whereas bin 7 has 10k spectra and only 2 outliers. So the spectral complexity in bin 0 is higher than bin 7. I know that K and Q can be fiddled, but I am just wondering conceptually if there is some expected distribution of the per-object weights, because that could help guide the decision of Q and K given the number of input spectra and the rough `rate' of outliers that you are interested in investigating}\\
-% Need to remember to return to the point that we did not tune the threshold, which might matter a bit since the distribution varies across the bins. Of course, we just pick three outliers to show anyway, but it might matter for a systematic study
 
-% \arc{Consider putting this to discussion.}
 For the lower main-sequence bins (K and M-type stars; bins 6 through 14) we see similar behaviour in the distributions of weights as in the toy example, with a large population of spectra with large weights (inliers), and a very sparse tail of spectra with weights ranging from $\lesssim 0.5$ to $\lesssim 0.1$ (outliers).
 In the upper main-sequence (closer to A and F-type stars; bins 0 through 5), the tail of the distribution is better populated, making it more difficult to identify a well-defined outlier separation.
 This is not completely explained by number counts: there are 193 outliers marked in bin 0 from 6,846 spectra; and just 2 outlier in bin 7 from 9,286 spectra.
@@ -573,6 +561,8 @@ As we have shown here, RHMF has utility both in identifying outliers \emph{and} 
 
 The RHMF algorithm presented here is intended for the common astronomical survey setting in which one has a large collection of nominally similar objects, per-feature uncertainties that are of variable (and potentially imperfectly known) quality, scattered missing entries, and a small fraction of `anomalous' objects or features.
 RHMF simultaneously serves two purposes: it recovers a low-rank description of the bulk of the data, which is (ideally) undistorted by bad data or anomalies; and, RHMF provides per-feature and per-object measures of data that depart from that low-rank description.
+
+% ADVICE
 
 We recommend the following workflow as a practical default, that may be useful in many applications.
 (1) Initialise the basis with a (possibly randomized) singular-value decomposition of the data.
