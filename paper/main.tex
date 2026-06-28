@@ -349,7 +349,7 @@ Indeed, if the missing data segment contained an absorption line (which some of 
 \begin{figure}
     \centering
     \includegraphics[width=0.98\linewidth]{figs/absorption_line_residuals.pdf}
-    \caption{Randomly selected noisy toy spectrum that contains outlier absorptions lines, random outlier bad pixels, a pixel bad across many spectra, and a missing data segment. The top panel shows the data compared with the best-fit PCA, RPCA and RHMF models. The middle panel shows the RHMF model-subtracted residuals, demonstrating that the model has ignored the outlier pixels and lines, making them easy to identify by eye. The bottom panel shows the inferred robust weights, showing that the outlier pixels and lines have been down-weighted by the model, also useful for identification. The PCA, RPCA, and RHMF models are all fit with $K=5$ basis vectors, and the RHMF model is fit with $Q=5$.}
+    \caption{Randomly selected noisy toy spectrum containing outlier absorptions lines, random outlier bad pixels, a pixel bad across many spectra, and a missing data segment. Top panel shows the data compared with the best-fit PCA (red, dashed-dotted), RPCA (blue, dotted) and RHMF (green, dashed) models. Middle panel shows the RHMF model-subtracted residuals, demonstrating that the model has ignored the outlier pixels and lines, making them easy to identify by eye. Bottom panel shows the inferred robust weights, showing that the outlier pixels and lines have been down-weighted by the model, also useful for identification. The PCA, RPCA, and RHMF models are all fit with $K=5$ basis vectors, and the RHMF model is fit with $Q=5$.}
     \label{fig:toy_residuals}
 \end{figure}
 
@@ -375,7 +375,7 @@ These weights exhibit random fluctuations near 1 across most of the spectrum, bu
 \begin{figure}
     \centering
     \includegraphics[width=0.88\linewidth]{figs/normal_vs_outlier_spectra_reconstructions.pdf}
-    \caption{Noisy toy spectra randomly selected from across the training and test sets, with the best-fit RHMF model predictions overlaid. The top 3 are ``normal'' spectra, while the bottom 3 are outlier spectra. In the normal spectra, the model picks up on the common structure and ignores pixel-level outliers, while in the outlier spectra the model does not attempt to fit the high-frequency sinusoidal structure at all, which is the intent. The shown model has $K=5$ and $Q=5$.}
+    \caption{Noisy toy spectra randomly selected from across the training and test sets, with the best-fit RHMF model predictions (black, dashed) overlaid. The top 3 are ``normal'' spectra (blue), while the bottom 3 are outlier spectra (orange). In the normal spectra, the model picks up on the common structure and ignores pixel-level outliers, while in the outlier spectra the model does not attempt to fit the high-frequency sinusoidal structure at all, which is the intent. The shown model has $K=5$ and $Q=5$.}
     \label{fig:toy_spectra}
 \end{figure}
 
@@ -388,7 +388,7 @@ This shows that the downweighting mechanism works on both a local per-data-point
 \begin{figure}
     \centering
     \includegraphics[width=0.55\linewidth]{figs/weights_per_object_clean_vs_outlier.pdf}
-    \caption{Distribution of the object-level weights $w_i^{\rm object}$ for the toy data, coloured by whether the spectrum is an outlier or not. The model clearly distinguishes the outlier spectra, which tend to have lower weights than normal spectra. The shown model has $K=5$ and $Q=5$.}
+    \caption{Distribution of the object-level weights $w_i^{\rm object}$ for the toy data, coloured by whether the spectrum is truly outlier (orange, hatched) or not (blue). The model clearly distinguishes the outlier spectra, which tend to have lower weights than normal spectra. The shown model has $K=5$ and $Q=5$.}
     \label{fig:toy_weights}
 \end{figure}
 
@@ -477,24 +477,26 @@ This emphasizes a fundamental limitation: if the objects you consider are outlie
 \begin{figure}
     \centering
     \includegraphics[width=0.98\linewidth]{figs/bin_00_K10_Q5.00_idx_00567_srcid_1363284299777747584_weight_0.009.pdf}
-    \caption{Gaia/RVS spectrum (black) of Gaia DR3 1363284299777747584 (HD 162732; 88 Her) that we identified as an outlier ($w_i^{\rm object} = 9\times10^{-3}$) in bin 0, shown with the poor reconstruction (green). This system is a suspected binary system that hosts a Be star with an equatorial disk of gas.}
+    \caption{Gaia/RVS spectrum (black) of Gaia DR3 1363284299777747584 (HD 162732; 88 Her) that we identified as an outlier ($w_i^{\rm object} = 9\times10^{-3}$) in bin 0, shown with the RHMF reconstruction (green, dashed). This system is a suspected binary system that hosts a Be star with an equatorial disk of gas.}
     \label{fig:gaia_spec_1}
 \end{figure}
 
 \begin{figure}
     \centering
     \includegraphics[width=0.98\linewidth]{figs/bin_01_K10_Q5.00_idx_14536_srcid_5309096898078973568_weight_0.985.pdf}
-    \caption{Gaia/RVS spectrum (black) of a more typical star (Gaia DR3 5309096898078973568) on the upper main-sequence, shown with the good reconstruction (green). Unlike the outlier spectrum shown in Figure~\ref{fig:gaia_spec_1}, this spectrum has a high object-level weight of $w_i^{\rm object} = 0.985$, consistent with it being a typical star in this bin.}
+    \caption{Gaia/RVS spectrum (black) of a more typical star (Gaia DR3 5309096898078973568) on the upper main-sequence, shown with the good reconstruction (green, dashed). Unlike the outlier spectrum shown in Figure~\ref{fig:gaia_spec_1}, this spectrum has a high object-level weight of $w_i^{\rm object} = 0.985$, consistent with it being a typical star in this bin.}
     \label{fig:gaia_spec_normal}
 \end{figure}
 
-As a method-confidence check, we first verified that RHMF assigns very low object-level weight to a spectrum that is obviously off the main-sequence manifold. The lowest-weight object in bin 0, shown in Figure~\ref{fig:gaia_spec_1}, is 88 Her (HD 162732; Gaia DR3 1363284299777747584) with $w_i^{\rm object} = 9\times10^{-3}$. The reconstruction is poor, as expected for a spectrum with broad Paschen lines indicative of a hot, fast-rotating star (Figure~\ref{fig:gaia_spec_normal}). This system is a known suspected binary hosting a Be-shell star with an equatorial disk of ejected gas viewed edge-on \citep{abt1995,Rivinius:2006}; the classification is taken from the literature and is not a finding of this work. We include it solely to demonstrate that the method does the obvious thing on an obvious case.
+As a method-confidence check, we first verified that RHMF assigns very low object-level weight to a spectrum that is obviously off the main-sequence manifold. 
+The lowest-weight object in bin 0, shown in Figure~\ref{fig:gaia_spec_1}, is 88 Her (HD 162732; Gaia DR3 1363284299777747584) with $w_i^{\rm object} = 9\times10^{-3}$. The reconstruction is poor, as expected for a spectrum with broad Paschen lines indicative of a hot, fast-rotating star (Figure~\ref{fig:gaia_spec_normal}). 
+This system is a known suspected binary hosting a Be-shell star with an equatorial disk of ejected gas viewed edge-on \citep{abt1995,Rivinius:2006}; the classification is taken from the literature and is not a finding of this work. 
+We include it solely to demonstrate that the method does the obvious thing on an obvious case.
 
 \begin{figure}
     \centering
-    \includegraphics[width=0.96\linewidth]{figs/bin_13_K10_Q5.00_idx_00344_srcid_3136952686035250688_weight_0.173.pdf}
-    \includegraphics[width=0.97\linewidth]{figs/bin_13_K10_Q5.00_idx_00350_srcid_3195919254111314816_weight_0.453.pdf}
-    \caption{Two M-dwarf outliers identified in bin 13: Gaia DR3 3136952686035250688 (top), and Gaia DR3 3195919254111314816 (bottom). Both show the model reconstructions in green, where the residual panels highlight emission in the Ca II triplet, consistent with stellar activity. The emission in the top panel is visibly obvious. The emission signature in lower panel is only discernible when compared to the model reconstruction of normal spectra, highlighting the utility of RHMF for identifying subtle outliers among large heteroskedastic datasets.}
+    \includegraphics[width=0.97\linewidth]{figs/gaia_spec_2.pdf}
+    \caption{Two M-dwarf outliers identified in bin 13: Gaia DR3 3136952686035250688 (top), and Gaia DR3 3195919254111314816 (bottom). Both show the model reconstructions in green (dashed), where the residual panels highlight emission in the Ca II triplet, consistent with stellar activity. The emission in the top panel is visibly obvious. The emission signature in lower panel is only discernible when compared to the model reconstruction of normal spectra, highlighting the utility of RHMF for identifying subtle outliers among large heteroskedastic datasets.}
     \label{fig:gaia_spec_2}
 \end{figure}
 

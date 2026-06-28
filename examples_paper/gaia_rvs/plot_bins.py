@@ -13,9 +13,7 @@ from analysis_funcs import build_bins_from_config
 
 plt.style.use("mpl_drip.custom")
 
-PAPER_PLOTS_DIR = (
-    Path(__file__).parent.parent.parent.parent.parent / "papers/robust-hmf/paper/documents/figs"
-)
+PAPER_PLOTS_DIR = Path(__file__).resolve().parents[2] / "paper" / "figs"
 assert PAPER_PLOTS_DIR.exists(), "PAPER_PLOTS_DIR does not exist, please update the path."
 
 

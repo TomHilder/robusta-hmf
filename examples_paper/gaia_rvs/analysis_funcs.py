@@ -3,27 +3,24 @@ Reusable analysis functions for Gaia RVS robust matrix factorization.
 """
 
 import gc
+import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+import gaia_config as cfg
 import jax
 import matplotlib.pyplot as plt
-from matplotlib.ticker import MultipleLocator
 import numpy as np
 import pandas as pd
 from bins import build_all_bins
 from collect import MatchedData, compute_abs_mag
+from matplotlib.ticker import MultipleLocator
 from rvs_plot_utils import add_line_markers, load_linelists
 from tqdm import tqdm
 
 from robusta_hmf import Robusta
 from robusta_hmf.state import RHMFState, load_state_from_npz
-
-import json
-
-import gaia_config as cfg
-
 
 # === Data structures === #
 
@@ -1341,28 +1338,40 @@ def _make_residual_figure(
     λ_grid, flux, reconstruction, residual, robust_weights, source_id,
     i_bin, idx, per_object_weight, best_K, best_Q,
     lines, line_kwargs,
+    axes=None, show_xlabel=True, show_legend=True, label_lines=True, suptitle_kwargs=None,
 ):
-    """Create a single 3-panel residual figure with the given line marker settings."""
-    fig, axes = plt.subplots(
-        3, 1, figsize=(12, 8), dpi=150, sharex=True,
-        gridspec_kw={"height_ratios": [3, 2, 1]},
-    )
+    """Create (or draw into) a 3-panel residual figure.
+
+    If ``axes`` is None, a new standalone 3-panel figure is created and returned
+    (the original behaviour). If a length-3 sequence of axes is provided, the
+    panels are drawn into them instead and the figure is not finalised (used to
+    stack multiple objects into one figure); None is returned in that case.
+    """
+    own_fig = axes is None
+    if own_fig:
+        fig, axes = plt.subplots(
+            3, 1, figsize=(12, 8), dpi=150, sharex=True,
+            gridspec_kw={"height_ratios": [3, 2, 1]},
+        )
 
     # Top panel: spectrum and reconstruction
-    axes[0].plot(λ_grid, flux, c="k", lw=2.0, label="Observed")
-    axes[0].plot(λ_grid, reconstruction, c="tab:green", lw=2.0, label="Reconstruction")
+    axes[0].set_xlim(846, 870)
+    axes[0].plot(λ_grid, flux, c="k", lw=2.8, label="Data")
+    axes[0].plot(λ_grid, reconstruction, c="tab:green", lw=2.2, label="Model", ls=(0, (5, 1)))
     axes[0].set_ylabel("Flux")
-    axes[0].legend(loc="best")
+    if show_legend:
+        axes[0].legend(loc="best")
 
     # Middle panel: residual
-    axes[1].plot(λ_grid, residual, c="k", lw=2.0)
+    axes[1].plot(λ_grid, residual, c="k", lw=2.8)
     axes[1].set_ylabel("Residual\nFlux")
 
     # Bottom panel: robust weights
-    axes[2].plot(λ_grid, robust_weights, c="k", lw=2.0)
+    axes[2].plot(λ_grid, robust_weights, c="k", lw=2.8)
     axes[2].set_ylim(-0.05, 1.05)
     axes[2].set_ylabel("Robust\nWeight")
-    axes[2].set_xlabel("Wavelength [nm]")
+    if show_xlabel:
+        axes[2].set_xlabel("Wavelength [nm]")
 
     # Add spectral line markers to all panels (labels only on top panel)
     if lines is not None:
@@ -1371,10 +1380,10 @@ def _make_residual_figure(
             label_fontsize = line_kwargs.pop("label_fontsize", 6)
             label_fontsize = round(label_fontsize * 1.7)
             wl_range = (float(λ_grid.min()), float(λ_grid.max()))
-            # Top panel: with labels
+            # Top panel: with labels (suppressed when stacking sub-panels)
             add_line_markers(
-                ax=axes[0], lines=lines, label_fontsize=label_fontsize,
-                wl_range=wl_range, **line_kwargs,
+                ax=axes[0], lines=lines, show_labels=label_lines,
+                label_fontsize=label_fontsize, wl_range=wl_range, **line_kwargs,
             )
             # Middle and bottom panels: no labels
             for ax in axes[1:]:
@@ -1391,9 +1400,13 @@ def _make_residual_figure(
         ax.xaxis.set_major_locator(MultipleLocator(1.0))
         ax.tick_params(which="major", length=6)
 
-    fig.align_ylabels()
-    plt.tight_layout()
-    return fig
+    if own_fig:
+        if suptitle_kwargs is not None:
+            fig.suptitle(**suptitle_kwargs)
+        fig.align_ylabels()
+        plt.tight_layout()
+        return fig
+    return None
 
 
 # Line set variants: (subdirectory name or None for main, show_kwargs)
