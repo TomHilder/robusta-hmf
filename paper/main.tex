@@ -594,15 +594,16 @@ This can either be due to an outlier population with common low-rank structure (
 This is largely up to interpretation may be informed by pre-existing knowledge of the dataset: one must \emph{decide} whether to increase $K$ and absorb this structure into the model, or retain it as anomalous.
 This choice is application-dependent and cannot be resolved by the model alone; it requires scientific judgement.
 
-In many applications, little further tuning should be required for RHMF to provide a robust low-rank embedding of heteroskedastic data with missing entries, together with per-pixel and per-object outlier scores derived from a single objective function.
+In many applications, little further tuning should be required for RHMF to provide a robust low-rank description of heteroskedastic data with missing entries, together with per-pixel and per-object outlier scores derived from a single objective function.
 
 An installable version of the Robusta-HMF code in python is available at \url{https://github.com/TomHilder/robusta-hmf}, along with all of the code used to make the figures in this paper.
 
 \begin{acknowledgments}
-  The authors thank the Stars group at MPIA, and the Inference group at Monash University, for valuable discussions.
+  The authors thank the Stars group at MPIA, the Astronomical Data group at the Flatiron Institute, and the Inference group at Monash University, for valuable discussions.
   TH is supported by an Australian Government Research Training Program (RTP) Scholarship.
   The Flatiron Institute is a division of the Simons Foundation.
   \tom{Please add any other acknowledgments, grants, etc. here @DWH, @ARC, @HWR.}
+  \hogg{I am penniless as of the publication of this paper.}
   DWH acknowledges that the land politically designated as New York City is the homeland of the Lenape (Lenapehoking), who were unjustly displaced.
 \end{acknowledgments}
 
