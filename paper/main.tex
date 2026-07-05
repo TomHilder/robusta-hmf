@@ -448,7 +448,7 @@ However, this is likely contingent on the accuracy of the provided measurement u
 
 \subsection{Outliers in the Gaia RVS main sequence} \label{sec:gaia}
 
-To demonstrate RHMF in a more realistic setting, we applied it to Gaia/RVS spectra to look for unusual main-sequence stars \citep{collaboration2016,collaboration2023,katz2023}. Here, \emph{unusual} is qualitatively defined by the spectrum deviating significantly from typical stars in neighboring color-magnitude space, and quantified by the inferred robust weights. Examples classes could be binary systems, stars with peculiarly high rotation, stars with signatures of accretion or chromospheric activity, or perhaps other unknown unknowns.
+To demonstrate RHMF in a more realistic setting, we applied it to Gaia/RVS spectra to look for unusual main-sequence stars \citep{collaboration2016,vallenari2023,katz2023}. Here, \emph{unusual} is qualitatively defined by the spectrum deviating significantly from typical stars in neighboring color-magnitude space, and quantified by the inferred robust weights. Examples classes could be binary systems, stars with peculiarly high rotation, stars with signatures of accretion or chromospheric activity, or perhaps other unknown unknowns.
 
 \begin{figure}
     \centering
@@ -503,7 +503,7 @@ This emphasizes a fundamental limitation: if the objects you consider are outlie
 
 As a method-confidence check, we first verified that RHMF assigns very low object-level weight to a spectrum that is obviously off the main-sequence manifold. 
 The lowest-weight object in bin 0, shown in Figure~\ref{fig:gaia_spec_1}, is 88 Her (HD 162732; Gaia DR3 1363284299777747584) with $w_i^{\rm object} = 9\times10^{-3}$. The reconstruction is poor, as expected for a spectrum with broad Paschen lines indicative of a hot, fast-rotating star (Figure~\ref{fig:gaia_spec_normal}). 
-This system is a known suspected binary hosting a Be-shell star with an equatorial disk of ejected gas viewed edge-on \citep{abt1995,Rivinius:2006}; the classification is taken from the literature and is not a finding of this work. 
+This system is a known suspected binary hosting a Be-shell star with an equatorial disk of ejected gas viewed edge-on \citep{abt1995,rivinius2006}; the classification is taken from the literature and is not a finding of this work. 
 We include it solely to demonstrate that the method does the obvious thing on an obvious case.
 
 \begin{figure}
@@ -602,8 +602,6 @@ An installable version of the Robusta-HMF code in python is available at \url{ht
   The authors thank the Stars group at MPIA, the Astronomical Data group at the Flatiron Institute, and the Inference group at Monash University, for valuable discussions.
   TH is supported by an Australian Government Research Training Program (RTP) Scholarship.
   The Flatiron Institute is a division of the Simons Foundation.
-  \tom{Please add any other acknowledgments, grants, etc. here @DWH, @ARC, @HWR.}
-  \hogg{I am penniless as of the publication of this paper.}
   DWH acknowledges that the land politically designated as New York City is the homeland of the Lenape (Lenapehoking), who were unjustly displaced.
 \end{acknowledgments}
 
