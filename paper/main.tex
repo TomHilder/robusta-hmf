@@ -69,13 +69,13 @@
 \affiliation{Max-Planck-Institut f\"ur Astronomie, K\"onigstuhl 17, D-69117 Heidelberg, Germany}
 
 \begin{abstract}\noindent\hsize=\textwidth\leftskip=0.05\textwidth\rightskip=\leftskip % trust in Hogg
-  We present Robust Heteroskedastic Matrix Factorization (RHMF), a generalization of Principal Component Analysis (PCA) that is robust to outliers, handles per-feature uncertainties and missing data, and automatically flags per-point and per-object anomalies.
+  We present Robust Heteroskedastic Matrix Factorization (RHMF), a generalization of Principal Component Analysis (PCA) that is robust to outliers, handles per-feature uncertainties and missing data, and automatically flags per-feature and per-object anomalies.
   RHMF is useful both in recovering a low-dimensional embedding unspoiled by bad data or anomalies, and in identifying those anomalies.
-  It utilises an iterative reweighting algorithm that implicitly maximizes a Student-$t$ likelihood.
+  It utilises an iterative reweighting algorithm that implicitly maximizes a Student-t likelihood.
   This admits an equivalent probabilistic interpretation as fitting a hierarchical model with per-data-point latent variances.
   We deliver a fast \texttt{JAX} implementation, \texttt{Robusta-HMF}, and practical guidance for users. We demonstrate the ability of the model to identify and mitigate outliers of different classes.
   Identification accuracy is contingent on the choice of hyperparameters, but we show that these can be set reliably by cross-validation.
-  We also apply RHMF to RVS spectra from Gaia DR3 to find main sequence stars that are strange relative to their neighbors in color-magnitude space.
+  We also apply RHMF to RVS spectra from Gaia DR3 to find main-sequence stars that are strange relative to their neighbors in color-magnitude space.
   We highlight specific examples, including a known binary hosting a Be star, and M-dwarfs with subtle emission in the Ca II triplet lines, indicative of accretion or magnetic activity, which would not be obvious to identify by eye.
   \end{abstract}
 
@@ -121,7 +121,7 @@ We show that the model also has a probabilistic interpretation as either heavy-t
 To our knowledge, no published robust matrix factorization method has all of these properties together: heteroskedasticity, missing data, robustness to outliers, and a probabilistic interpretation.
 However, the ingredients we draw on are not individually new. The closest competitor analogue is cellPCA \citep{centofanti2024}, which handles casewise outliers, cellwise outliers, and missing entries in a single IRLS objective, but assumes homoskedasticity.
 Heavy-tailed and IRLS-based approaches to robust subspace recovery have a long history more broadly \citep[for reviews see][]{bouwmans2015,polyak2017}. Unlike \citet{candes2011} and its descendants \citep[e.g.,][]{zhou2010,yin2019}, we do not explicitly learn a sparse outlier matrix ${\bf S}$, and instead rely on the inferred robust weights to quantify outlier-y-ness. 
-The loss family we use is also a direct descendant of Truncated Cauchy NMF \citep{guan2019}, since fixing $\nu=1$ in our Student-$t$ likelihood recovers a Cauchy loss.
+The loss family we use is also a direct descendant of Truncated Cauchy NMF \citep{guan2019}, since fixing $\nu=1$ in our Student-t likelihood recovers a Cauchy loss.
 What RHMF adds to this body of work is the combination, at survey scale, of: a probabilistic / hierarchical-Bayes formulation that exposes the latent variances; per-pixel heteroskedasticity carried through the model from the start, rather than added as a post-hoc reweighting of an outlier-only loss; coherent variational down-weighting at both the pixel and the object level inside a single objective; and a \texttt{JAX} implementation that scales to spectroscopic-survey-size data. Our novelty claim is therefore the package of these properties at scale, not any one of them in isolation.
 
 In Section~\ref{sec:methods} we present the model, the algorithm by which it is fit, and discuss using it for outlier identification. 
@@ -181,7 +181,7 @@ This setup induces a quadratic penalty in the residuals $r_{ij} = y_{ij} - \sum_
 
 
 We introduce robustness to the model by replacing the likelihood with a heavy-tailed distribution.
-Here, we choose Student's t-distribution, but our method is generalizable to any heavy-tailed distribution.
+Here, we choose the Student-t, but our method is generalizable to any heavy-tailed distribution.
 The cost function (negative log likelihood) and likelihood therefore becomes
 \begin{align}
     \hat{\bf A}, \hat{\bf G} &= \argmin_{\bf A, G} \left[ \sum_{ij} \log\left(1 + \frac{w_{ij} r_{ij}^2}{\nu s^2}\right) \right], \label{eq:robust_opt} \\
@@ -457,7 +457,7 @@ To demonstrate RHMF in a more realistic setting, we applied it to Gaia/RVS spect
     \label{fig:hr_bins}
 \end{figure}
 
-We ran RHMF on stars in local regions of color-magnitude along the main-sequence (Figure~\ref{fig:hr_bins}).
+We ran RHMF on stars in local regions of color-magnitude along the main sequence (Figure~\ref{fig:hr_bins}).
 The motivation for local regions is largely interpretability, in that we want to be able to understand the common structure in the spectra of stars in a particular region of the Hertzsprung-Russell diagram, and then identify spectra that deviate from that common structure.\footnote{An added benefit to running RHMF on local regions is computational efficiency.}
 We used 14 regions, evenly spaced in Gaia BP$-$RP color and nearly evenly spaced in G-band absolute magnitude.
 The widths in color and magnitude were chosen to ensure that they slightly overlap, such that some stars belong to two bins. 
@@ -479,9 +479,9 @@ We set a threshold of $0.5$, such that if $w_i^{\rm object} < 0.5$ then spectrum
 The number of identified outliers is labelled for each bin, as well as the total number of spectra in that bin.
 
 For the lower main-sequence bins (K and M-type stars; bins 6 through 13) we see similar behaviour in the distributions of weights as in the toy example, with a large population of spectra with large weights (inliers), and a very sparse tail of spectra with weights ranging from $\lesssim 0.5$ to $\lesssim 0.1$ (outliers).
-In the upper main-sequence (closer to A and F-type stars; bins 0 through 5), the tail of the distribution is better populated, making it more difficult to identify a well-defined outlier separation.
+In the upper main sequence (closer to A and F-type stars; bins 0 through 5), the tail of the distribution is better populated, making it more difficult to identify a well-defined outlier separation.
 This is not completely explained by number counts: there are 193 outliers marked in bin 0 from 6,846 spectra; and just 2 outliers in bin 7 from 9,286 spectra.
-It is consistent with the fact that the upper main-sequence is more spectrally diverse, and so there are more spectra that deviate from the common structure in the data, and thus more spectra with low weights.
+It is consistent with the fact that the upper main sequence is more spectrally diverse, and so there are more spectra that deviate from the common structure in the data, and thus more spectra with low weights.
 We note, however, that this is not the only interpretation: the variation in flagged-outlier rate is also consistent with the threshold $w_i^{\rm object}<0.5$ not corresponding to a calibrated false-positive rate, with the true rate varying across bins simply because the distribution of $w_i^{\rm object}$ varies with the underlying spectral diversity. Disentangling ``the upper main sequence has more genuinely peculiar stars'' from ``our threshold is differently strict in different bins'' requires the injection-recovery experiment mentioned above; we cannot resolve it from the current data.
 Naturally, having more components (increasing $K$) could capture common kinds of anomalies (e.g., emission lines).
 However, this introduces a double-edged sword: a flexible model can capture more structure in the data, but some of that structure may be capturing relatively common astrophysics! 
@@ -497,7 +497,7 @@ This emphasizes a fundamental limitation: if the objects you consider outliers s
 \begin{figure}
     \centering
     \includegraphics[width=0.98\linewidth]{figs/bin_01_K10_Q5.00_idx_14536_srcid_5309096898078973568_weight_0.985.pdf}
-    \caption{Gaia/RVS spectrum (black) of a more typical star (Gaia DR3 5309096898078973568) on the upper main-sequence, shown with the good reconstruction (green, dashed). Unlike the outlier spectrum shown in Figure~\ref{fig:gaia_spec_1}, this spectrum has a high object-level weight of $w_i^{\rm object} = 0.985$, consistent with it being a typical star in this bin.}
+    \caption{Gaia/RVS spectrum (black) of a more typical star (Gaia DR3 5309096898078973568) on the upper main sequence, shown with the good reconstruction (green, dashed). Unlike the outlier spectrum shown in Figure~\ref{fig:gaia_spec_1}, this spectrum has a high object-level weight of $w_i^{\rm object} = 0.985$, consistent with it being a typical star in this bin.}
     \label{fig:gaia_spec_normal}
 \end{figure}
 
@@ -620,7 +620,7 @@ An installable version of the Robusta-HMF code in python is available at \url{ht
 
 \section{Properties of the objective function} \label{sec:proof}
 
-In Eqns.~\eqref{eq:robust_opt} and \eqref{eq:t_like} we wrote the model as optimizing a Student t likelihood.
+In Eqns.~\eqref{eq:robust_opt} and \eqref{eq:t_like} we wrote the model as optimizing a Student-t likelihood.
 The corresponding negative log-likelihood is
 \begin{align}
     \mathcal{L}(A,G) = \frac{Q^2}{2} \sum_{ij} \log\left(1 + \frac{w_{ij}^{\rm data}\,r_{ij}^2}{Q^2}\right), \label{eq:t_loss}
