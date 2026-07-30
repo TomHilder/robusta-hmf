@@ -9,8 +9,8 @@ import polars as pl
 
 # Get the files, check existence
 DATA_LOC = Path(".")
-SPECTRA = DATA_LOC / "dr3-rvs-all.hdf5"
-META = DATA_LOC / "dr3-source-meta.csv"
+SPECTRA = DATA_LOC / "gaia-dr3-rvs-all.hdf5"
+META = DATA_LOC / "gaia-dr3-source-meta.csv"
 assert SPECTRA.is_file()
 assert META.is_file()
 
@@ -74,15 +74,37 @@ class MatchedData:
         hdf5_idx = self.spectra_indices[idx]
         return self.f_spec["flux"][hdf5_idx], self.f_spec["flux_error"][hdf5_idx]
 
-    def get_flux_batch(self, indices):
-        """Get flux for multiple indices - sorts for faster HDF5 access."""
+    def get_flux_batch(self, indices, block=4096):
+        """Get flux for multiple indices - sorts for faster HDF5 access.
+
+        Reads in sorted, contiguous slabs rather than handing the whole index
+        list to h5py. h5py builds a fancy selection by unioning one hyperslab
+        per element, which is quadratic in len(indices): ~34 s for 3.2e4 rows
+        and hours for the ~5e5 rows of the full RVS sample. Slab reads keep it
+        linear and let HDF5 decompress each chunk exactly once.
+        """
         hdf5_indices = self.spectra_indices[indices]
         order = np.argsort(hdf5_indices)
-        sorted_indices = hdf5_indices[order].tolist()
+        sorted_indices = hdf5_indices[order]
 
-        # Read in sorted order (much faster)
-        flux = self.f_spec["flux"][sorted_indices]
-        flux_error = self.f_spec["flux_error"][sorted_indices]
+        d_flux, d_flux_error = self.f_spec["flux"], self.f_spec["flux_error"]
+        n_pix = d_flux.dtype.shape[0]
+        flux = np.empty((len(sorted_indices), n_pix), dtype=d_flux.dtype.base)
+        flux_error = np.empty_like(flux)
+
+        for start in range(0, len(sorted_indices), block):
+            sel = sorted_indices[start : start + block]
+            lo, hi = int(sel[0]), int(sel[-1]) + 1
+            stop = start + len(sel)
+            if hi - lo > 4 * len(sel):
+                # Sparse span: a slab read would waste most of what it decompresses,
+                # and the list is short enough that fancy indexing is still cheap.
+                flux[start:stop] = d_flux[sel.tolist()]
+                flux_error[start:stop] = d_flux_error[sel.tolist()]
+            else:
+                local = sel - lo
+                flux[start:stop] = d_flux[lo:hi][local]
+                flux_error[start:stop] = d_flux_error[lo:hi][local]
 
         # Restore original order
         inv_order = np.argsort(order)
