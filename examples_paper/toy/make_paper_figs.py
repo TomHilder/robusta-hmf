@@ -1106,6 +1106,32 @@ def fig_eigenspectra_kq():
     plt.close(fig)
     print(f"Wrote {out}")
 
+    # --- Overlay variant: one panel per component, lines colored by Q --- #
+    fig, axes = plt.subplots(1, PLOT_K, figsize=(16, 4), sharex=True, dpi=100)
+    cmap = plt.get_cmap("viridis")
+    for jq, q in enumerate(q_vals):
+        res = next(r for r in results if r.K == PLOT_K and r.Q == q)
+        basis = canonical(res)
+        color = cmap(jq / max(len(q_vals) - 1, 1))
+        for i in range(PLOT_K):
+            axes[i].plot(grid / 10, basis[:, i], color=color, lw=1.5, alpha=0.85,
+                         label=f"$Q={q:g}$" if i == 0 else None)
+    for i, ax in enumerate(axes):
+        ax.set_title(f"K{i+1}", fontweight="bold")
+        ax.set_ylim(-0.15, 0.15)
+        if i > 0:
+            ax.set_yticklabels([])
+    axes[0].set_xlabel("Wavelength [nm]")
+    axes[0].legend(loc="lower left", fontsize=9, frameon=False, ncol=2,
+                   handlelength=1.2, columnspacing=0.8)
+    fig.suptitle(r"$\textsf{\textbf{RHMF Eigenspectra vs } Q \textsf{\textbf{ (}} K=5 \textsf{\textbf{)}}}$",
+                fontsize="24", c="dimgrey", y=1.06)
+    plt.tight_layout()
+    out = PAPER_FIGS / "toy_eigenspectra_vs_q_overlay.pdf"
+    plt.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+
     # --- Eigenspectra vs K at fixed Q = PLOT_Q --- #
     k_vals = sorted({r.K for r in results})
     fig, axes = plt.subplots(max_k, len(k_vals), figsize=(2.9 * len(k_vals), 2.1 * max_k),
