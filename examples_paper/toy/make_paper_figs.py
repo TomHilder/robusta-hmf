@@ -47,8 +47,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 results_dir = SCRIPT_DIR / "toy_model_results"
 
 # Hyperparameters of the model used for the per-spectrum / per-pixel figures.
-# Note: Q=5 produces degenerate basis (correlated components). Q=3 has proper orthogonality.
-PLOT_Q = 3
+PLOT_Q = 5
 PLOT_K = 5
 
 # Mean used for imputing NaNs before fitting PCA / RPCA (matches analyse_toy.py).
@@ -697,32 +696,38 @@ def fig_eigenspectra_comparison():
     Vh_rpca = _load_or_compute_rpca(all_spectra_for_fit[train_idx])
     rpca_basis = Vh_rpca[:PLOT_K, :].T  # (M, K)
 
-    # Get RHMF basis (use TRAINED basis, not inferred basis to avoid noise)
+    # Get RHMF basis from the trained model. The factorization is only identified up
+    # to a KxK orthogonal rotation within the learned subspace, so we rotate to the
+    # same canonical frame PCA uses: principal axes of the coefficients, ordered by
+    # coefficient variance. Without this, each component is an arbitrary mixture of
+    # the others and comparison against PCA/RPCA/truth is meaningless.
     result_ind = np.where(
         (np.array([r.Q for r in results]) == PLOT_Q) & (np.array([r.K for r in results]) == PLOT_K)
     )[0][0]
-    plot_rhmf = rhmf_objs[result_ind]
     trained_state = results[result_ind].state
 
-    # Use trained basis (K, M), transpose to (M, K)
-    G = np.array(trained_state.G)
-    if G.shape[0] == PLOT_K and G.shape[1] > PLOT_K:
-        # G is (K, M), transpose to (M, K)
-        rhmf_basis = G.T
-    elif G.shape[1] == PLOT_K and G.shape[0] > PLOT_K:
-        # G is (M, K), use as-is
-        rhmf_basis = G
-    else:
-        # Assume (K, M) and transpose
-        rhmf_basis = G.T
+    G = np.array(trained_state.G)  # (M, K), orthonormal columns
+    A = np.array(trained_state.A)  # (N, K)
+    evals, V = np.linalg.eigh(A.T @ A)
+    V = V[:, np.argsort(evals)[::-1]]  # order by coefficient variance, descending
+    rhmf_basis = G @ V  # (M, K), still orthonormal
 
-    # Get true basis (if available)
+    # Get true basis (if available), ordered by true coefficient variance so it
+    # follows the same canonical convention as the fitted methods.
     true_basis = data.get("true_basis", None)
     if true_basis is not None:
-        # true_basis is stored as (K, M), transpose and slice
-        true_basis = true_basis.T  # Now (M, K)
+        true_basis = true_basis.T  # stored (K, M) -> (M, K)
         if true_basis.shape[1] > PLOT_K:
-            true_basis = true_basis[:, :PLOT_K]  # (M, K)
+            true_basis = true_basis[:, :PLOT_K]
+        true_coeffs = data.get("true_coeffs", None)
+        if true_coeffs is not None:
+            # Order by each component's data-power contribution E[a^2]*||g||^2 (raw
+            # second moment, not variance, since the fitted methods run on
+            # non-mean-subtracted data). This matches the canonical ordering the
+            # fitted methods use.
+            coeff_ms = np.mean(np.array(true_coeffs)[:, :PLOT_K] ** 2, axis=0)
+            power = coeff_ms * np.sum(true_basis**2, axis=0)
+            true_basis = true_basis[:, np.argsort(power)[::-1]]
 
     # Ensure all bases are (M, K)
     if pca_basis.shape[1] > PLOT_K:
@@ -738,6 +743,15 @@ def fig_eigenspectra_comparison():
     rhmf_basis = rhmf_basis / np.linalg.norm(rhmf_basis, axis=0, keepdims=True)
     if true_basis is not None:
         true_basis = true_basis / np.linalg.norm(true_basis, axis=0, keepdims=True)
+
+        # Eigenvector signs are arbitrary for every method; flip each component to
+        # positively align with its best-matching true component for readability.
+        for basis in (pca_basis, rpca_basis, rhmf_basis):
+            for k in range(basis.shape[1]):
+                overlaps = true_basis.T @ basis[:, k]
+                j = np.argmax(np.abs(overlaps))
+                if overlaps[j] < 0:
+                    basis[:, k] *= -1
 
     # Create figure: 4 columns (methods) × K rows (components)
     n_methods = 4 if true_basis is not None else 3
