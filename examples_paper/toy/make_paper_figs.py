@@ -9,12 +9,15 @@ Usage
     uv run python make_paper_figs.py <name>
 
 where ``<name>`` is one of:
-    toy_weights    -> weights_per_object_clean_vs_outlier.pdf
-    toy_residuals  -> absorption_line_residuals.pdf
-    cv             -> test_set_score_heatmap.pdf
-    toy_spectra    -> normal_vs_outlier_spectra_reconstructions.pdf
-    toy_diversity  -> toy_dataset_diversity.pdf
-    all            -> all of the above
+    toy_weights           -> weights_per_object_clean_vs_outlier.pdf
+    toy_residuals         -> absorption_line_residuals.pdf
+    cv                    -> test_set_score_heatmap.pdf
+    toy_spectra           -> normal_vs_outlier_spectra_reconstructions.pdf
+    toy_diversity         -> toy_dataset_diversity.pdf
+    eigenspectra          -> toy_eigenspectra_comparison.pdf
+    explained_variance    -> toy_explained_variance.pdf
+    coefficients          -> toy_coefficient_distributions.pdf
+    all                   -> all of the above
 
 This script is additive: it does not import or modify analyse_toy.py.
 """
@@ -669,6 +672,215 @@ def fig_toy_spectra():
     print(f"Wrote {out}")
 
 
+def fig_eigenspectra_comparison():
+    """Figure: toy_eigenspectra_comparison.pdf
+
+    4-method side-by-side comparison of basis vectors (eigenspectra):
+    PCA, RPCA, RHMF, and ground truth on same wavelength grid.
+    """
+    data, results, rhmf_objs = _load_results()
+    all_noisy_spectra, all_spectra_for_fit, all_ivar, grid = _all_data_arrays(data)
+
+    # Get PCA basis
+    U_pca, S_pca, Vh_pca = np.linalg.svd(all_spectra_for_fit, full_matrices=False)
+    pca_basis = Vh_pca[:PLOT_K, :].T  # (M, K)
+
+    # Get RPCA basis
+    Vh_rpca = _load_or_compute_rpca(all_spectra_for_fit)
+    rpca_basis = Vh_rpca[:PLOT_K, :].T  # (M, K)
+
+    # Get RHMF basis (from best model)
+    plot_rhmf, all_state = _plot_model_and_state(data, results, rhmf_objs, all_spectra_for_fit, all_ivar)
+    # G is (K, M), so transpose to (M, K)
+    rhmf_basis = all_state.G.T  # (M, K)
+
+    # Get true basis (if available)
+    true_basis = data.get("true_basis", None)
+    if true_basis is not None:
+        true_basis = true_basis[:, :PLOT_K]  # (M, K)
+
+    # Ensure all bases are (M, K)
+    if pca_basis.shape[1] > PLOT_K:
+        pca_basis = pca_basis[:, :PLOT_K]
+    if rpca_basis.shape[1] > PLOT_K:
+        rpca_basis = rpca_basis[:, :PLOT_K]
+    if rhmf_basis.shape[1] > PLOT_K:
+        rhmf_basis = rhmf_basis[:, :PLOT_K]
+
+    # L2-normalize all bases for fair comparison
+    pca_basis = pca_basis / np.linalg.norm(pca_basis, axis=0, keepdims=True)
+    rpca_basis = rpca_basis / np.linalg.norm(rpca_basis, axis=0, keepdims=True)
+    rhmf_basis = rhmf_basis / np.linalg.norm(rhmf_basis, axis=0, keepdims=True)
+    if true_basis is not None:
+        true_basis = true_basis / np.linalg.norm(true_basis, axis=0, keepdims=True)
+
+    # Create figure: 4 columns (methods) × K rows (components)
+    n_methods = 4 if true_basis is not None else 3
+    fig, axes = plt.subplots(PLOT_K, n_methods, figsize=(14, 12), sharex=True, dpi=100)
+    if PLOT_K == 1:
+        axes = axes.reshape(1, -1)
+
+    methods = ["PCA", "RPCA", "RHMF", "True"] if true_basis is not None else ["PCA", "RPCA", "RHMF"]
+    bases = [pca_basis, rpca_basis, rhmf_basis]
+    if true_basis is not None:
+        bases.append(true_basis)
+
+    for i in range(PLOT_K):
+        for j, (method, basis) in enumerate(zip(methods, bases)):
+            ax = axes[i, j]
+            ax.plot(grid / 10, basis[:, i], color="black", lw=1.2, alpha=1.0)
+            ax.fill_between(grid / 10, basis[:, i], alpha=0.15, color="black")
+
+            if i == 0:
+                ax.set_title(method, fontsize=11, fontweight="bold")
+            if j == 0:
+                ax.set_ylabel(f"K{i+1}", fontsize=9)
+            else:
+                ax.set_yticklabels([])
+
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+            ax.spines["left"].set_linewidth(0.5)
+            ax.spines["bottom"].set_linewidth(0.5)
+            ax.grid(False)
+            ax.set_ylim(-0.15, 0.15)
+            ax.tick_params(labelsize=8)
+
+    axes[-1, 0].set_xlabel("Wavelength [nm]", fontsize=9)
+
+    fig.suptitle(r"$\textsf{\textbf{Toy Dataset: Eigenspectra Comparison}}$",
+                fontsize="18", c="dimgrey", y=0.995)
+    plt.tight_layout()
+
+    out = PAPER_FIGS / "toy_eigenspectra_comparison.pdf"
+    plt.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+
+
+def fig_explained_variance():
+    """Figure: toy_explained_variance.pdf
+
+    Explained variance curves for PCA, RPCA, RHMF showing % variance by component.
+    """
+    data, results, rhmf_objs = _load_results()
+    all_noisy_spectra, all_spectra_for_fit, all_ivar, grid = _all_data_arrays(data)
+
+    # PCA variance
+    U_pca, S_pca, Vh_pca = np.linalg.svd(all_spectra_for_fit, full_matrices=False)
+    pca_var = 100 * (S_pca / S_pca.sum())
+
+    # RPCA variance (from basis vectors)
+    Vh_rpca = _load_or_compute_rpca(all_spectra_for_fit)
+    U_rpca, S_rpca, _ = np.linalg.svd(all_spectra_for_fit @ Vh_rpca[:PLOT_K, :].T, full_matrices=False)
+    rpca_var = 100 * (S_rpca / S_rpca.sum()) if S_rpca.size > 0 else np.zeros(min(len(S_pca), PLOT_K*2))
+
+    # RHMF variance (from coefficient magnitudes)
+    plot_rhmf, all_state = _plot_model_and_state(data, results, rhmf_objs, all_spectra_for_fit, all_ivar)
+    rhmf_coeff_var = np.var(all_state.A, axis=0)
+    rhmf_var = 100 * (rhmf_coeff_var / rhmf_coeff_var.sum())
+
+    # Plot
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4), dpi=100)
+
+    for ax, var, label in zip(axes, [pca_var, rpca_var, rhmf_var], ["PCA", "RPCA", "RHMF"]):
+        ax.bar(np.arange(len(var[:10])), var[:10], color="black", alpha=0.6, edgecolor="none", lw=0)
+        ax.set_xlabel("Component", fontsize=9)
+        ax.set_ylabel("Variance (%)", fontsize=9)
+        ax.set_title(label, fontsize=11, fontweight="bold")
+        ax.set_ylim(0, max(var[:10]) * 1.15)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_linewidth(0.5)
+        ax.spines["bottom"].set_linewidth(0.5)
+        ax.tick_params(labelsize=8)
+        ax.set_xticks(range(0, 10, 2))
+
+    fig.suptitle(r"$\textsf{\textbf{Toy Dataset: Explained Variance by Component}}$",
+                fontsize="16", c="dimgrey", y=1.02)
+    plt.tight_layout()
+
+    out = PAPER_FIGS / "toy_explained_variance.pdf"
+    plt.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+
+
+def fig_coefficient_distributions():
+    """Figure: toy_coefficient_distributions.pdf
+
+    Histogram of coefficient values for PCA, RPCA, RHMF,
+    colored by robust weights for RHMF to show downweighting effect.
+    """
+    data, results, rhmf_objs = _load_results()
+    all_noisy_spectra, all_spectra_for_fit, all_ivar, grid = _all_data_arrays(data)
+
+    # Get PCA coefficients
+    U_pca, S_pca, Vh_pca = np.linalg.svd(all_spectra_for_fit, full_matrices=False)
+    pca_A = U_pca[:, :PLOT_K] @ np.diag(S_pca[:PLOT_K])
+
+    # Get RPCA coefficients
+    U_rpca, _, _ = np.linalg.svd(all_spectra_for_fit @ np.linalg.svd(all_spectra_for_fit, full_matrices=False)[2][:PLOT_K, :].T, full_matrices=False)
+    rpca_A = U_rpca[:, :PLOT_K]
+
+    # Get RHMF coefficients
+    plot_rhmf, all_state = _plot_model_and_state(data, results, rhmf_objs, all_spectra_for_fit, all_ivar)
+    rhmf_A = all_state.A
+    rhmf_weights = plot_rhmf.robust_weights(all_spectra_for_fit, all_ivar, state=all_state)
+    per_object_weights = np.median(rhmf_weights, axis=1)
+
+    # Create figure: 3 rows (methods) × K columns (components)
+    fig, axes = plt.subplots(3, PLOT_K, figsize=(14, 8), dpi=100)
+
+    for k in range(PLOT_K):
+        # PCA
+        axes[0, k].hist(pca_A[:, k], bins=30, color="black", alpha=0.5, edgecolor="none", lw=0)
+        axes[0, k].set_title(f"K{k+1}", fontsize=10, fontweight="bold")
+        if k == 0:
+            axes[0, k].set_ylabel("PCA", fontsize=9)
+        else:
+            axes[0, k].set_yticklabels([])
+
+        # RPCA
+        axes[1, k].hist(rpca_A[:, k], bins=30, color="black", alpha=0.5, edgecolor="none", lw=0)
+        if k == 0:
+            axes[1, k].set_ylabel("RPCA", fontsize=9)
+        else:
+            axes[1, k].set_yticklabels([])
+
+        # RHMF with weights (color encodes continuous weight variable)
+        ax = axes[2, k]
+        scatter = ax.scatter(rhmf_A[:, k], per_object_weights, c=per_object_weights,
+                           cmap="RdYlBu_r", s=8, alpha=0.7, edgecolors="none", vmin=0, vmax=1)
+        if k == 0:
+            ax.set_ylabel("RHMF", fontsize=9)
+        else:
+            ax.set_yticklabels([])
+        ax.set_ylim(-0.05, 1.05)
+        ax.axhline(0.5, color="gray", linestyle="-", alpha=0.3, lw=0.8)
+
+        # Styling
+        for i in range(3):
+            axes[i, k].spines["top"].set_visible(False)
+            axes[i, k].spines["right"].set_visible(False)
+            axes[i, k].spines["left"].set_linewidth(0.5)
+            axes[i, k].spines["bottom"].set_linewidth(0.5)
+            axes[i, k].tick_params(labelsize=8)
+            if i < 2:
+                axes[i, k].set_xticklabels([])
+            else:
+                axes[i, k].set_xlabel("Value", fontsize=8)
+
+    fig.suptitle(r"$\textsf{\textbf{Toy Dataset: Coefficient Distributions}}$",
+                fontsize="16", c="dimgrey", y=0.995)
+    plt.tight_layout()
+
+    out = PAPER_FIGS / "toy_coefficient_distributions.pdf"
+    plt.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+
+
 def fig_toy_diversity():
     """Figure: toy_dataset_diversity.pdf
 
@@ -814,6 +1026,9 @@ FIGURES = {
     "cv": fig_cv,
     "toy_spectra": fig_toy_spectra,
     "toy_diversity": fig_toy_diversity,
+    "eigenspectra": fig_eigenspectra_comparison,
+    "explained_variance": fig_explained_variance,
+    "coefficients": fig_coefficient_distributions,
 }
 
 
