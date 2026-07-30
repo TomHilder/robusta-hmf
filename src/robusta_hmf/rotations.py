@@ -69,16 +69,22 @@ class FastAffine(Rotation):
 
 
 class SlowAffine(Rotation):
-    eps: float = eqx.field(static=True, default=1e-6)
+    """SVD-based canonical rotation: G gets orthonormal columns, A gets orthogonal
+    columns ordered by decreasing norm, and A @ G.T is preserved exactly.
+    Requires K <= min(N, M)."""
 
     def __call__(self, state: RHMFState) -> RHMFState:
         A = state.A
         G = state.G
-        K = A.shape[1]
-        C = A.T @ G + self.eps * jnp.eye(K, dtype=A.dtype)
-        U, S, V = jnp.linalg.svd(C, full_matrices=False)
-        A_new = (U[:, :K] * S[:K]).T
-        G_new = V[:K, :]
+        N, K = A.shape
+        M = G.shape[0]
+        if K > min(N, M):
+            raise ValueError(f"SlowAffine requires K <= min(N, M), got K={K}, N={N}, M={M}.")
+        Qa, Ra = jnp.linalg.qr(A)
+        Qg, Rg = jnp.linalg.qr(G)
+        U, S, Vh = jnp.linalg.svd(Ra @ Rg.T, full_matrices=False)
+        A_new = (Qa @ U) * S
+        G_new = Qg @ Vh.T
         return update_state(state, A=A_new, G=G_new)
 
 
