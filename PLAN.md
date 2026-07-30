@@ -26,8 +26,8 @@ retire this file.
   the prefactor (match Eq. 170) or use $(\nu+1)/2$ — and apply it consistently across
   `StudentTLikelihood.loss` and `CauchyLikelihood.loss`.
 - **Docs** — user-facing documentation (README, usage/API docs, docstrings).
-- **Better tests** — expand coverage beyond the current ALS/rotation unit tests
-  (`test_hmf.py` is currently commented out); add end-to-end and edge-case tests.
+- **CI for tests** — add a GitHub Actions workflow running `uv run pytest` on push/PR
+  (release.yml exists but nothing runs the test suite).
 - **Type-checking everywhere** — comprehensive type annotations + a type checker run
   across the codebase (the package already ships a `py.typed` marker).
 - **Code clean-up** — refactors and dead-code removal.
@@ -44,3 +44,4 @@ Append-only. Add an entry when you do something notable.
 | Date | Event |
 |------|-------|
 | 2026-06-27 | Slimmed the project-management scaffolding. The previous PLAN.md (full task/decision/log history through Task 17) is preserved in git history. Reduced PLAN.md to status + outstanding-work; trimmed CLAUDE.md project-management ceremony; removed equinox-report.md (also in history). |
+| 2026-07-30 | Expanded the test suite (`test-suite` branch): integration tests for the public Robusta API (ground-truth recovery, robust downweighting, infer, missing data, serialization, warnings/errors), resurrected `test_hmf.py`, ridge normal-equation and npz round-trip tests. Suite is 207 tests, ~16 s. Fixed a bug where `Robusta.fit(method="sgd")` crashed (`step_sgd` did not accept `skip_G`). Closes the "Better tests" outstanding item. |
