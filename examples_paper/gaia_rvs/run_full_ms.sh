@@ -16,6 +16,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Use the CUDA-enabled jax/jaxlib from the module python's system site-packages.
+# The venv is deliberately synced without jax/jaxlib (they would be CPU-only
+# wheels that shadow the system build), so never let uv re-add them:
+#   uv sync --all-groups --no-install-package jax --no-install-package jaxlib
+export UV_NO_SYNC=1
+
 EXTRA_ARGS=("$@")
 
 # How many GPUs?
