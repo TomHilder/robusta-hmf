@@ -796,41 +796,94 @@ def fig_eigenspectra_comparison():
     print(f"Wrote {out}")
 
 
+def _canonical_coefficients(data, results, rhmf_objs, all_spectra_for_fit, all_ivar):
+    """Shared conventions for the method-comparison figures.
+
+    Fits PCA and RPCA on the same training split used for RHMF, and expresses
+    the RHMF solution in the canonical frame (principal axes of the coefficient
+    second moment, ordered by coefficient power) that the SVD gives PCA/RPCA
+    for free. Returns:
+        rhmf_basis : (M, K) rotated orthonormal RHMF basis
+        pca_basis  : (M, K) train-set PCA basis
+        rpca_basis : (M, K) train-set RPCA basis
+        rhmf_A     : (N, K) all-data RHMF coefficients in the canonical frame
+        true_power : (K,) per-component data power of the true components,
+                     E[a^2] * ||g||^2, sorted descending
+    """
+    N = all_spectra_for_fit.shape[0]
+    rng = np.random.RandomState(0)
+    train_idx = rng.permutation(N)[: int(N * 0.5)]
+    Y_train = all_spectra_for_fit[train_idx]
+
+    U_pca, S_pca, Vh_pca = np.linalg.svd(Y_train, full_matrices=False)
+    pca_basis = Vh_pca[:PLOT_K, :].T
+
+    Vh_rpca = _load_or_compute_rpca(Y_train)
+    rpca_basis = Vh_rpca[:PLOT_K, :].T
+
+    # RHMF: coefficients for every spectrum (G held at its trained value), then
+    # rotate to the principal axes of the coefficient second moment.
+    plot_rhmf, all_state = _plot_model_and_state(
+        data, results, rhmf_objs, all_spectra_for_fit, all_ivar
+    )
+    A = np.array(all_state.A)
+    G = np.array(all_state.G)
+    evals, V = np.linalg.eigh(A.T @ A)
+    V = V[:, np.argsort(evals)[::-1]]
+    rhmf_A = A @ V
+    rhmf_basis = G @ V
+
+    true_basis_raw = np.array(data["true_basis"])[:PLOT_K, :]  # (K, M), not unit norm
+    true_coeffs = np.array(data["true_coeffs"])[:, :PLOT_K]
+    true_power = np.sort(
+        np.mean(true_coeffs**2, axis=0) * np.sum(true_basis_raw**2, axis=1)
+    )[::-1]
+
+    return rhmf_basis, pca_basis, rpca_basis, rhmf_A, true_power
+
+
 def fig_explained_variance():
     """Figure: toy_explained_variance.pdf
 
-    Explained variance curves for PCA, RPCA, RHMF showing % variance by component.
+    Per-component captured data power for PCA, RPCA, RHMF, and the truth, as a
+    percentage of the total mean-square data power. All methods are fit on the
+    training set, evaluated on the full dataset, and expressed in the same
+    canonical frame as the eigenspectra figure, so the panels are directly
+    comparable.
     """
     data, results, rhmf_objs = _load_results()
     all_noisy_spectra, all_spectra_for_fit, all_ivar, grid = _all_data_arrays(data)
 
-    # PCA variance
-    U_pca, S_pca, Vh_pca = np.linalg.svd(all_spectra_for_fit, full_matrices=False)
-    pca_var = 100 * (S_pca / S_pca.sum())
+    pca_basis, rpca_basis, rhmf_A_rot, true_power = _canonical_coefficients(
+        data, results, rhmf_objs, all_spectra_for_fit, all_ivar
+    )[1:]
 
-    # RPCA variance (from basis vectors)
-    Vh_rpca = _load_or_compute_rpca(all_spectra_for_fit)
-    U_rpca, S_rpca, _ = np.linalg.svd(all_spectra_for_fit @ Vh_rpca[:PLOT_K, :].T, full_matrices=False)
-    rpca_var = 100 * (S_rpca / S_rpca.sum()) if S_rpca.size > 0 else np.zeros(min(len(S_pca), PLOT_K*2))
+    total_power = np.mean(np.sum(all_spectra_for_fit**2, axis=1))
 
-    # RHMF variance (from coefficient magnitudes)
-    plot_rhmf, all_state = _plot_model_and_state(data, results, rhmf_objs, all_spectra_for_fit, all_ivar)
-    rhmf_coeff_var = np.var(all_state.A, axis=0)
-    rhmf_var = 100 * (rhmf_coeff_var / rhmf_coeff_var.sum())
+    # Per-component captured power: mean-square projection coefficient (bases are
+    # orthonormal, so this is the power along each component direction).
+    pca_power = np.mean((all_spectra_for_fit @ pca_basis) ** 2, axis=0)
+    rpca_power = np.mean((all_spectra_for_fit @ rpca_basis) ** 2, axis=0)
+    rhmf_power = np.mean(rhmf_A_rot**2, axis=0)
 
-    # Plot
-    fig, axes = plt.subplots(1, 3, figsize=(14, 4), dpi=100)
-
-    for ax, var, label in zip(axes, [pca_var, rpca_var, rhmf_var], ["PCA", "RPCA", "RHMF"]):
-        ax.bar(np.arange(len(var[:10])), var[:10], color="C0", alpha=0.7, edgecolor="black", lw=0.5)
+    fig, axes = plt.subplots(1, 4, figsize=(14, 4), dpi=100, sharey=True)
+    panels = [
+        ("PCA", pca_power),
+        ("RPCA", rpca_power),
+        ("RHMF", rhmf_power),
+        ("True", true_power),
+    ]
+    for ax, (label, power) in zip(axes, panels):
+        frac = 100 * power / total_power
+        ax.bar(np.arange(1, PLOT_K + 1), frac, color="C0", alpha=0.7, edgecolor="black", lw=0.5)
+        ax.set_yscale("log")
         ax.set_xlabel("Component", fontsize=10)
-        ax.set_ylabel("Variance (%)", fontsize=10)
         ax.set_title(label, fontsize=12, fontweight="bold")
-        ax.set_ylim(0, max(var[:10]) * 1.15)
+        ax.set_xticks(range(1, PLOT_K + 1))
         ax.tick_params(labelsize=9)
-        ax.set_xticks(range(0, 10, 2))
+    axes[0].set_ylabel("Captured data power (%)", fontsize=10)
 
-    fig.suptitle(r"$\textsf{\textbf{Toy Dataset: Explained Variance by Component}}$",
+    fig.suptitle(r"$\textsf{\textbf{Toy Dataset: Captured Power by Component}}$",
                 fontsize="20", c="dimgrey", y=0.98)
     plt.tight_layout()
 
@@ -843,63 +896,45 @@ def fig_explained_variance():
 def fig_coefficient_distributions():
     """Figure: toy_coefficient_distributions.pdf
 
-    Histogram of coefficient values for PCA, RPCA, RHMF,
-    colored by robust weights for RHMF to show downweighting effect.
+    Per-component coefficient distributions for PCA, RPCA, and RHMF, split into
+    normal vs outlier spectra. Directly addresses whether outliers can be
+    identified from coefficient values alone for each method. All methods use
+    the shared conventions in _canonical_coefficients.
     """
     data, results, rhmf_objs = _load_results()
     all_noisy_spectra, all_spectra_for_fit, all_ivar, grid = _all_data_arrays(data)
+    is_outlier = data["os_mask"].any(axis=1)
 
-    # Get PCA coefficients
-    U_pca, S_pca, Vh_pca = np.linalg.svd(all_spectra_for_fit, full_matrices=False)
-    pca_A = U_pca[:, :PLOT_K] @ np.diag(S_pca[:PLOT_K])
+    _, pca_basis, rpca_basis, rhmf_A, _ = _canonical_coefficients(
+        data, results, rhmf_objs, all_spectra_for_fit, all_ivar
+    )
 
-    # Get RPCA coefficients
-    U_rpca, _, _ = np.linalg.svd(all_spectra_for_fit @ np.linalg.svd(all_spectra_for_fit, full_matrices=False)[2][:PLOT_K, :].T, full_matrices=False)
-    rpca_A = U_rpca[:, :PLOT_K]
+    # Projection coefficients onto the (orthonormal) train-set bases.
+    pca_A = all_spectra_for_fit @ pca_basis
+    rpca_A = all_spectra_for_fit @ rpca_basis
 
-    # Get RHMF coefficients
-    plot_rhmf, all_state = _plot_model_and_state(data, results, rhmf_objs, all_spectra_for_fit, all_ivar)
-    rhmf_A = all_state.A
-    rhmf_weights = plot_rhmf.robust_weights(all_spectra_for_fit, all_ivar, state=all_state)
-    per_object_weights = np.median(rhmf_weights, axis=1)
-
-    # Create figure: 3 rows (methods) × K columns (components)
     fig, axes = plt.subplots(3, PLOT_K, figsize=(14, 8), dpi=100)
 
-    for k in range(PLOT_K):
-        # PCA
-        axes[0, k].hist(pca_A[:, k], bins=30, color="C0", alpha=0.6, edgecolor="black", lw=0.5)
-        axes[0, k].set_title(f"K{k+1}", fontsize=11, fontweight="bold")
-        if k == 0:
-            axes[0, k].set_ylabel("PCA", fontsize=10)
-        else:
-            axes[0, k].set_yticklabels([])
+    for i, (label, A) in enumerate([("PCA", pca_A), ("RPCA", rpca_A), ("RHMF", rhmf_A)]):
+        for k in range(PLOT_K):
+            ax = axes[i, k]
+            bins = np.histogram_bin_edges(A[:, k], bins=40)
+            ax.hist(A[~is_outlier, k], bins=bins, color="C0", alpha=0.7,
+                    label="Normal Spectra")
+            ax.hist(A[is_outlier, k], bins=bins, color="C1", alpha=0.7,
+                    hatch="oo", edgecolor="#8B4513", lw=0, label="Outlier Spectra")
+            ax.set_yscale("log")
+            if i == 0:
+                ax.set_title(f"K{k+1}", fontsize=11, fontweight="bold")
+            if k == 0:
+                ax.set_ylabel(label, fontsize=10)
+            if i == 2:
+                ax.set_xlabel("Coefficient", fontsize=9)
+            ax.tick_params(labelsize=8)
 
-        # RPCA
-        axes[1, k].hist(rpca_A[:, k], bins=30, color="C1", alpha=0.6, edgecolor="black", lw=0.5)
-        if k == 0:
-            axes[1, k].set_ylabel("RPCA", fontsize=10)
-        else:
-            axes[1, k].set_yticklabels([])
-
-        # RHMF with weights (color encodes continuous weight variable)
-        ax = axes[2, k]
-        scatter = ax.scatter(rhmf_A[:, k], per_object_weights, c=per_object_weights,
-                           cmap="RdYlBu_r", s=10, alpha=0.7, edgecolors="black", linewidth=0.3, vmin=0, vmax=1)
-        if k == 0:
-            ax.set_ylabel("RHMF", fontsize=10)
-        else:
-            ax.set_yticklabels([])
-        ax.set_ylim(-0.05, 1.05)
-        ax.axhline(0.5, color="gray", linestyle="--", alpha=0.5, lw=1.0)
-
-        # Styling
-        for i in range(3):
-            axes[i, k].tick_params(labelsize=9)
-            if i < 2:
-                axes[i, k].set_xticklabels([])
-            else:
-                axes[i, k].set_xlabel("Value", fontsize=9)
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper right", fontsize=9, frameon=False,
+               bbox_to_anchor=(0.99, 1.005))
 
     fig.suptitle(r"$\textsf{\textbf{Toy Dataset: Coefficient Distributions}}$",
                 fontsize="20", c="dimgrey", y=0.98)
