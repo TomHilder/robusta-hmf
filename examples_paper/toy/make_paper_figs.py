@@ -689,15 +689,20 @@ def fig_eigenspectra_comparison():
     Vh_rpca = _load_or_compute_rpca(all_spectra_for_fit)
     rpca_basis = Vh_rpca[:PLOT_K, :].T  # (M, K)
 
-    # Get RHMF basis (from best model)
-    plot_rhmf, all_state = _plot_model_and_state(data, results, rhmf_objs, all_spectra_for_fit, all_ivar)
-    # G is (K, M), so transpose to (M, K)
-    G = np.array(all_state.G)
+    # Get RHMF basis (use TRAINED basis, not inferred basis to avoid noise)
+    result_ind = np.where(
+        (np.array([r.Q for r in results]) == PLOT_Q) & (np.array([r.K for r in results]) == PLOT_K)
+    )[0][0]
+    plot_rhmf = rhmf_objs[result_ind]
+    trained_state = results[result_ind].state
+
+    # Use trained basis (K, M), transpose to (M, K)
+    G = np.array(trained_state.G)
     if G.shape[0] == PLOT_K and G.shape[1] > PLOT_K:
-        # G is already (K, M), transpose to (M, K)
+        # G is (K, M), transpose to (M, K)
         rhmf_basis = G.T
     elif G.shape[1] == PLOT_K and G.shape[0] > PLOT_K:
-        # G is already (M, K), use as-is
+        # G is (M, K), use as-is
         rhmf_basis = G
     else:
         # Assume (K, M) and transpose
@@ -744,7 +749,6 @@ def fig_eigenspectra_comparison():
             if basis.shape[1] > i:  # Check that component i exists
                 component = basis[:, i]
                 ax.plot(grid / 10, component, color=f"C{i}", lw=2, alpha=0.9)
-                ax.fill_between(grid / 10, component, alpha=0.2, color=f"C{i}")
             else:
                 ax.text(0.5, 0.5, f"N/A", ha="center", va="center", transform=ax.transAxes)
 
