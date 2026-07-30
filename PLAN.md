@@ -33,7 +33,7 @@ retire this file.
 - **Code clean-up** — refactors and dead-code removal.
 
 **Possible extensions** (ideas, not commitments)
-- Regularisation (the `regularisers.py` placeholder is currently unimplemented).
+- Regularisation (no implementation yet; the empty `regularisers.py` placeholder was removed 2026-07-30).
 - Non-pixel bases.
 - Others TBD.
 
