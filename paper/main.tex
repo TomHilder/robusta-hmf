@@ -436,7 +436,7 @@ In contrast, the outlier spectra have median weights mostly $\leq 0.8$, with onl
 \begin{figure}
     \centering
     \includegraphics[width=\linewidth]{figs/toy_eigenspectra_comparison.pdf}
-    \caption{\added{Basis vector comparison across PCA, RPCA, RHMF, and ground truth methods for the toy dataset. Each row shows one of the first 5 basis functions (K1--K5), with each column representing a different method. The RHMF basis vectors recover the ground truth structure more cleanly than PCA, which is contaminated by outliers, while also being computationally efficient compared to RPCA.}}
+    \caption{\added{Basis vector comparison across PCA, RPCA, RHMF, and the ground truth for the toy dataset. Each row shows one of the first 5 basis functions (K1--K5), with each column representing a different method. Because any matrix factorization is identified only up to an invertible $K \times K$ transformation, the RHMF basis is rotated to the principal axes of its coefficients (ordered by coefficient power) --- the same canonical frame that the SVD provides for PCA and RPCA --- and the true basis is ordered by its data-power contribution; component signs are aligned to the truth for all methods. In this common frame, RHMF recovers all five true components, including the absorption-line template (K5) that RPCA fails to isolate, while PCA is noise-dominated beyond the first component.}}
     \label{fig:eigenspectra}
 \end{figure}
 
