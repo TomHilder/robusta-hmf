@@ -1,24 +1,36 @@
 """
-Analyse the full main-sequence RHMF models trained by train_full_ms.py:
+Analyse the full-sample RHMF models trained by train_full_ms.py:
 cross-validation over the (K, Q) grid, best-model selection, and outlier
 identification -- the full-dataset analysis requested by the referee.
 
-Reuses the per-bin machinery from analysis_funcs.py end to end (the full-MS
-sample is treated as one big bin with tag "full_ms"), so scoring metrics,
+Use the same --sample as training: "ms" (main-sequence bin union, default) or
+"all" (whole matched RVS catalogue).
+
+Reuses the per-bin machinery from analysis_funcs.py end to end (the sample is
+treated as one big bin with tag "full_ms"/"full_rvs"), so scoring metrics,
 inference batching, and outlier scoring are identical to the per-bin analysis
 in the paper. The outlier score is the 1st-percentile robust weight per
 spectrum, matching analyse_bins.py.
 
-OUTPUTS (in ./gaia_rvs_results and ./plots_full_ms):
-    full_ms_cv_scores.npz             -- all four CV metrics over the grid
-    inferred_all_data_R*_bin_full_ms.npz -- cached best-model inference
-    full_ms_outliers.csv              -- source ids + scores of outliers
-    plots_full_ms/cv_heatmaps.pdf     -- CV metric grids
-    plots_full_ms/weights_hist.pdf    -- per-spectrum weight distribution
-    plots_full_ms/basis_vectors.pdf   -- best-model eigenspectra
+CV EFFICIENCY: model ranking is scored on a fixed random subsample of the
+held-out test set, capped at --cv-max-test spectra (default 50,000; seeded,
+so reproducible). The four CV statistics are means/medians over per-pixel
+z-scores -- with >=50k spectra x ~2300 pixels (>1e8 residuals) they are
+converged to far better precision than the differences between grid points,
+so scoring the full multi-hundred-thousand-spectrum test set would spend GPU
+hours changing nothing. Pass --cv-max-test 0 to disable the cap. The final
+best-model inference and outlier identification always use ALL spectra.
+
+OUTPUTS (in ./gaia_rvs_results and ./plots_<tag>):
+    <tag>_cv_scores.npz               -- all four CV metrics over the grid
+    inferred_all_data_R*_bin_<tag>.npz -- cached best-model inference
+    <tag>_outliers.csv                -- source ids + scores of outliers
+    plots_<tag>/cv_heatmaps.pdf       -- CV metric grids
+    plots_<tag>/weights_hist.pdf      -- per-spectrum weight distribution
+    plots_<tag>/basis_vectors.pdf     -- best-model eigenspectra
 
 USAGE:
-    uv run python analyse_full_ms.py
+    uv run python analyse_full_ms.py [--sample all]
     (grid must match what train_full_ms.py trained; override with --ranks/--q-vals)
 """
 
@@ -41,16 +53,16 @@ from analysis_funcs import (
     load_cached_inferred_state,
     prep_data,
 )
-from train_full_ms import BIN_TAG, Q_VALS, RANKS, RESULTS_DIR, build_full_ms_sample
+from train_full_ms import Q_VALS, RANKS, RESULTS_DIR, build_sample
 
 from robusta_hmf import save_state_to_npz
 
 plt.style.use("mpl_drip.custom")
 
-PLOTS_DIR = Path("./plots_full_ms")
 WEIGHT_THRESHOLD = 0.5
 OUTLIER_SCORE_FUNC = lambda w: np.percentile(w, 1)  # matches analyse_bins.py
 BEST_MODEL_METRIC = "std_z"
+CV_MAX_TEST = 50_000  # cap on test spectra used for CV scoring (0 = no cap)
 
 
 def load_all_full_ms_data(data, idx, train_frac=cfg.TRAIN_FRAC):
@@ -61,11 +73,11 @@ def load_all_full_ms_data(data, idx, train_frac=cfg.TRAIN_FRAC):
     return all_Y, all_W, train_idx, test_idx
 
 
-def plot_cv_heatmaps(cv_scores, out):
+def plot_cv_heatmaps(cv_scores, out, label):
     metrics = [("std_z", "std(z) [target 1]"), ("chi2_red", r"$\chi^2_{\rm red}$ [target 1]"),
                ("rmse", "weighted RMSE"), ("mad_z", "MAD(z) [target 0.6745]")]
     fig, axes = plt.subplots(1, 4, figsize=(20, 4.5), dpi=100)
-    for ax, (name, label) in zip(axes, metrics):
+    for ax, (name, metric_label) in zip(axes, metrics):
         vals = getattr(cv_scores, name)
         im = ax.imshow(vals, aspect="auto", origin="lower", cmap="viridis")
         ax.set_xticks(range(len(cv_scores.q_vals)))
@@ -74,9 +86,9 @@ def plot_cv_heatmaps(cv_scores, out):
         ax.set_yticklabels(cv_scores.ranks)
         ax.set_xlabel("Q")
         ax.set_ylabel("K")
-        ax.set_title(label)
+        ax.set_title(metric_label)
         plt.colorbar(im, ax=ax)
-    fig.suptitle(r"$\textsf{\textbf{Full Main Sequence: CV Scores}}$",
+    fig.suptitle(rf"$\textsf{{\textbf{{{label}: CV Scores}}}}$",
                 fontsize="24", c="dimgrey", y=1.05)
     plt.tight_layout()
     plt.savefig(out, bbox_inches="tight")
@@ -84,7 +96,7 @@ def plot_cv_heatmaps(cv_scores, out):
     print(f"Wrote {out}")
 
 
-def plot_weight_hist(outlier_scores, threshold, out):
+def plot_weight_hist(outlier_scores, threshold, out, label):
     fig, ax = plt.subplots(figsize=(10, 6), dpi=100)
     ax.hist(outlier_scores, bins=100, color="C0", alpha=0.8)
     ax.axvline(threshold, color="grey", ls="--", label=f"Threshold ({threshold})")
@@ -92,7 +104,7 @@ def plot_weight_hist(outlier_scores, threshold, out):
     ax.set_xlabel("1st-Percentile Robust Weight per Spectrum")
     ax.set_ylabel("Count")
     ax.legend()
-    fig.suptitle(r"$\textsf{\textbf{Full Main Sequence: Outlier Scores}}$",
+    fig.suptitle(rf"$\textsf{{\textbf{{{label}: Outlier Scores}}}}$",
                 fontsize="24", c="dimgrey", y=0.96)
     plt.tight_layout()
     plt.savefig(out, bbox_inches="tight")
@@ -100,7 +112,7 @@ def plot_weight_hist(outlier_scores, threshold, out):
     print(f"Wrote {out}")
 
 
-def plot_basis(rhmf, state, λ_grid, out, max_show=10):
+def plot_basis(rhmf, state, λ_grid, out, label, max_show=10):
     basis = rhmf.basis_vectors(state=state)  # (K, M)
     n_show = min(max_show, basis.shape[0])
     fig, ax = plt.subplots(figsize=(12, 1.2 * n_show + 2), dpi=100)
@@ -109,7 +121,7 @@ def plot_basis(rhmf, state, λ_grid, out, max_show=10):
                 color=f"C{k % 10}", lw=1.5)
     ax.set_xlabel("Wavelength [nm]")
     ax.set_ylabel("Normalized basis + offset")
-    fig.suptitle(r"$\textsf{\textbf{Full Main Sequence: Best-Model Eigenspectra}}$",
+    fig.suptitle(rf"$\textsf{{\textbf{{{label}: Best-Model Eigenspectra}}}}$",
                 fontsize="24", c="dimgrey", y=0.99)
     plt.tight_layout()
     plt.savefig(out, bbox_inches="tight")
@@ -117,42 +129,56 @@ def plot_basis(rhmf, state, λ_grid, out, max_show=10):
     print(f"Wrote {out}")
 
 
-def main(ranks, q_vals, results_dir=RESULTS_DIR, plots_dir=PLOTS_DIR):
-    plots_dir.mkdir(parents=True, exist_ok=True)
+def main(ranks, q_vals, sample="ms", cv_max_test=CV_MAX_TEST,
+         results_dir=RESULTS_DIR):
+    print(f"Building sample '{sample}'...")
+    data, idx, ids, tag = build_sample(sample)
+    print(f"Sample '{tag}': {len(idx)} unique spectra")
 
-    print("Building full main-sequence sample...")
-    data, idx, ids = build_full_ms_sample()
-    print(f"Full-MS sample: {len(idx)} unique spectra")
+    sample_label = "Full Main Sequence" if sample == "ms" else "Full RVS Sample"
+    plots_dir = Path(f"./plots_{tag}")
+    plots_dir.mkdir(parents=True, exist_ok=True)
 
     print("Loading spectra...")
     all_Y, all_W, train_idx, test_idx = load_all_full_ms_data(data, idx)
-    Y_test, W_test = all_Y[test_idx], all_W[test_idx]
+
+    # CV efficiency: score models on a fixed, seeded random subsample of the
+    # test set. The metrics are converged long before 50k spectra; the final
+    # inference/outlier stage below still uses every spectrum.
+    if cv_max_test and len(test_idx) > cv_max_test:
+        rng = np.random.default_rng(cfg.RNG_SEED)
+        cv_test_idx = rng.choice(test_idx, size=cv_max_test, replace=False)
+        print(f"CV scoring on {cv_max_test} of {len(test_idx)} test spectra "
+              "(seeded subsample; pass --cv-max-test 0 to use all)")
+    else:
+        cv_test_idx = test_idx
+    Y_test, W_test = all_Y[cv_test_idx], all_W[cv_test_idx]
 
     print("Loading trained models...")
-    results = load_bin_results(BIN_TAG, ranks, q_vals, results_dir)
+    results = load_bin_results(tag, ranks, q_vals, results_dir)
     n_expected = len(ranks) * len(q_vals)
     if len(results.rhmf_objs) < n_expected:
         raise SystemExit(
             f"Only {len(results.rhmf_objs)}/{n_expected} models found -- "
-            "finish train_full_ms.py first (all shards)."
+            "finish train_full_ms.py first (all shards, same --sample)."
         )
 
     print("Computing CV scores on the held-out test set...")
     cv_scores = compute_all_cv_scores(results, Y_test, W_test)
 
     np.savez(
-        results_dir / "full_ms_cv_scores.npz",
+        results_dir / f"{tag}_cv_scores.npz",
         std_z=cv_scores.std_z, chi2_red=cv_scores.chi2_red,
         rmse=cv_scores.rmse, mad_z=cv_scores.mad_z,
         ranks=ranks, q_vals=q_vals,
     )
-    plot_cv_heatmaps(cv_scores, plots_dir / "cv_heatmaps.pdf")
+    plot_cv_heatmaps(cv_scores, plots_dir / "cv_heatmaps.pdf", sample_label)
 
     best_K, best_Q, best_idx = find_best_model(cv_scores, metric=BEST_MODEL_METRIC)
     print(f"\nBest model by {BEST_MODEL_METRIC}: K={best_K}, Q={best_Q:.2f}")
 
     best_rhmf = results.rhmf_objs[best_idx]
-    cached = load_cached_inferred_state(BIN_TAG, best_K, best_Q, results_dir)
+    cached = load_cached_inferred_state(tag, best_K, best_Q, results_dir)
     if cached is not None:
         print("Loaded cached all-data inference")
         best_state = cached
@@ -164,7 +190,7 @@ def main(ranks, q_vals, results_dir=RESULTS_DIR, plots_dir=PLOTS_DIR):
         )
         save_state_to_npz(
             best_state,
-            results_dir / f"inferred_all_data_R{best_K}_Q{best_Q:.2f}_bin_{BIN_TAG}.npz",
+            results_dir / f"inferred_all_data_R{best_K}_Q{best_Q:.2f}_bin_{tag}.npz",
         )
 
     print("Computing outlier scores...")
@@ -182,15 +208,15 @@ def main(ranks, q_vals, results_dir=RESULTS_DIR, plots_dir=PLOTS_DIR):
         "best_K": best_K,
         "best_Q": best_Q,
         "in_train": np.isin(outlier_indices, train_idx),
-    }).sort_values("score").to_csv(results_dir / "full_ms_outliers.csv", index=False)
-    print(f"Wrote {results_dir / 'full_ms_outliers.csv'}")
+    }).sort_values("score").to_csv(results_dir / f"{tag}_outliers.csv", index=False)
+    print(f"Wrote {results_dir / f'{tag}_outliers.csv'}")
 
     λ_grid = data.λ_grid[cfg.N_CLIP_PIX : -cfg.N_CLIP_PIX]
-    plot_weight_hist(outlier_scores, WEIGHT_THRESHOLD, plots_dir / "weights_hist.pdf")
-    plot_basis(best_rhmf, best_state, λ_grid, plots_dir / "basis_vectors.pdf")
+    plot_weight_hist(outlier_scores, WEIGHT_THRESHOLD, plots_dir / "weights_hist.pdf", sample_label)
+    plot_basis(best_rhmf, best_state, λ_grid, plots_dir / "basis_vectors.pdf", sample_label)
 
     print("\nDone. Summary:")
-    print(f"  Sample:      {len(idx)} spectra")
+    print(f"  Sample:      {tag} ({len(idx)} spectra)")
     print(f"  Best model:  K={best_K}, Q={best_Q:.2f} (by {BEST_MODEL_METRIC})")
     print(f"  Outliers:    {len(outlier_indices)} (score < {WEIGHT_THRESHOLD})")
 
@@ -199,5 +225,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     parser.add_argument("--ranks", type=int, nargs="+", default=RANKS)
     parser.add_argument("--q-vals", type=float, nargs="+", default=Q_VALS)
+    parser.add_argument("--sample", choices=["ms", "all"], default="ms",
+                        help="'ms' = main-sequence bin union; 'all' = whole RVS sample")
+    parser.add_argument("--cv-max-test", type=int, default=CV_MAX_TEST,
+                        help="Max test spectra for CV scoring (0 = use all)")
     args = parser.parse_args()
-    main(args.ranks, args.q_vals)
+    main(args.ranks, args.q_vals, sample=args.sample, cv_max_test=args.cv_max_test)

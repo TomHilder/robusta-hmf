@@ -4,10 +4,13 @@
 # skipped, so an interrupted run resumes where it left off.
 #
 # USAGE:
-#   ./run_full_ms.sh                 # use all visible GPUs
+#   ./run_full_ms.sh                 # main-sequence sample, all visible GPUs
+#   ./run_full_ms.sh --sample all    # the WHOLE matched RVS sample instead
 #   N_GPUS=1 ./run_full_ms.sh        # force a single GPU
 #   ./run_full_ms.sh --ranks 5 10 15 --q-vals 3.0 5.0   # smaller grid
 #
+# Extra args are passed to both the training and analysis stages, so --sample,
+# --ranks, and --q-vals stay consistent across stages automatically.
 # Logs go to full_ms_shard<i>.log; the analysis stage logs to full_ms_analyse.log.
 
 set -euo pipefail

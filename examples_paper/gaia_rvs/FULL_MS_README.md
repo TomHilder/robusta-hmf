@@ -1,10 +1,25 @@
-# Full Main-Sequence Analysis (referee items 9 & 12)
+# Full-Sample Analysis (referee items 9 & 12)
 
-Applies RHMF to the **entire** Gaia RVS main-sequence sample (union of the 14
-bins, deduplicated — not binned) with cross-validation over a (K, Q) grid,
-then identifies outliers with the best model. Everything reuses the proven
-per-bin machinery in `analysis_funcs.py`: same edge clipping, same train/test
-seed, same CV metrics, same 1st-percentile outlier score.
+Applies RHMF to the full Gaia RVS sample with cross-validation over a (K, Q)
+grid, then identifies outliers with the best model. Two sample choices via
+`--sample`:
+
+- `ms` (default): the **entire main-sequence sample** — union of the 14 bins,
+  deduplicated, not binned. Outputs tagged `full_ms`.
+- `all`: the **whole matched RVS catalogue**, no colour–magnitude selection.
+  Outputs tagged `full_rvs`.
+
+Everything reuses the proven per-bin machinery in `analysis_funcs.py`: same
+edge clipping, same train/test seed, same CV metrics, same 1st-percentile
+outlier score.
+
+**CV efficiency**: the (K, Q) grid is ranked on a seeded random subsample of
+the held-out test set, capped at 50,000 spectra (`--cv-max-test`, 0 disables).
+The CV statistics average over per-pixel z-scores, so at 50k spectra × ~2300
+pixels (>10⁸ residuals) they are converged far below the differences between
+grid points — scoring every test spectrum would burn GPU hours without
+changing the ranking. The final best-model inference and outlier
+identification always use **all** spectra (batched at 50k).
 
 ## Requirements
 
@@ -16,7 +31,8 @@ seed, same CV metrics, same 1st-percentile outlier score.
 
 ```bash
 cd examples_paper/gaia_rvs
-./run_full_ms.sh                # uses every GPU nvidia-smi reports
+./run_full_ms.sh                # main-sequence sample, every GPU nvidia-smi reports
+./run_full_ms.sh --sample all   # whole RVS sample instead
 N_GPUS=1 ./run_full_ms.sh       # force single GPU
 ```
 
@@ -49,15 +65,17 @@ uv run python analyse_full_ms.py
 
 ## Outputs
 
+With `<tag>` = `full_ms` (`--sample ms`) or `full_rvs` (`--sample all`):
+
 | File | Contents |
 |---|---|
-| `gaia_rvs_results/converged_state_R{K}_Q{Q}_bin_full_ms.npz` | trained models |
-| `gaia_rvs_results/full_ms_cv_scores.npz` | std_z / chi2_red / rmse / mad_z over the grid |
-| `gaia_rvs_results/inferred_all_data_R{K}_Q{Q}_bin_full_ms.npz` | best-model inference on all spectra |
-| `gaia_rvs_results/full_ms_outliers.csv` | source_id + score per outlier, sorted worst-first |
-| `plots_full_ms/cv_heatmaps.pdf` | CV metrics across (K, Q) |
-| `plots_full_ms/weights_hist.pdf` | outlier-score distribution |
-| `plots_full_ms/basis_vectors.pdf` | best-model eigenspectra |
+| `gaia_rvs_results/converged_state_R{K}_Q{Q}_bin_<tag>.npz` | trained models |
+| `gaia_rvs_results/<tag>_cv_scores.npz` | std_z / chi2_red / rmse / mad_z over the grid |
+| `gaia_rvs_results/inferred_all_data_R{K}_Q{Q}_bin_<tag>.npz` | best-model inference on all spectra |
+| `gaia_rvs_results/<tag>_outliers.csv` | source_id + score per outlier, sorted worst-first |
+| `plots_<tag>/cv_heatmaps.pdf` | CV metrics across (K, Q) |
+| `plots_<tag>/weights_hist.pdf` | outlier-score distribution |
+| `plots_<tag>/basis_vectors.pdf` | best-model eigenspectra |
 
 ## Monitoring
 
