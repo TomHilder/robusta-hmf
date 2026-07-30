@@ -781,7 +781,8 @@ def fig_eigenspectra_comparison():
             else:
                 ax.set_yticklabels([])
 
-            ax.set_ylim(-0.15, 0.15)
+            ylim = 0.05 if i == 0 else 0.15
+            ax.set_ylim(-ylim, ylim)
             ax.tick_params(labelsize=9)
 
     axes[-1, 0].set_xlabel("Wavelength [nm]", fontsize=10)
