@@ -57,14 +57,17 @@ if [[ ${N_GPUS} -eq 1 ]]; then
     [[ ${PIPESTATUS[0]} -eq 0 ]] || fail=1
     set -e
 else
-    # Several shards would trample each other on a shared terminal, so they
-    # stay in their own files.
+    # Mirror each shard too, tagged with its GPU so the interleaving is
+    # readable. Process substitution, not a pipe, so $! stays the python PID
+    # and wait below reports training's status rather than the filter's.
     pids=()
     for ((g = 0; g < N_GPUS; g++)); do
         echo "Launching shard ${g}/${N_GPUS} on GPU ${g} (log: full_ms_shard${g}.log)"
         CUDA_VISIBLE_DEVICES=${g} uv run python -u train_full_ms.py \
             --shard "${g}" --n-shards "${N_GPUS}" "${EXTRA_ARGS[@]}" \
-            > "full_ms_shard${g}.log" 2>&1 &
+            > >(tee "full_ms_shard${g}.log" \
+                | grep -v --line-buffered "${NOISE}" \
+                | sed -u "s/^/[gpu${g}] /") 2>&1 &
         pids+=($!)
     done
     for pid in "${pids[@]}"; do

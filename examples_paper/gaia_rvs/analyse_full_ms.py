@@ -56,7 +56,15 @@ from analysis_funcs import (
     load_cached_inferred_state,
     prep_data,
 )
-from train_full_ms import Q_VALS, RANKS, RESULTS_DIR, build_sample
+from train_full_ms import (
+    DEFAULT_PRECISION,
+    PRECISIONS,
+    Q_VALS,
+    RANKS,
+    RESULTS_DIR,
+    build_sample,
+    configure_precision,
+)
 
 from robusta_hmf import save_state_to_npz
 
@@ -68,12 +76,13 @@ BEST_MODEL_METRIC = "std_z"
 CV_MAX_TEST = 50_000  # cap on test spectra used for CV scoring (0 = no cap)
 
 
-def load_all_full_ms_data(data, idx, train_frac=cfg.TRAIN_FRAC):
+def load_all_full_ms_data(data, idx, train_frac=cfg.TRAIN_FRAC, dtype=np.float32):
     """All (train + test) Y, W for the full-MS sample, plus the split."""
     train_idx, test_idx = get_test_train_split_idx(len(idx), train_frac=train_frac)
     all_flux, all_u_flux = clip_edge_pix(*data.get_flux_batch(idx))
     all_Y, all_W = prep_data(all_flux, all_u_flux)
-    return all_Y, all_W, train_idx, test_idx
+    # Must match the precision the models were trained at -- see train_full_ms.
+    return all_Y.astype(dtype, copy=False), all_W.astype(dtype, copy=False), train_idx, test_idx
 
 
 def plot_cv_heatmaps(cv_scores, out, label):
@@ -133,7 +142,10 @@ def plot_basis(rhmf, state, λ_grid, out, label, max_show=10):
 
 
 def main(ranks, q_vals, sample="ms", cv_max_test=CV_MAX_TEST,
-         results_dir=RESULTS_DIR):
+         results_dir=RESULTS_DIR, precision=DEFAULT_PRECISION):
+    dtype = configure_precision(precision)
+    print(f"Precision: {precision} (dtype {np.dtype(dtype).name})")
+
     print(f"Building sample '{sample}'...")
     data, idx, ids, tag = build_sample(sample)
     print(f"Sample '{tag}': {len(idx)} unique spectra")
@@ -143,7 +155,9 @@ def main(ranks, q_vals, sample="ms", cv_max_test=CV_MAX_TEST,
     plots_dir.mkdir(parents=True, exist_ok=True)
 
     print("Loading spectra...")
-    all_Y, all_W, train_idx, test_idx = load_all_full_ms_data(data, idx)
+    all_Y, all_W, train_idx, test_idx = load_all_full_ms_data(data, idx, dtype=dtype)
+    print(f"All data: {all_Y.shape[0]} x {all_Y.shape[1]}, {all_Y.dtype} "
+          f"({(all_Y.nbytes + all_W.nbytes) / 2**30:.1f} GiB for Y+W)")
 
     # CV efficiency: score models on a fixed, seeded random subsample of the
     # test set. The metrics are converged long before 50k spectra; the final
@@ -251,5 +265,8 @@ if __name__ == "__main__":
                         help="'ms' = main-sequence bin union; 'all' = whole RVS sample")
     parser.add_argument("--cv-max-test", type=int, default=CV_MAX_TEST,
                         help="Max test spectra for CV scoring (0 = use all)")
+    parser.add_argument("--precision", choices=PRECISIONS, default=DEFAULT_PRECISION,
+                        help="Numeric precision; must match training (default: %(default)s)")
     args = parser.parse_args()
-    main(args.ranks, args.q_vals, sample=args.sample, cv_max_test=args.cv_max_test)
+    main(args.ranks, args.q_vals, sample=args.sample, cv_max_test=args.cv_max_test,
+         precision=args.precision)
