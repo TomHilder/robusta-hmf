@@ -775,20 +775,19 @@ def fig_eigenspectra_comparison():
                 ax.text(0.5, 0.5, f"N/A", ha="center", va="center", transform=ax.transAxes)
 
             if i == 0:
-                ax.set_title(method, fontsize=12, fontweight="bold")
+                ax.set_title(method, fontweight="bold")
             if j == 0:
-                ax.set_ylabel(f"K{i+1}", fontsize=10)
+                ax.set_ylabel(f"K{i+1}")
             else:
                 ax.set_yticklabels([])
 
             ylim = 0.05 if i == 0 else 0.15
             ax.set_ylim(-ylim, ylim)
-            ax.tick_params(labelsize=9)
 
-    axes[-1, 0].set_xlabel("Wavelength [nm]", fontsize=10)
+    axes[-1, 0].set_xlabel("Wavelength [nm]")
 
     fig.suptitle(r"$\textsf{\textbf{Toy Dataset: Eigenspectra Comparison}}$",
-                fontsize="20", c="dimgrey", y=0.98)
+                fontsize="24", c="dimgrey", y=0.99)
     plt.tight_layout()
 
     out = PAPER_FIGS / "toy_eigenspectra_comparison.pdf"
@@ -878,14 +877,13 @@ def fig_explained_variance():
         frac = 100 * power / total_power
         ax.bar(np.arange(1, PLOT_K + 1), frac, color="C0", alpha=0.7, edgecolor="black", lw=0.5)
         ax.set_yscale("log")
-        ax.set_xlabel("Component", fontsize=10)
-        ax.set_title(label, fontsize=12, fontweight="bold")
+        ax.set_xlabel("Component")
+        ax.set_title(label, fontweight="bold")
         ax.set_xticks(range(1, PLOT_K + 1))
-        ax.tick_params(labelsize=9)
-    axes[0].set_ylabel("Captured data power (%)", fontsize=10)
+    axes[0].set_ylabel("Captured power (%)")
 
     fig.suptitle(r"$\textsf{\textbf{Toy Dataset: Captured Power by Component}}$",
-                fontsize="20", c="dimgrey", y=0.98)
+                fontsize="24", c="dimgrey", y=1.04)
     plt.tight_layout()
 
     out = PAPER_FIGS / "toy_explained_variance.pdf"
@@ -926,19 +924,19 @@ def fig_coefficient_distributions():
                     hatch="oo", edgecolor="#8B4513", lw=0, label="Outlier Spectra")
             ax.set_yscale("log")
             if i == 0:
-                ax.set_title(f"K{k+1}", fontsize=11, fontweight="bold")
+                ax.set_title(f"K{k+1}", fontweight="bold")
             if k == 0:
-                ax.set_ylabel(label, fontsize=10)
+                ax.set_ylabel(label)
             if i == 2:
-                ax.set_xlabel("Coefficient", fontsize=9)
-            ax.tick_params(labelsize=8)
+                ax.set_xlabel("Coefficient")
+            ax.tick_params(labelsize=11)
 
     handles, labels = axes[0, 0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="upper right", fontsize=9, frameon=False,
-               bbox_to_anchor=(0.99, 1.005))
+    fig.legend(handles, labels, loc="upper right", frameon=False,
+               bbox_to_anchor=(0.99, 1.05))
 
     fig.suptitle(r"$\textsf{\textbf{Toy Dataset: Coefficient Distributions}}$",
-                fontsize="20", c="dimgrey", y=0.98)
+                fontsize="24", c="dimgrey", y=1.04)
     plt.tight_layout()
 
     out = PAPER_FIGS / "toy_coefficient_distributions.pdf"
@@ -995,8 +993,9 @@ def fig_toy_diversity():
     else:
         complex_idx = np.where((op_mask | oc_mask | al_mask | missing_mask).any(axis=1))[0][-1]
 
-    # Create figure
-    fig, axes = plt.subplots(3, 3, figsize=(14, 10), dpi=100, sharex=True)
+    # Create figure. sharex/sharey hide inner tick labels automatically -- do
+    # NOT call set_xticklabels([]) on shared axes (it clears the bottom row too).
+    fig, axes = plt.subplots(3, 3, figsize=(14, 10), dpi=100, sharex=True, sharey=True)
     axes = axes.flatten()
 
     indices = [
@@ -1021,63 +1020,44 @@ def fig_toy_diversity():
         "Mixed Outliers",
     ]
 
-    flux_min, flux_max = -0.3, 1.3
-
     for i, (ax, idx, label) in enumerate(zip(axes, indices, labels)):
-        spec = np.nan_to_num(all_noisy_spectra[idx, :], nan=_SPECTRA_MEAN)
-        ax.plot(grid / 10, spec, color="black", lw=1.0, alpha=1.0, zorder=3)
+        # Plot with NaNs preserved so missing segments appear as real gaps,
+        # not lines imputed to zero.
+        ax.plot(grid / 10, all_noisy_spectra[idx, :], color="black", lw=1.0, zorder=3)
 
         # Outlier highlighting (low alpha so data dominates)
         if os_mask[idx, :].any():
             ax.axvspan(grid.min() / 10, grid.max() / 10, alpha=0.08, color="C1", zorder=-1)
 
-        if op_mask[idx, :].any():
-            op_pixels = np.where(op_mask[idx, :])[0]
-            ax.vlines(grid[op_pixels] / 10, ymin=flux_min, ymax=flux_max,
-                     color="gray", alpha=0.3, lw=0.5, zorder=0)
+        for pix in np.where(op_mask[idx, :])[0]:
+            ax.axvline(grid[pix] / 10, color="gray", alpha=0.3, lw=0.5, zorder=0)
 
         if oc_mask[idx, :].any():
-            oc_pixels = np.where(oc_mask[idx, :])[0]
-            if oc_pixels.size > 0:
-                oc_wavelengths = grid[oc_pixels] / 10
-                ax.axvspan(oc_wavelengths.min() - 2, oc_wavelengths.max() + 2,
-                          alpha=0.08, color="gray", zorder=-1)
+            oc_wavelengths = grid[np.where(oc_mask[idx, :])[0]] / 10
+            ax.axvspan(oc_wavelengths.min() - 2, oc_wavelengths.max() + 2,
+                      alpha=0.15, color="gray", zorder=-1)
 
-        if al_mask[idx, :].any():
-            al_pixels = np.where(al_mask[idx, :])[0]
-            ax.vlines(grid[al_pixels] / 10, ymin=flux_min, ymax=flux_max,
-                     color="C0", alpha=0.3, lw=0.5, zorder=0)
+        for pix in np.where(al_mask[idx, :])[0]:
+            ax.axvline(grid[pix] / 10, color="C0", alpha=0.3, lw=0.5, zorder=0)
 
-        # Set fixed flux range
-        ax.set_ylim(flux_min, flux_max)
+        # Shade missing-data segments
+        if missing_mask[idx, :].any():
+            missing_chunks = split_by_near_uniform(grid[missing_mask[idx, :]], factor=2.0)
+            for chunk in missing_chunks:
+                if chunk.size > 0:
+                    ax.axvspan(chunk.min() / 10, chunk.max() / 10,
+                              alpha=0.15, color="grey", zorder=-1, hatch="//")
 
-        # Minimalist styling
-        ax.set_title(label, fontsize=9, fontweight="bold", pad=4)
+        ax.set_title(label)
+        if i % 3 == 0:
+            ax.set_ylabel("Flux")
+        if i >= 6:
+            ax.set_xlabel("Wavelength [nm]")
 
-        is_left = i % 3 == 0
-        is_bottom = i >= 6
-
-        if is_left:
-            ax.set_ylabel("Flux", fontsize=8)
-        else:
-            ax.set_ylabel("")
-
-        if is_bottom:
-            ax.set_xlabel("Wavelength [nm]", fontsize=8)
-        else:
-            ax.set_xlabel("")
-
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.grid(False)
-        ax.tick_params(labelsize=7)
-        if not is_left:
-            ax.set_yticklabels([])
-        if not is_bottom:
-            ax.set_xticklabels([])
+    axes[0].set_ylim(0.0, 1.75)
 
     fig.suptitle(r"$\textsf{\textbf{Toy Dataset: Representative Spectra}}$",
-                fontsize="18", c="dimgrey", y=0.98)
+                fontsize="24", c="dimgrey", y=0.99)
     plt.tight_layout()
 
     out = PAPER_FIGS / "toy_dataset_diversity.pdf"
