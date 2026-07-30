@@ -26,8 +26,6 @@ retire this file.
   the prefactor (match Eq. 170) or use $(\nu+1)/2$ — and apply it consistently across
   `StudentTLikelihood.loss` and `CauchyLikelihood.loss`.
 - **Docs** — user-facing documentation (README, usage/API docs, docstrings).
-- **CI for tests** — add a GitHub Actions workflow running `uv run pytest` on push/PR
-  (release.yml exists but nothing runs the test suite).
 - **Type-checking everywhere** — comprehensive type annotations + a type checker run
   across the codebase (the package already ships a `py.typed` marker).
 - **Code clean-up** — refactors and dead-code removal.
