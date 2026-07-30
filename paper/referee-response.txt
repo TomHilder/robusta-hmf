@@ -48,22 +48,27 @@ Gaia dataset and the comparison with the eigenspectra from PCA and RPCA [and
 EMPCA as mentioned below]."
 --------------------------------------------------------------------------------
 
-PARTIALLY ADDRESSED -- REMAINING WORK FLAGGED.
+LARGELY ADDRESSED; GAIA PART DEFERRED.
 
-The toy-dataset eigenspectra comparison against PCA and RPCA is now in the
-paper (Figure \ref{fig:eigenspectra}; see M1). Three parts of this request
-are not yet in the revised manuscript:
+The toy-dataset eigenspectra comparison now includes PCA, RPCA, EMPCA, and
+RHMF against the ground truth (Figure \ref{fig:eigenspectra}; see M1 and
+item 5 below).
 
-* Eigenspectra as a function of (K, Q): NOT YET INCLUDED. The converged toy
-  models for the full (K, Q) grid already exist on disk, so an appendix
-  figure showing how the recovered basis varies across the grid is
-  inexpensive to produce. TO BE ACTIONED (no new training required).
+Eigenspectra as a function of (K, Q): DONE. Two new appendix figures
+(Figures \ref{fig:eigenspectra_vs_q} and \ref{fig:eigenspectra_vs_k}) show
+the recovered RHMF basis across the full hyperparameter grid, every model
+expressed in the same canonical frame. The basis is essentially invariant
+from Q=2 to Q=10 at the true rank, degrading only for very aggressive
+downweighting (Q <~ 1) where genuine absorption-line pixels begin to be
+treated as outliers; varying K shows components entering in order of their
+data-power contribution, with over-parameterized models (K=6, 7) leaving
+the leading components unchanged while the extra components absorb noise.
+This demonstrates, at the level of the basis vectors themselves, the
+hyperparameter insensitivity claimed in Section 3.1.
 
-* Gaia eigenspectra: NOT YET INCLUDED. Requires the trained per-bin Gaia
-  models; deferred together with the full-dataset re-analysis (see M-Gaia
-  items 9 and 12 below).
-
-* EMPCA comparison: see item 5 below.
+Gaia eigenspectra: NOT YET INCLUDED. Requires the trained per-bin Gaia
+models; deferred together with the full-dataset re-analysis (see items 9
+and 12 below).
 
 --------------------------------------------------------------------------------
 M3. "Can one also use the coefficient values from RHMF to identify outliers?
@@ -156,13 +161,17 @@ SECTION 3 (EXPERIMENTS)
 empca. It is fairer to compare the results from the techniques that also
 consider uncertainty and missing data."
 
-NOT YET ADDRESSED -- FLAGGED FOR DECISION. Adding EMPCA (Bailey 2012) as a
-comparison method is feasible (a lightweight reference implementation is
-available) and would strengthen the comparison exactly as the referee
-argues. It requires integrating EMPCA into the toy comparison pipeline and
-regenerating the three comparison figures. We cite Bailey (2012) in the
-introduction in the meantime. DECISION NEEDED: either add EMPCA to the
-comparison suite, or justify its omission explicitly in the response.
+Done. EMPCA (Bailey 2012; the author's reference implementation) is now
+included in all three comparison figures, fit on the same training split as
+the other methods and -- unlike PCA and RPCA -- given the same
+inverse-variance weights that RHMF uses, making it the appropriate weighted
+baseline the referee describes. The result sharpens the paper's argument:
+EMPCA recovers the smooth structure better than PCA (the weights help) but
+its basis vectors are visibly contaminated at outlier locations and it fails
+to isolate the absorption-line component, because inverse-variance weights
+encode known measurement noise, not unknown outliers. Robustness is the
+ingredient EMPCA lacks and RHMF adds, and the comparison now shows this
+directly (Figures \ref{fig:eigenspectra}--\ref{fig:coefficients}).
 
 6. "The reviewer would recommend that the authors add a wide range of slopes
 which can mimic more astronomical objects, such as quasar spectra."
@@ -272,14 +281,12 @@ STATUS SUMMARY FOR THE AUTHORS (not part of the letter)
 ================================================================================
 
 Fully addressed and verified in the compiled PDF:
-  M1, M3, S1.1, S1.2, S2.3, S2.4, S3.7, S3.8, S3.10, S3.11,
+  M1, M2 (toy parts, incl. eigenspectra vs (K, Q) appendix figures), M3,
+  S1.1, S1.2, S2.3, S2.4, S3.5 (EMPCA now in all comparison figures),
+  S3.7, S3.8, S3.10, S3.11,
   minor: Fig 3 label, contractions, Appendix B figure.
 
 Outstanding (excluding the deferred full-Gaia items 9/12):
-  [A] M2: toy eigenspectra as a function of (K, Q) -- cheap, converged
-      states already on disk; add as appendix figure.
-  [B] Item 5: EMPCA comparison -- decision needed (add it, or defend
-      omission in the letter).
   [C] Item 6: quasar-like continuum slopes in the toy generative model
       (Task 5) -- requires dataset regeneration + grid re-fit.
   [D] Minor Fig 6: regenerate stacked_hist.pdf on the machine with the Gaia
