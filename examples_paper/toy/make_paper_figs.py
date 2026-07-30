@@ -17,6 +17,7 @@ where ``<name>`` is one of:
     eigenspectra          -> toy_eigenspectra_comparison.pdf
     explained_variance    -> toy_explained_variance.pdf
     coefficients          -> toy_coefficient_distributions.pdf
+    eigenspectra_kq       -> toy_eigenspectra_vs_q.pdf, toy_eigenspectra_vs_k.pdf
     all                   -> all of the above
 
 This script is additive: it does not import or modify analyse_toy.py.
@@ -28,6 +29,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from empca import empca
 from numpy.random import default_rng
 from r_pca import RobustPCA
 from run_toy_gen_and_fits import M_PIXELS, N_SPECTRA, N_TRAIN, Q_VALS, RANKS
@@ -120,6 +122,65 @@ def _load_or_compute_rpca(all_spectra_for_fit, max_iter=500, tol=1e-4):
     np.savez(cache_file, Vh_rpca=Vh_rpca, max_iter=max_iter, tol=tol)
     print(f"Robust PCA complete; cached to {cache_file.name}")
     return Vh_rpca
+
+
+def _load_or_compute_empca(Y, W, nvec=None, niter=25):
+    """EMPCA (Bailey 2012) eigenvectors, cached to disk.
+
+    EMPCA is the weighted-PCA baseline the referee requested: it uses the
+    inverse-variance weights and handles missing data (weight zero), but has
+    no outlier mechanism. Deterministic via randseed=1.
+    """
+    nvec = PLOT_K if nvec is None else nvec
+    n, m = Y.shape
+    cache_file = results_dir / f"empca_cache_N{n}_M{m}_K{nvec}.npz"
+    if cache_file.exists():
+        cached = np.load(cache_file)
+        if int(cached["niter"]) == niter:
+            print(f"Loaded cached EMPCA basis from {cache_file.name}")
+            return cached["eigvec"]
+    print("Running EMPCA (this may take a few minutes)...")
+    model = empca(Y, W, niter=niter, nvec=nvec, randseed=1, silent=True)
+    eigvec = np.array(model.eigvec)  # (nvec, M), orthonormal rows
+    np.savez(cache_file, eigvec=eigvec, niter=niter)
+    print(f"EMPCA complete; cached to {cache_file.name}")
+    return eigvec
+
+
+def _sign_align(basis, ref_basis):
+    """Flip each column of basis so it positively aligns with its
+    best-matching column of ref_basis (eigenvector signs are arbitrary)."""
+    basis = basis.copy()
+    for k in range(basis.shape[1]):
+        overlaps = ref_basis.T @ basis[:, k]
+        j = np.argmax(np.abs(overlaps))
+        if overlaps[j] < 0:
+            basis[:, k] *= -1
+    return basis
+
+
+def _ordered_true_basis(data, K):
+    """True basis as (M, K), unit-norm columns, ordered by each component's
+    data-power contribution E[a^2]*||g||^2 (raw second moment, matching the
+    canonical ordering of the fitted methods on non-mean-subtracted data)."""
+    true_basis = np.array(data["true_basis"])[:K, :].T  # (M, K)
+    true_coeffs = np.array(data["true_coeffs"])[:, :K]
+    power = np.mean(true_coeffs**2, axis=0) * np.sum(true_basis**2, axis=0)
+    order = np.argsort(power)[::-1]
+    true_basis = true_basis[:, order]
+    true_basis = true_basis / np.linalg.norm(true_basis, axis=0, keepdims=True)
+    return true_basis, np.sort(power)[::-1]
+
+
+def _canonical_rotation(state):
+    """Rotate a trained RHMF state's basis to the principal axes of its
+    coefficient second moment, ordered by coefficient power -- the canonical
+    frame the SVD gives PCA for free. Returns (basis (M, K), V (K, K))."""
+    G = np.array(state.G)  # (M, K), orthonormal columns
+    A = np.array(state.A)  # (N, K)
+    evals, V = np.linalg.eigh(A.T @ A)
+    V = V[:, np.argsort(evals)[::-1]]
+    return G @ V, V
 
 
 def _plot_model_and_state(data, results, rhmf_objs, all_spectra_for_fit, all_ivar):
@@ -675,104 +736,24 @@ def fig_toy_spectra():
 def fig_eigenspectra_comparison():
     """Figure: toy_eigenspectra_comparison.pdf
 
-    4-method side-by-side comparison of basis vectors (eigenspectra):
-    PCA, RPCA, RHMF, and ground truth on same wavelength grid.
+    Side-by-side comparison of basis vectors (eigenspectra) from PCA, RPCA,
+    EMPCA, RHMF, and the ground truth, all under the shared conventions in
+    _canonical_coefficients.
     """
     data, results, rhmf_objs = _load_results()
     all_noisy_spectra, all_spectra_for_fit, all_ivar, grid = _all_data_arrays(data)
 
-    # Get train/test split (same as RHMF training for fair comparison)
-    N = all_spectra_for_fit.shape[0]
-    rng = np.random.RandomState(0)  # Match analyse_toy.py seed
-    indices = rng.permutation(N)
-    split = int(N * 0.5)  # 50% train (from run_toy_gen_and_fits.py)
-    train_idx = indices[:split]
+    bases = _canonical_coefficients(
+        data, results, rhmf_objs, all_spectra_for_fit, all_ivar
+    )["bases"]
+    methods = ["PCA", "RPCA", "EMPCA", "RHMF", "True"]
 
-    # Train PCA on training set only (fair comparison with RHMF)
-    U_pca, S_pca, Vh_pca = np.linalg.svd(all_spectra_for_fit[train_idx], full_matrices=False)
-    pca_basis = Vh_pca[:PLOT_K, :].T  # (M, K)
-
-    # Train RPCA on training set only (fair comparison with RHMF)
-    Vh_rpca = _load_or_compute_rpca(all_spectra_for_fit[train_idx])
-    rpca_basis = Vh_rpca[:PLOT_K, :].T  # (M, K)
-
-    # Get RHMF basis from the trained model. The factorization is only identified up
-    # to a KxK orthogonal rotation within the learned subspace, so we rotate to the
-    # same canonical frame PCA uses: principal axes of the coefficients, ordered by
-    # coefficient variance. Without this, each component is an arbitrary mixture of
-    # the others and comparison against PCA/RPCA/truth is meaningless.
-    result_ind = np.where(
-        (np.array([r.Q for r in results]) == PLOT_Q) & (np.array([r.K for r in results]) == PLOT_K)
-    )[0][0]
-    trained_state = results[result_ind].state
-
-    G = np.array(trained_state.G)  # (M, K), orthonormal columns
-    A = np.array(trained_state.A)  # (N, K)
-    evals, V = np.linalg.eigh(A.T @ A)
-    V = V[:, np.argsort(evals)[::-1]]  # order by coefficient variance, descending
-    rhmf_basis = G @ V  # (M, K), still orthonormal
-
-    # Get true basis (if available), ordered by true coefficient variance so it
-    # follows the same canonical convention as the fitted methods.
-    true_basis = data.get("true_basis", None)
-    if true_basis is not None:
-        true_basis = true_basis.T  # stored (K, M) -> (M, K)
-        if true_basis.shape[1] > PLOT_K:
-            true_basis = true_basis[:, :PLOT_K]
-        true_coeffs = data.get("true_coeffs", None)
-        if true_coeffs is not None:
-            # Order by each component's data-power contribution E[a^2]*||g||^2 (raw
-            # second moment, not variance, since the fitted methods run on
-            # non-mean-subtracted data). This matches the canonical ordering the
-            # fitted methods use.
-            coeff_ms = np.mean(np.array(true_coeffs)[:, :PLOT_K] ** 2, axis=0)
-            power = coeff_ms * np.sum(true_basis**2, axis=0)
-            true_basis = true_basis[:, np.argsort(power)[::-1]]
-
-    # Ensure all bases are (M, K)
-    if pca_basis.shape[1] > PLOT_K:
-        pca_basis = pca_basis[:, :PLOT_K]
-    if rpca_basis.shape[1] > PLOT_K:
-        rpca_basis = rpca_basis[:, :PLOT_K]
-    if rhmf_basis.shape[1] > PLOT_K:
-        rhmf_basis = rhmf_basis[:, :PLOT_K]
-
-    # L2-normalize all bases for fair comparison
-    pca_basis = pca_basis / np.linalg.norm(pca_basis, axis=0, keepdims=True)
-    rpca_basis = rpca_basis / np.linalg.norm(rpca_basis, axis=0, keepdims=True)
-    rhmf_basis = rhmf_basis / np.linalg.norm(rhmf_basis, axis=0, keepdims=True)
-    if true_basis is not None:
-        true_basis = true_basis / np.linalg.norm(true_basis, axis=0, keepdims=True)
-
-        # Eigenvector signs are arbitrary for every method; flip each component to
-        # positively align with its best-matching true component for readability.
-        for basis in (pca_basis, rpca_basis, rhmf_basis):
-            for k in range(basis.shape[1]):
-                overlaps = true_basis.T @ basis[:, k]
-                j = np.argmax(np.abs(overlaps))
-                if overlaps[j] < 0:
-                    basis[:, k] *= -1
-
-    # Create figure: 4 columns (methods) × K rows (components)
-    n_methods = 4 if true_basis is not None else 3
-    fig, axes = plt.subplots(PLOT_K, n_methods, figsize=(14, 12), sharex=True, dpi=100)
-    if PLOT_K == 1:
-        axes = axes.reshape(1, -1)
-
-    methods = ["PCA", "RPCA", "RHMF", "True"] if true_basis is not None else ["PCA", "RPCA", "RHMF"]
-    bases = [pca_basis, rpca_basis, rhmf_basis]
-    if true_basis is not None:
-        bases.append(true_basis)
+    fig, axes = plt.subplots(PLOT_K, len(methods), figsize=(16, 12), sharex=True, dpi=100)
 
     for i in range(PLOT_K):
-        for j, (method, basis) in enumerate(zip(methods, bases)):
+        for j, method in enumerate(methods):
             ax = axes[i, j]
-            # Ensure basis has correct shape (M, K) and extract component i
-            if basis.shape[1] > i:  # Check that component i exists
-                component = basis[:, i]
-                ax.plot(grid / 10, component, color=f"C{i}", lw=2, alpha=0.9)
-            else:
-                ax.text(0.5, 0.5, f"N/A", ha="center", va="center", transform=ax.transAxes)
+            ax.plot(grid / 10, bases[method][:, i], color=f"C{i}", lw=2, alpha=0.9)
 
             if i == 0:
                 ax.set_title(method, fontweight="bold")
@@ -799,14 +780,17 @@ def fig_eigenspectra_comparison():
 def _canonical_coefficients(data, results, rhmf_objs, all_spectra_for_fit, all_ivar):
     """Shared conventions for the method-comparison figures.
 
-    Fits PCA and RPCA on the same training split used for RHMF, and expresses
-    the RHMF solution in the canonical frame (principal axes of the coefficient
-    second moment, ordered by coefficient power) that the SVD gives PCA/RPCA
-    for free. Returns:
-        rhmf_basis : (M, K) rotated orthonormal RHMF basis
-        pca_basis  : (M, K) train-set PCA basis
-        rpca_basis : (M, K) train-set RPCA basis
-        rhmf_A     : (N, K) all-data RHMF coefficients in the canonical frame
+    Fits PCA, RPCA, and EMPCA on the same training split used for RHMF (EMPCA
+    additionally receives the inverse-variance weights, which is the point of
+    including it), and expresses the RHMF solution in the canonical frame
+    (principal axes of the coefficient second moment, ordered by coefficient
+    power) that the SVD gives the other methods for free. All bases are
+    unit-norm (M, K) with signs aligned to the true basis.
+
+    Returns a dict with:
+        bases      : {"PCA", "RPCA", "EMPCA", "RHMF", "True"} -> (M, K)
+        rhmf_A     : (N, K) all-data RHMF coefficients, sign-consistent with
+                     bases["RHMF"]
         true_power : (K,) per-component data power of the true components,
                      E[a^2] * ||g||^2, sorted descending
     """
@@ -814,6 +798,7 @@ def _canonical_coefficients(data, results, rhmf_objs, all_spectra_for_fit, all_i
     rng = np.random.RandomState(0)
     train_idx = rng.permutation(N)[: int(N * 0.5)]
     Y_train = all_spectra_for_fit[train_idx]
+    W_train = all_ivar[train_idx]
 
     U_pca, S_pca, Vh_pca = np.linalg.svd(Y_train, full_matrices=False)
     pca_basis = Vh_pca[:PLOT_K, :].T
@@ -821,25 +806,30 @@ def _canonical_coefficients(data, results, rhmf_objs, all_spectra_for_fit, all_i
     Vh_rpca = _load_or_compute_rpca(Y_train)
     rpca_basis = Vh_rpca[:PLOT_K, :].T
 
+    empca_basis = _load_or_compute_empca(Y_train, W_train).T  # (M, K)
+
     # RHMF: coefficients for every spectrum (G held at its trained value), then
     # rotate to the principal axes of the coefficient second moment.
     plot_rhmf, all_state = _plot_model_and_state(
         data, results, rhmf_objs, all_spectra_for_fit, all_ivar
     )
-    A = np.array(all_state.A)
-    G = np.array(all_state.G)
-    evals, V = np.linalg.eigh(A.T @ A)
-    V = V[:, np.argsort(evals)[::-1]]
-    rhmf_A = A @ V
-    rhmf_basis = G @ V
+    rhmf_basis, V = _canonical_rotation(all_state)
+    rhmf_A = np.array(all_state.A) @ V
 
-    true_basis_raw = np.array(data["true_basis"])[:PLOT_K, :]  # (K, M), not unit norm
-    true_coeffs = np.array(data["true_coeffs"])[:, :PLOT_K]
-    true_power = np.sort(
-        np.mean(true_coeffs**2, axis=0) * np.sum(true_basis_raw**2, axis=1)
-    )[::-1]
+    true_basis, true_power = _ordered_true_basis(data, PLOT_K)
 
-    return rhmf_basis, pca_basis, rpca_basis, rhmf_A, true_power
+    bases = {}
+    for name, basis in [("PCA", pca_basis), ("RPCA", rpca_basis),
+                        ("EMPCA", empca_basis), ("RHMF", rhmf_basis)]:
+        basis = basis / np.linalg.norm(basis, axis=0, keepdims=True)
+        bases[name] = _sign_align(basis, true_basis)
+    bases["True"] = true_basis
+
+    # Keep RHMF coefficient signs consistent with the sign-aligned basis.
+    flips = np.sign(np.sum(bases["RHMF"] * rhmf_basis, axis=0))
+    rhmf_A = rhmf_A * flips
+
+    return {"bases": bases, "rhmf_A": rhmf_A, "true_power": true_power}
 
 
 def fig_explained_variance():
@@ -854,24 +844,22 @@ def fig_explained_variance():
     data, results, rhmf_objs = _load_results()
     all_noisy_spectra, all_spectra_for_fit, all_ivar, grid = _all_data_arrays(data)
 
-    pca_basis, rpca_basis, rhmf_A_rot, true_power = _canonical_coefficients(
+    canon = _canonical_coefficients(
         data, results, rhmf_objs, all_spectra_for_fit, all_ivar
-    )[1:]
+    )
+    bases = canon["bases"]
 
     total_power = np.mean(np.sum(all_spectra_for_fit**2, axis=1))
 
     # Per-component captured power: mean-square projection coefficient (bases are
     # orthonormal, so this is the power along each component direction).
-    pca_power = np.mean((all_spectra_for_fit @ pca_basis) ** 2, axis=0)
-    rpca_power = np.mean((all_spectra_for_fit @ rpca_basis) ** 2, axis=0)
-    rhmf_power = np.mean(rhmf_A_rot**2, axis=0)
-
-    fig, axes = plt.subplots(1, 4, figsize=(14, 4), dpi=100, sharey=True)
+    fig, axes = plt.subplots(1, 5, figsize=(16, 4), dpi=100, sharey=True)
     panels = [
-        ("PCA", pca_power),
-        ("RPCA", rpca_power),
-        ("RHMF", rhmf_power),
-        ("True", true_power),
+        ("PCA", np.mean((all_spectra_for_fit @ bases["PCA"]) ** 2, axis=0)),
+        ("RPCA", np.mean((all_spectra_for_fit @ bases["RPCA"]) ** 2, axis=0)),
+        ("EMPCA", np.mean((all_spectra_for_fit @ bases["EMPCA"]) ** 2, axis=0)),
+        ("RHMF", np.mean(canon["rhmf_A"] ** 2, axis=0)),
+        ("True", canon["true_power"]),
     ]
     for ax, (label, power) in zip(axes, panels):
         frac = 100 * power / total_power
@@ -904,17 +892,22 @@ def fig_coefficient_distributions():
     all_noisy_spectra, all_spectra_for_fit, all_ivar, grid = _all_data_arrays(data)
     is_outlier = data["os_mask"].any(axis=1)
 
-    _, pca_basis, rpca_basis, rhmf_A, _ = _canonical_coefficients(
+    canon = _canonical_coefficients(
         data, results, rhmf_objs, all_spectra_for_fit, all_ivar
     )
+    bases = canon["bases"]
 
     # Projection coefficients onto the (orthonormal) train-set bases.
-    pca_A = all_spectra_for_fit @ pca_basis
-    rpca_A = all_spectra_for_fit @ rpca_basis
+    rows = [
+        ("PCA", all_spectra_for_fit @ bases["PCA"]),
+        ("RPCA", all_spectra_for_fit @ bases["RPCA"]),
+        ("EMPCA", all_spectra_for_fit @ bases["EMPCA"]),
+        ("RHMF", canon["rhmf_A"]),
+    ]
 
-    fig, axes = plt.subplots(3, PLOT_K, figsize=(14, 8), dpi=100)
+    fig, axes = plt.subplots(len(rows), PLOT_K, figsize=(14, 10.5), dpi=100)
 
-    for i, (label, A) in enumerate([("PCA", pca_A), ("RPCA", rpca_A), ("RHMF", rhmf_A)]):
+    for i, (label, A) in enumerate(rows):
         for k in range(PLOT_K):
             ax = axes[i, k]
             bins = np.histogram_bin_edges(A[:, k], bins=40)
@@ -927,7 +920,7 @@ def fig_coefficient_distributions():
                 ax.set_title(f"K{k+1}", fontweight="bold")
             if k == 0:
                 ax.set_ylabel(label)
-            if i == 2:
+            if i == len(rows) - 1:
                 ax.set_xlabel("Coefficient")
             ax.tick_params(labelsize=11)
 
@@ -1066,6 +1059,83 @@ def fig_toy_diversity():
     print(f"Wrote {out}")
 
 
+def fig_eigenspectra_kq():
+    """Figures: toy_eigenspectra_vs_q.pdf and toy_eigenspectra_vs_k.pdf
+
+    RHMF eigenspectra across the hyperparameter grid: the recovered basis
+    vectors as a function of Q at the true rank K=5, and as a function of K at
+    the CV-optimal Q=5. Every model is expressed in its canonical frame
+    (principal axes of its coefficients) with signs aligned to the true basis,
+    so panels are directly comparable. Uses the converged states already on
+    disk; no re-training.
+    """
+    data, results, rhmf_objs = _load_results()
+    grid = data["grid"]
+
+    max_k = max(r.K for r in results)
+    true_basis, _ = _ordered_true_basis(data, min(PLOT_K, max_k))
+
+    def canonical(res):
+        basis, _ = _canonical_rotation(res.state)
+        basis = basis / np.linalg.norm(basis, axis=0, keepdims=True)
+        return _sign_align(basis, true_basis)
+
+    # --- Eigenspectra vs Q at fixed K = PLOT_K --- #
+    q_vals = sorted({r.Q for r in results})
+    fig, axes = plt.subplots(PLOT_K, len(q_vals), figsize=(2.6 * len(q_vals), 12),
+                             sharex=True, dpi=100)
+    for j, q in enumerate(q_vals):
+        res = next(r for r in results if r.K == PLOT_K and r.Q == q)
+        basis = canonical(res)
+        for i in range(PLOT_K):
+            ax = axes[i, j]
+            ax.plot(grid / 10, basis[:, i], color=f"C{i}", lw=1.5, alpha=0.9)
+            if i == 0:
+                ax.set_title(f"$Q={q:g}$", fontweight="bold")
+            if j == 0:
+                ax.set_ylabel(f"K{i+1}")
+            else:
+                ax.set_yticklabels([])
+            ax.set_ylim(-0.15, 0.15)
+    axes[-1, 0].set_xlabel("Wavelength [nm]")
+    fig.suptitle(r"$\textsf{\textbf{RHMF Eigenspectra vs } Q \textsf{\textbf{ (}} K=5 \textsf{\textbf{)}}}$",
+                fontsize="24", c="dimgrey", y=0.99)
+    plt.tight_layout()
+    out = PAPER_FIGS / "toy_eigenspectra_vs_q.pdf"
+    plt.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+
+    # --- Eigenspectra vs K at fixed Q = PLOT_Q --- #
+    k_vals = sorted({r.K for r in results})
+    fig, axes = plt.subplots(max_k, len(k_vals), figsize=(2.9 * len(k_vals), 2.1 * max_k),
+                             sharex=True, dpi=100)
+    for j, k_val in enumerate(k_vals):
+        res = next(r for r in results if r.K == k_val and r.Q == PLOT_Q)
+        basis = canonical(res)
+        for i in range(max_k):
+            ax = axes[i, j]
+            if i < basis.shape[1]:
+                ax.plot(grid / 10, basis[:, i], color=f"C{i}", lw=1.5, alpha=0.9)
+            else:
+                ax.set_facecolor("0.95")
+            if i == 0:
+                ax.set_title(f"$K={k_val}$", fontweight="bold")
+            if j == 0:
+                ax.set_ylabel(f"K{i+1}")
+            else:
+                ax.set_yticklabels([])
+            ax.set_ylim(-0.15, 0.15)
+    axes[-1, 0].set_xlabel("Wavelength [nm]")
+    fig.suptitle(r"$\textsf{\textbf{RHMF Eigenspectra vs } K \textsf{\textbf{ (}} Q=5 \textsf{\textbf{)}}}$",
+                fontsize="24", c="dimgrey", y=0.995)
+    plt.tight_layout()
+    out = PAPER_FIGS / "toy_eigenspectra_vs_k.pdf"
+    plt.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+
+
 FIGURES = {
     "toy_weights": fig_toy_weights,
     "toy_residuals": fig_toy_residuals,
@@ -1075,6 +1145,7 @@ FIGURES = {
     "eigenspectra": fig_eigenspectra_comparison,
     "explained_variance": fig_explained_variance,
     "coefficients": fig_coefficient_distributions,
+    "eigenspectra_kq": fig_eigenspectra_kq,
 }
 
 
