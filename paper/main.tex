@@ -171,6 +171,11 @@ This distinguishes our approach from standard low-rank-plus-sparse approaches \c
 Related to this, our method is not convex, so there is an additional implicit assumption that the optimization scheme, including its initialization, finds a good local solution.
 This is generally easy when the outliers are rare and the heteroskedasticity is not extreme.
 
+\textbf{On outlier definition and shared structure:}
+We emphasize that ``outliers'' in the RHMF framework refers to deviations from the assumed low-rank structure, \emph{not} to objects or features that belong to a different class or category. This distinction is crucial for realistic data. For example, consider spectroscopic data from a sample containing four stellar types with population counts of 100, 100, 50, and 10. The rare type with 10 objects would \emph{not} be classified as outliers by RHMF, even if spectrally distinct from the other three types, provided that those 10 spectra share a coherent low-rank structure among themselves (i.e., they follow the low-rank subspace). Instead, the model would allocate additional basis vectors to capture the shared spectral variations of the rare type. Conversely, a single spectrum that deviates significantly from the common low-rank structure of its class would be downweighted, even if it belongs to a populous class.
+
+When data contains multiple well-separated populations with balanced or substantial counts, the model behavior depends on the choice of rank $K$. Lower $K$ will prioritize the most common population and treat the others as collectively outlier-like; higher $K$ will recover the distinct low-rank structure within each population, at the cost of reduced robustness to true anomalies. There is no principled statistical way to distinguish between these two interpretations from the data alone---it requires domain knowledge about which structure is ``interesting'' and which is ``noise''. We recommend users who suspect multimodal data inspect both the basis vectors and the structure of the residuals: coherent residual patterns shared across many objects suggest additional low-rank structure that higher $K$ could capture. If the investigator wishes to treat separate populations symmetrically and detect anomalies within each, increasing $K$ to accommodate all populations is a reasonable approach, with the understanding that the robustness to true outliers may diminish slightly.
+
 \subsection{Robustness}
 
 Models in this matrix-factorization family (e.g., PCA, where all $w_{ij} = 1$, and HMF), are usually fit by minimizing the $\chi^2$ metric, or equivalently maximizing a Gaussian likelihood
@@ -226,6 +231,8 @@ The most straightforward approach is the singular-value decomposition
 where ${\bf U}$ and ${\bf V}^\top$ are unitary matrices, and {\bf S} is a matrix with diagonal entries equal to the singular values of ${\bf Y}$ in non-decreasing order, and zeros elsewhere.
 This initialization is simply the first $K$ components of the PCA solution.
 In the case that the dataset is very large, it may be preferable to use a faster, approximate method such as the randomized SVD \citep{halko2011}.
+
+Unlike standard PCA, RHMF does not require mean subtraction of the data matrix ${\bf Y}$ before computing the SVD initialization. The first basis vector (first row of ${\bf G}$) is free to capture any global offset or mean level in the data, just as any other basis vector. This is a natural consequence of the flexible linear model in Eq.~\eqref{eq:model}: the model can allocate coefficients to represent the mean without explicit pre-processing. In practice, this means RHMF can be applied directly to data as observed, making it more convenient than PCA when the mean is scientifically meaningful or when multiple datasets with different mean levels need to be compared within a single low-rank representation.
 
 Iteratively updating the parameters consists of four steps that cycle until convergence. The first is the \textbf{w-step}, which  updates the data weights to downweight outliers, given the current estimate of ${\bf A}$ and ${\bf G}$:
 \begin{align}
