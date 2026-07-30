@@ -47,7 +47,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 results_dir = SCRIPT_DIR / "toy_model_results"
 
 # Hyperparameters of the model used for the per-spectrum / per-pixel figures.
-PLOT_Q = 5
+# Note: Q=5 produces degenerate basis (correlated components). Q=3 has proper orthogonality.
+PLOT_Q = 3
 PLOT_K = 5
 
 # Mean used for imputing NaNs before fitting PCA / RPCA (matches analyse_toy.py).
