@@ -681,12 +681,19 @@ def fig_eigenspectra_comparison():
     data, results, rhmf_objs = _load_results()
     all_noisy_spectra, all_spectra_for_fit, all_ivar, grid = _all_data_arrays(data)
 
-    # Get PCA basis
-    U_pca, S_pca, Vh_pca = np.linalg.svd(all_spectra_for_fit, full_matrices=False)
+    # Get train/test split (same as RHMF training for fair comparison)
+    N = all_spectra_for_fit.shape[0]
+    rng = np.random.RandomState(0)  # Match analyse_toy.py seed
+    indices = rng.permutation(N)
+    split = int(N * 0.5)  # 50% train (from run_toy_gen_and_fits.py)
+    train_idx = indices[:split]
+
+    # Train PCA on training set only (fair comparison with RHMF)
+    U_pca, S_pca, Vh_pca = np.linalg.svd(all_spectra_for_fit[train_idx], full_matrices=False)
     pca_basis = Vh_pca[:PLOT_K, :].T  # (M, K)
 
-    # Get RPCA basis
-    Vh_rpca = _load_or_compute_rpca(all_spectra_for_fit)
+    # Train RPCA on training set only (fair comparison with RHMF)
+    Vh_rpca = _load_or_compute_rpca(all_spectra_for_fit[train_idx])
     rpca_basis = Vh_rpca[:PLOT_K, :].T  # (M, K)
 
     # Get RHMF basis (use TRAINED basis, not inferred basis to avoid noise)
