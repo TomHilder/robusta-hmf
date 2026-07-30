@@ -537,7 +537,7 @@ In the toy model, we assessed the outlier identification performance with the F1
 Comparing with the cross-validation results, the F1 score per-pixel is maximized by the hyperparameters with the best validation score, and the per-object maximum is nearby.
 This is reassuring as it indicates that the validation metric is a sensible choice.
 Interestingly, the F1 scores only decrease slightly at larger $Q$ where the validation score degrades.
-It's plausible this is because outliers truly are sparse and without shared low-rank structure, leading to good performance without aggressive down-weighting, but it is unclear if this generalises to realistic datasets where outliers may not satisfy those assumptions. 
+It is plausible this is because outliers truly are sparse and without shared low-rank structure, leading to good performance without aggressive down-weighting, but it is unclear if this generalises to realistic datasets where outliers may not satisfy those assumptions. 
 For example, consider the case where in addition to the main objects of interest making up the majority of the dataset with shared low-rank structure, there exists a second class of rare objects that constitute a small percentage of the population, which also share low-rank structure.
 Lower $K$ will prioritise common objects and identify the second class as outliers, but larger $K$ will additionally fit the second class instead of downweighting them.
 Whether or not the second class are ``outliers'' is in the eyes of the beholder, but setting $K$ adequately for either view will require careful judgement. 
@@ -553,7 +553,7 @@ This is somewhat remediated by close inspection of the residuals between the dat
 It is reasonable to use the robust weights as a guide for \emph{where to look} for interesting objects in large heteroskedastic datasets, rather than a \emph{statistical measure} of the degree to which an object is truly an outlier.
 
 As already mentioned, outlier identification will be sensitive to the choice of $K$ if those outliers share some low-rank structure.
-By construction this wasn't a problem in the toy model because we designed the outliers to be random, without shared low-rank structure.
+By construction this was not a problem in the toy model because we designed the outliers to be random, without shared low-rank structure.
 In Gaia/RVS spectra, many stars have slight deviations in their continuum normalisation, or common spectral signatures (e.g., binaries). When these features are shared across many spectra they can be captured by the basis functions, and will not be classified as outliers. 
 They can often still be identified after inspecting the model basis functions and noticing that one basis has a particular feature, and then looking at the coefficients for that basis to find the spectra that share that feature. But in the strict classification sense of RHMF, they will not be identified as outliers \emph{solely because} of that low-rank structure.
 
@@ -570,7 +570,7 @@ This is exploited in the model presented here, as the inverse gamma distribution
 %%% EXTENSIONS
 
 The method also comes along with a scalar objective function, which means that in principle it could be trained with stochastic gradient descent methods and mini-batching, trivially scaling to massive data sets. 
-Complications arise when trying to initialise the model because naive SVD requires access to the full dataset, but usually subsampling the data is sufficient. All that matters is that you can learn the basis functions, since the coefficients are completely determined by that. In our case, those basis vectors are orthogonal. That's not strictly required, but in practice the rotation step (which enforces orthogonality) is necessary during training to suppress degeneracy between ${\bf A}$ and ${\bf G}$. Naturally, orthogonality helps for numerical stability and interpretability, but you're free to do whatever you want. You could give the orthogonality condition to ${\bf A}$ instead, for example.
+Complications arise when trying to initialise the model because naive SVD requires access to the full dataset, but usually subsampling the data is sufficient. All that matters is that you can learn the basis functions, since the coefficients are completely determined by that. In our case, those basis vectors are orthogonal. That is not strictly required, but in practice the rotation step (which enforces orthogonality) is necessary during training to suppress degeneracy between ${\bf A}$ and ${\bf G}$. Naturally, orthogonality helps for numerical stability and interpretability, but you are free to do whatever you want. You could give the orthogonality condition to ${\bf A}$ instead, for example.
 
 We could extend the model such that the basis functions do not live on a pixel basis, but rather are continuous functions that are represented with sinusoids, wavelets, or something else.
 Using sinusoids with regularisation based on the power spectral density of a kernel would allow the basis functions to be Gaussian Processes. 

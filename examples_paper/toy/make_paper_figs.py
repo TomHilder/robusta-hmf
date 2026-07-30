@@ -165,7 +165,7 @@ def split_by_near_uniform(x, *, factor=3.0, step=None, return_breaks=False):
 def fig_toy_weights():
     """Figure: weights_per_object_clean_vs_outlier.pdf
 
-    Histogram of mean robust weight per spectrum, split into normal vs outlier
+    Histogram of median robust weight per spectrum, split into normal vs outlier
     spectra (single-panel version).
     """
     data, results, rhmf_objs = _load_results()
@@ -176,9 +176,9 @@ def fig_toy_weights():
         data, results, rhmf_objs, all_spectra_for_fit, all_ivar
     )
 
-    # Per-pixel robust weights on all data, then per-object mean.
+    # Per-pixel robust weights on all data, then per-object median.
     weights = plot_rhmf.robust_weights(all_spectra_for_fit, all_ivar, state=all_state)
-    per_object_weights = np.mean(weights, axis=1)
+    per_object_weights = np.median(weights, axis=1)
 
     outlier_spectra_mask = os_mask.any(axis=1)
     clean_spectra_mask = ~outlier_spectra_mask
@@ -208,7 +208,7 @@ def fig_toy_weights():
         lw=0,
     )
     ax.set_yscale("log")
-    ax.set_xlabel("Mean Robust Weight per Spectrum")
+    ax.set_xlabel("Median Robust Weight per Spectrum")
     ax.set_ylabel("Count")
     ax.legend(loc="upper left", borderaxespad=1)
     fig.suptitle(
