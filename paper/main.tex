@@ -5,11 +5,24 @@
 \usepackage{graphicx}
 \usepackage{xcolor}
 \usepackage{parskip}
-\usepackage[normalem]{ulem}
-\providecommand{\add}[1]{{\color{blue}#1}}
-\providecommand{\del}[1]{{\leavevmode\color{red}\sout{#1}}}
-\providecommand{\added}[1]{{\color{blue}#1}}
-\providecommand{\removed}[1]{{\leavevmode\color{red}\sout{#1}}}
+% Referee-response change markup. Two traps here:
+% (1) AASTeX already defines \added (its own track-changes command, which
+%     renders plainly), so \providecommand would be a silent no-op: force our
+%     definitions with the provide-then-renew pattern.
+% (2) ulem's \sout cannot break lines under aastex631 (long deleted spans get
+%     set as one box overflowing the page), so we use soul's \st instead,
+%     registering the citation/ref commands it must treat as atomic.
+\usepackage{soul}
+\soulregister\cite7
+\soulregister\citep7
+\soulregister\citet7
+\soulregister\citealt7
+\soulregister\ref7
+\soulregister\eqref7
+\providecommand{\add}{}\renewcommand{\add}[1]{{\color{blue}#1}}
+\providecommand{\del}{}\renewcommand{\del}[1]{{\color{red}\st{#1}}}
+\providecommand{\added}{}\renewcommand{\added}[1]{{\color{blue}#1}}
+\providecommand{\removed}{}\renewcommand{\removed}[1]{{\color{red}\st{#1}}}
 % Math-mode variants: ulem's \sout fails in math mode, so use color-only.
 \providecommand{\maddm}[1]{{\color{blue}#1}}
 \providecommand{\mdelm}[1]{{\color{red}#1}}
@@ -114,7 +127,7 @@ A subset of these many methods have provable convergence \citep{netrapalli2014},
 
 \removed{Unfortunately, none of these methods handle the common issues of missing data segments, or varying measurement uncertainties across the data (known as heteroskedasticity). \citet{tsalmantza2012} introduced heteroskedastic matrix factorisation (HMF) as a PCA replacement that handles both these cases by weighting each point by its inverse uncertainty variance. However, HMF is still very sensitive to outliers and anomalies unless already downweighted, and it does not have a principled way to identify these unknown outliers.}
 
-\added{The challenge arises when dealing with real data: missing data segments, varying measurement uncertainties across features (heteroskedasticity), and outliers that violate model assumptions. Several methods address the missing-data and heteroskedasticity problem. \citet{budavari2009} developed techniques to handle both missing data and non-uniform weights in a PCA framework. \citet{bailey2012} and \citet{delchambre2014} separately presented methods for PCA with missing data and per-feature uncertainties. These methods successfully handle heteroskedasticity and incompleteness, but lack a principled approach for automatic outlier identification.}
+\added{The challenge arises when dealing with real data: missing data segments, varying measurement uncertainties across features (heteroskedasticity), and outliers that violate model assumptions. Several methods address the missing-data and heteroskedasticity problem. \citet{budavari2009} developed techniques to handle both missing data and non-uniform weights in a PCA framework. \citet{bailey2012} and \citet{delchambre2015} separately presented methods for PCA with missing data and per-feature uncertainties. These methods successfully handle heteroskedasticity and incompleteness, but lack a principled approach for automatic outlier identification.}
 
 \added{\citet{tsalmantza2012} introduced heteroskedastic matrix factorisation (HMF), extending PCA to incorporate both missing data and measurement uncertainties by weighting each point by its inverse uncertainty variance. However, HMF remains sensitive to outliers and anomalies unless they are pre-downweighted, and it does not have a principled way to identify these unknown outliers. At the same time, robust PCA methods (discussed above) handle outliers through sparse decomposition but ignore both missing data and measurement uncertainties.} 
 
