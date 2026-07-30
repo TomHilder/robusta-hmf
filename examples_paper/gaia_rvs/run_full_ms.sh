@@ -34,20 +34,43 @@ if [[ -z "${N_GPUS:-}" ]]; then
 fi
 echo "Using ${N_GPUS} GPU(s)"
 
-# --- Stage 1: train the (K, Q) grid, one shard per GPU --- #
-pids=()
-for ((g = 0; g < N_GPUS; g++)); do
-    echo "Launching shard ${g}/${N_GPUS} on GPU ${g} (log: full_ms_shard${g}.log)"
-    CUDA_VISIBLE_DEVICES=${g} uv run python -u train_full_ms.py \
-        --shard "${g}" --n-shards "${N_GPUS}" "${EXTRA_ARGS[@]}" \
-        > "full_ms_shard${g}.log" 2>&1 &
-    pids+=($!)
-done
+# Older jaxlib builds emit one of these per kernel compilation. Pure noise, but
+# enough of it to bury the actual progress lines, so keep it out of the terminal
+# (the log files still get everything).
+NOISE='is not a recognized feature'
 
+# Both stages below check PIPESTATUS[0] with errexit off rather than relying on
+# pipefail: grep -v exits 1 when it filters out every line, which would
+# otherwise be indistinguishable from the python process failing.
+
+# --- Stage 1: train the (K, Q) grid, one shard per GPU --- #
 fail=0
-for pid in "${pids[@]}"; do
-    wait "${pid}" || fail=1
-done
+if [[ ${N_GPUS} -eq 1 ]]; then
+    # One GPU means one shard, so there is nothing to interleave with and no
+    # reason to background it: run in the foreground and mirror to the terminal.
+    echo "Launching shard 0/1 on GPU 0 (log: full_ms_shard0.log, mirrored below)"
+    set +e
+    CUDA_VISIBLE_DEVICES=0 uv run python -u train_full_ms.py \
+        --shard 0 --n-shards 1 "${EXTRA_ARGS[@]}" 2>&1 \
+        | tee full_ms_shard0.log \
+        | grep -v --line-buffered "${NOISE}"
+    [[ ${PIPESTATUS[0]} -eq 0 ]] || fail=1
+    set -e
+else
+    # Several shards would trample each other on a shared terminal, so they
+    # stay in their own files.
+    pids=()
+    for ((g = 0; g < N_GPUS; g++)); do
+        echo "Launching shard ${g}/${N_GPUS} on GPU ${g} (log: full_ms_shard${g}.log)"
+        CUDA_VISIBLE_DEVICES=${g} uv run python -u train_full_ms.py \
+            --shard "${g}" --n-shards "${N_GPUS}" "${EXTRA_ARGS[@]}" \
+            > "full_ms_shard${g}.log" 2>&1 &
+        pids+=($!)
+    done
+    for pid in "${pids[@]}"; do
+        wait "${pid}" || fail=1
+    done
+fi
 if [[ ${fail} -ne 0 ]]; then
     echo "ERROR: at least one training shard failed -- check full_ms_shard*.log"
     echo "Re-running ./run_full_ms.sh will resume from the completed models."
@@ -57,7 +80,15 @@ echo "Training complete."
 
 # --- Stage 2: CV scoring, best-model selection, outliers (single GPU) --- #
 echo "Running analysis (log: full_ms_analyse.log)"
-CUDA_VISIBLE_DEVICES=0 uv run python -u analyse_full_ms.py "${EXTRA_ARGS[@]}" \
-    > full_ms_analyse.log 2>&1
-tail -n 6 full_ms_analyse.log
+# Always a single process, so tee it straight through.
+set +e
+CUDA_VISIBLE_DEVICES=0 uv run python -u analyse_full_ms.py "${EXTRA_ARGS[@]}" 2>&1 \
+    | tee full_ms_analyse.log \
+    | grep -v --line-buffered "${NOISE}"
+analyse_status=${PIPESTATUS[0]}
+set -e
+if [[ ${analyse_status} -ne 0 ]]; then
+    echo "ERROR: analysis failed -- check full_ms_analyse.log"
+    exit 1
+fi
 echo "All done. Outputs: gaia_rvs_results/full_ms_* and plots_full_ms/"
