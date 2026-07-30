@@ -7,9 +7,9 @@
 \usepackage{parskip}
 \usepackage[normalem]{ulem}
 \providecommand{\add}[1]{{\color{blue}#1}}
-\providecommand{\del}[1]{{\color{red}\sout{#1}}}
+\providecommand{\del}[1]{{\leavevmode\color{red}\sout{#1}}}
 \providecommand{\added}[1]{{\color{blue}#1}}
-\providecommand{\removed}[1]{{\color{red}\sout{#1}}}
+\providecommand{\removed}[1]{{\leavevmode\color{red}\sout{#1}}}
 % Math-mode variants: ulem's \sout fails in math mode, so use color-only.
 \providecommand{\maddm}[1]{{\color{blue}#1}}
 \providecommand{\mdelm}[1]{{\color{red}#1}}
@@ -431,7 +431,7 @@ In contrast, the outlier spectra have median weights mostly $\leq 0.8$, with onl
     \label{fig:cv}
 \end{figure}
 
-\added{To understand how RHMF compares with other matrix factorization methods, Figure~\ref{fig:eigenspectra} shows the learned basis vectors for PCA, RPCA, and RHMF side-by-side with the ground truth basis from the synthetic data generation. Figure~\ref{fig:explained_variance} compares the variance allocation across components, demonstrating how robust downweighting in RHMF results in cleaner basis recovery. Figure~\ref{fig:coefficients} shows coefficient distributions with RHMF's robust weight overlay, highlighting how outliers are systematically downweighted.}
+\added{To understand how RHMF compares with other matrix factorization methods, Figure~\ref{fig:eigenspectra} shows the learned basis vectors for PCA, RPCA, and RHMF side-by-side with the ground truth basis from the synthetic data generation. Figure~\ref{fig:explained_variance} compares the data power captured by each component, showing that PCA inflates its trailing components by absorbing noise and outlier power, while RHMF most closely tracks the true fall-off. Figure~\ref{fig:coefficients} shows the per-component coefficient distributions split into normal and outlier spectra, addressing whether outliers can be identified from coefficient values alone.}
 
 \begin{figure}
     \centering
@@ -443,14 +443,14 @@ In contrast, the outlier spectra have median weights mostly $\leq 0.8$, with onl
 \begin{figure}
     \centering
     \includegraphics[width=\linewidth]{figs/toy_explained_variance.pdf}
-    \caption{\added{Explained variance by component for PCA, RPCA, and RHMF methods on the toy dataset. The RHMF method allocates variance more cleanly across components than PCA, which wastes variance on fitting outliers. The first 10 components are shown, with RHMF's robust downweighting visible in the different variance profile compared to standard PCA.}}
+    \caption{\added{Data power captured by each component for PCA, RPCA, RHMF, and the truth on the toy dataset, as a percentage of the total mean-square data power (note the logarithmic scale). All methods are fit on the training set and evaluated on the full dataset in the canonical frame of Figure~\ref{fig:eigenspectra}; the true panel shows each generative component's contribution $\mathbb{E}[a^2]\,\|g\|^2$. PCA inflates components 2--5 well above the true values because they absorb noise and outlier power; RPCA is closer; RHMF most closely tracks the true fall-off.}}
     \label{fig:explained_variance}
 \end{figure}
 
 \begin{figure}
     \centering
     \includegraphics[width=\linewidth]{figs/toy_coefficient_distributions.pdf}
-    \caption{\added{Coefficient distributions for the toy dataset: histograms for PCA and RPCA (top and middle rows), and scatter plot for RHMF colored by robust weights (bottom row). Each column shows one of the first 5 components (K1--K5). The RHMF scatter plot demonstrates how robust weights downweight outlier spectra (red/warm colors indicate low weights), providing a continuous measure of how anomalous each spectrum is in the space of each basis component.}}
+    \caption{\added{Per-component coefficient distributions for PCA, RPCA, and RHMF on the toy dataset, split into normal (blue) and true outlier (orange, hatched) spectra, with logarithmic counts. For PCA, a handful of corrupted spectra acquire extreme projection coefficients that stretch the axes by an order of magnitude, illustrating how outliers dominate its coefficient space. For RPCA and RHMF the coefficient distributions are well-behaved, but the outlier spectra sit \emph{within} the bulk of the normal population in every component: coefficient values alone do not separate these outliers. This motivates the robust weights (Figure~\ref{fig:toy_weights}) as the primary outlier diagnostic, with coefficients playing a complementary role (see Discussion).}}
     \label{fig:coefficients}
 \end{figure}
 
