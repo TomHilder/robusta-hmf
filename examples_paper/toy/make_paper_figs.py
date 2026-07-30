@@ -728,8 +728,13 @@ def fig_eigenspectra_comparison():
     for i in range(PLOT_K):
         for j, (method, basis) in enumerate(zip(methods, bases)):
             ax = axes[i, j]
-            ax.plot(grid / 10, basis[:, i], color="black", lw=1.2, alpha=1.0)
-            ax.fill_between(grid / 10, basis[:, i], alpha=0.15, color="black")
+            # Ensure basis has correct shape (M, K) and extract component i
+            if basis.shape[1] > i:  # Check that component i exists
+                component = basis[:, i]
+                ax.plot(grid / 10, component, color="black", lw=1.2, alpha=1.0)
+                ax.fill_between(grid / 10, component, alpha=0.15, color="black")
+            else:
+                ax.text(0.5, 0.5, f"N/A", ha="center", va="center", transform=ax.transAxes)
 
             if i == 0:
                 ax.set_title(method, fontsize=11, fontweight="bold")
