@@ -692,12 +692,24 @@ def fig_eigenspectra_comparison():
     # Get RHMF basis (from best model)
     plot_rhmf, all_state = _plot_model_and_state(data, results, rhmf_objs, all_spectra_for_fit, all_ivar)
     # G is (K, M), so transpose to (M, K)
-    rhmf_basis = all_state.G.T  # (M, K)
+    G = np.array(all_state.G)
+    if G.shape[0] == PLOT_K and G.shape[1] > PLOT_K:
+        # G is already (K, M), transpose to (M, K)
+        rhmf_basis = G.T
+    elif G.shape[1] == PLOT_K and G.shape[0] > PLOT_K:
+        # G is already (M, K), use as-is
+        rhmf_basis = G
+    else:
+        # Assume (K, M) and transpose
+        rhmf_basis = G.T
 
     # Get true basis (if available)
     true_basis = data.get("true_basis", None)
     if true_basis is not None:
-        true_basis = true_basis[:, :PLOT_K]  # (M, K)
+        # true_basis is stored as (K, M), transpose and slice
+        true_basis = true_basis.T  # Now (M, K)
+        if true_basis.shape[1] > PLOT_K:
+            true_basis = true_basis[:, :PLOT_K]  # (M, K)
 
     # Ensure all bases are (M, K)
     if pca_basis.shape[1] > PLOT_K:
