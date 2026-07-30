@@ -376,13 +376,19 @@ def find_best_model(cv_scores, metric="std_z"):
 
 
 def default_outlier_score(pixel_weights):
-    """Default outlier scoring: median of per-pixel weights."""
-    return np.median(pixel_weights)
+    """Default outlier scoring: median of per-pixel weights, per spectrum."""
+    return np.median(pixel_weights, axis=1)
 
 
-def compute_outlier_scores(rhmf, Y, W, state, score_func=None):
+def compute_outlier_scores(rhmf, Y, W, state, score_func=None, batch_size=50_000,
+                           return_weights=True, verbose=False):
     """
     Compute outlier score per spectrum using a custom scoring function.
+
+    Batched over spectra, like batched_infer: the per-pixel weight matrix is the
+    same size as Y, so the whole-array form needs Y, W and the weights resident
+    on the device at once (~28 GB for the full RVS sample) and overflows the GPU.
+    Weights within a batch are independent given G, so this is equivalent.
 
     Parameters
     ----------
@@ -391,24 +397,51 @@ def compute_outlier_scores(rhmf, Y, W, state, score_func=None):
     Y, W : arrays
         Data and weights
     state : RHMFState
-        Model state
+        Model state. state.A must have one row per row of Y.
     score_func : callable, optional
-        Function that takes per-pixel weights (1D array) and returns a scalar score.
-        Lower score = more outlier-y. Default: np.median
+        Function that takes a per-pixel weight BLOCK (n_spectra x n_pixels) and
+        returns one score per spectrum (n_spectra,) -- i.e. it must reduce over
+        axis=1. Lower score = more outlier-y. Default: median over pixels.
+    batch_size : int, default=50_000
+        Spectra per batch.
+    return_weights : bool, default=True
+        Return the full per-pixel weight matrix. Set False for large samples,
+        where it is another Y-sized array that the caller may not need.
+    verbose : bool, default=False
+        Print batch progress.
 
     Returns
     -------
     scores : array
         Outlier score per spectrum
-    all_pixel_weights : array
-        Full per-pixel weights (n_spectra x n_pixels)
+    all_pixel_weights : array or None
+        Full per-pixel weights (n_spectra x n_pixels), or None if
+        return_weights is False.
     """
     if score_func is None:
         score_func = default_outlier_score
 
-    all_pixel_weights = rhmf.robust_weights(Y, W, state=state)
-    scores = np.array([score_func(all_pixel_weights[i]) for i in range(len(Y))])
+    N = Y.shape[0]
+    n_batches = (N + batch_size - 1) // batch_size
+    score_chunks, weight_chunks = [], []
 
+    for i, start in enumerate(range(0, N, batch_size)):
+        end = min(start + batch_size, N)
+        if verbose:
+            print(f"  Weights batch {i + 1}/{n_batches} ({start}:{end})...")
+        # A is per-spectrum, so it must be sliced alongside Y and W.
+        batch_state = RHMFState(A=state.A[start:end], G=state.G, it=state.it)
+        w = np.asarray(rhmf.robust_weights(Y[start:end], W[start:end], state=batch_state))
+        score_chunks.append(np.asarray(score_func(w)))
+        if return_weights:
+            weight_chunks.append(w)
+        else:
+            del w
+        gc.collect()
+        jax.clear_caches()
+
+    scores = np.concatenate(score_chunks)
+    all_pixel_weights = np.concatenate(weight_chunks, axis=0) if return_weights else None
     return scores, all_pixel_weights
 
 

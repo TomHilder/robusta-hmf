@@ -24,6 +24,9 @@ best-model inference and outlier identification always use ALL spectra.
 OUTPUTS (in ./gaia_rvs_results and ./plots_<tag>):
     <tag>_cv_scores.npz               -- all four CV metrics over the grid
     inferred_all_data_R*_bin_<tag>.npz -- cached best-model inference
+    <tag>_scores.npz                  -- source id + outlier score for EVERY
+                                         spectrum, so the threshold can be
+                                         changed without re-running inference
     <tag>_outliers.csv                -- source ids + scores of outliers
     plots_<tag>/cv_heatmaps.pdf       -- CV metric grids
     plots_<tag>/weights_hist.pdf      -- per-spectrum weight distribution
@@ -60,7 +63,7 @@ from robusta_hmf import save_state_to_npz
 plt.style.use("mpl_drip.custom")
 
 WEIGHT_THRESHOLD = 0.5
-OUTLIER_SCORE_FUNC = lambda w: np.percentile(w, 1)  # matches analyse_bins.py
+OUTLIER_SCORE_FUNC = lambda w: np.percentile(w, 1, axis=1)  # matches analyse_bins.py
 BEST_MODEL_METRIC = "std_z"
 CV_MAX_TEST = 50_000  # cap on test spectra used for CV scoring (0 = no cap)
 
@@ -194,12 +197,31 @@ def main(ranks, q_vals, sample="ms", cv_max_test=CV_MAX_TEST,
         )
 
     print("Computing outlier scores...")
+    # return_weights=False: the per-pixel weight matrix is Y-sized (~9 GB here)
+    # and nothing below needs it -- only the per-spectrum score.
     outlier_scores, _ = compute_outlier_scores(
-        best_rhmf, all_Y, all_W, best_state, score_func=OUTLIER_SCORE_FUNC
+        best_rhmf, all_Y, all_W, best_state, score_func=OUTLIER_SCORE_FUNC,
+        return_weights=False, verbose=True,
     )
     outlier_indices = get_outlier_indices(outlier_scores, WEIGHT_THRESHOLD)
     print(f"Found {len(outlier_indices)} outliers "
           f"({100 * len(outlier_indices) / len(idx):.2f}% of {len(idx)})")
+
+    # Scores for EVERY spectrum, not just those past the threshold, so the cut
+    # can be revisited without re-running inference.
+    in_train = np.zeros(len(idx), dtype=bool)
+    in_train[train_idx] = True
+    scores_file = results_dir / f"{tag}_scores.npz"
+    np.savez(
+        scores_file,
+        source_id=ids,
+        score=outlier_scores,
+        in_train=in_train,
+        best_K=best_K,
+        best_Q=best_Q,
+        threshold=WEIGHT_THRESHOLD,
+    )
+    print(f"Wrote {scores_file} ({len(idx)} spectra)")
 
     pd.DataFrame({
         "idx": outlier_indices,
