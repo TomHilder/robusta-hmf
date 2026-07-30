@@ -743,30 +743,25 @@ def fig_eigenspectra_comparison():
             # Ensure basis has correct shape (M, K) and extract component i
             if basis.shape[1] > i:  # Check that component i exists
                 component = basis[:, i]
-                ax.plot(grid / 10, component, color="black", lw=1.2, alpha=1.0)
-                ax.fill_between(grid / 10, component, alpha=0.15, color="black")
+                ax.plot(grid / 10, component, color=f"C{i}", lw=2, alpha=0.9)
+                ax.fill_between(grid / 10, component, alpha=0.2, color=f"C{i}")
             else:
                 ax.text(0.5, 0.5, f"N/A", ha="center", va="center", transform=ax.transAxes)
 
             if i == 0:
-                ax.set_title(method, fontsize=11, fontweight="bold")
+                ax.set_title(method, fontsize=12, fontweight="bold")
             if j == 0:
-                ax.set_ylabel(f"K{i+1}", fontsize=9)
+                ax.set_ylabel(f"K{i+1}", fontsize=10)
             else:
                 ax.set_yticklabels([])
 
-            ax.spines["top"].set_visible(False)
-            ax.spines["right"].set_visible(False)
-            ax.spines["left"].set_linewidth(0.5)
-            ax.spines["bottom"].set_linewidth(0.5)
-            ax.grid(False)
             ax.set_ylim(-0.15, 0.15)
-            ax.tick_params(labelsize=8)
+            ax.tick_params(labelsize=9)
 
-    axes[-1, 0].set_xlabel("Wavelength [nm]", fontsize=9)
+    axes[-1, 0].set_xlabel("Wavelength [nm]", fontsize=10)
 
     fig.suptitle(r"$\textsf{\textbf{Toy Dataset: Eigenspectra Comparison}}$",
-                fontsize="18", c="dimgrey", y=0.995)
+                fontsize="20", c="dimgrey", y=0.98)
     plt.tight_layout()
 
     out = PAPER_FIGS / "toy_eigenspectra_comparison.pdf"
@@ -801,20 +796,16 @@ def fig_explained_variance():
     fig, axes = plt.subplots(1, 3, figsize=(14, 4), dpi=100)
 
     for ax, var, label in zip(axes, [pca_var, rpca_var, rhmf_var], ["PCA", "RPCA", "RHMF"]):
-        ax.bar(np.arange(len(var[:10])), var[:10], color="black", alpha=0.6, edgecolor="none", lw=0)
-        ax.set_xlabel("Component", fontsize=9)
-        ax.set_ylabel("Variance (%)", fontsize=9)
-        ax.set_title(label, fontsize=11, fontweight="bold")
+        ax.bar(np.arange(len(var[:10])), var[:10], color="C0", alpha=0.7, edgecolor="black", lw=0.5)
+        ax.set_xlabel("Component", fontsize=10)
+        ax.set_ylabel("Variance (%)", fontsize=10)
+        ax.set_title(label, fontsize=12, fontweight="bold")
         ax.set_ylim(0, max(var[:10]) * 1.15)
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.spines["left"].set_linewidth(0.5)
-        ax.spines["bottom"].set_linewidth(0.5)
-        ax.tick_params(labelsize=8)
+        ax.tick_params(labelsize=9)
         ax.set_xticks(range(0, 10, 2))
 
     fig.suptitle(r"$\textsf{\textbf{Toy Dataset: Explained Variance by Component}}$",
-                fontsize="16", c="dimgrey", y=1.02)
+                fontsize="20", c="dimgrey", y=0.98)
     plt.tight_layout()
 
     out = PAPER_FIGS / "toy_explained_variance.pdf"
@@ -851,45 +842,41 @@ def fig_coefficient_distributions():
 
     for k in range(PLOT_K):
         # PCA
-        axes[0, k].hist(pca_A[:, k], bins=30, color="black", alpha=0.5, edgecolor="none", lw=0)
-        axes[0, k].set_title(f"K{k+1}", fontsize=10, fontweight="bold")
+        axes[0, k].hist(pca_A[:, k], bins=30, color="C0", alpha=0.6, edgecolor="black", lw=0.5)
+        axes[0, k].set_title(f"K{k+1}", fontsize=11, fontweight="bold")
         if k == 0:
-            axes[0, k].set_ylabel("PCA", fontsize=9)
+            axes[0, k].set_ylabel("PCA", fontsize=10)
         else:
             axes[0, k].set_yticklabels([])
 
         # RPCA
-        axes[1, k].hist(rpca_A[:, k], bins=30, color="black", alpha=0.5, edgecolor="none", lw=0)
+        axes[1, k].hist(rpca_A[:, k], bins=30, color="C1", alpha=0.6, edgecolor="black", lw=0.5)
         if k == 0:
-            axes[1, k].set_ylabel("RPCA", fontsize=9)
+            axes[1, k].set_ylabel("RPCA", fontsize=10)
         else:
             axes[1, k].set_yticklabels([])
 
         # RHMF with weights (color encodes continuous weight variable)
         ax = axes[2, k]
         scatter = ax.scatter(rhmf_A[:, k], per_object_weights, c=per_object_weights,
-                           cmap="RdYlBu_r", s=8, alpha=0.7, edgecolors="none", vmin=0, vmax=1)
+                           cmap="RdYlBu_r", s=10, alpha=0.7, edgecolors="black", linewidth=0.3, vmin=0, vmax=1)
         if k == 0:
-            ax.set_ylabel("RHMF", fontsize=9)
+            ax.set_ylabel("RHMF", fontsize=10)
         else:
             ax.set_yticklabels([])
         ax.set_ylim(-0.05, 1.05)
-        ax.axhline(0.5, color="gray", linestyle="-", alpha=0.3, lw=0.8)
+        ax.axhline(0.5, color="gray", linestyle="--", alpha=0.5, lw=1.0)
 
         # Styling
         for i in range(3):
-            axes[i, k].spines["top"].set_visible(False)
-            axes[i, k].spines["right"].set_visible(False)
-            axes[i, k].spines["left"].set_linewidth(0.5)
-            axes[i, k].spines["bottom"].set_linewidth(0.5)
-            axes[i, k].tick_params(labelsize=8)
+            axes[i, k].tick_params(labelsize=9)
             if i < 2:
                 axes[i, k].set_xticklabels([])
             else:
-                axes[i, k].set_xlabel("Value", fontsize=8)
+                axes[i, k].set_xlabel("Value", fontsize=9)
 
     fig.suptitle(r"$\textsf{\textbf{Toy Dataset: Coefficient Distributions}}$",
-                fontsize="16", c="dimgrey", y=0.995)
+                fontsize="20", c="dimgrey", y=0.98)
     plt.tight_layout()
 
     out = PAPER_FIGS / "toy_coefficient_distributions.pdf"

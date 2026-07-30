@@ -430,6 +430,29 @@ In contrast, the outlier spectra have median weights mostly $\leq 0.8$, with onl
     \label{fig:cv}
 \end{figure}
 
+\added{To understand how RHMF compares with other matrix factorization methods, Figure~\ref{fig:eigenspectra} shows the learned basis vectors for PCA, RPCA, and RHMF side-by-side with the ground truth basis from the synthetic data generation. Figure~\ref{fig:explained_variance} compares the variance allocation across components, demonstrating how robust downweighting in RHMF results in cleaner basis recovery. Figure~\ref{fig:coefficients} shows coefficient distributions with RHMF's robust weight overlay, highlighting how outliers are systematically downweighted.}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{figs/toy_eigenspectra_comparison.pdf}
+    \caption{\added{Basis vector comparison across PCA, RPCA, RHMF, and ground truth methods for the toy dataset. Each row shows one of the first 5 basis functions (K1--K5), with each column representing a different method. The RHMF basis vectors recover the ground truth structure more cleanly than PCA, which is contaminated by outliers, while also being computationally efficient compared to RPCA.}}
+    \label{fig:eigenspectra}
+\end{figure}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{figs/toy_explained_variance.pdf}
+    \caption{\added{Explained variance by component for PCA, RPCA, and RHMF methods on the toy dataset. The RHMF method allocates variance more cleanly across components than PCA, which wastes variance on fitting outliers. The first 10 components are shown, with RHMF's robust downweighting visible in the different variance profile compared to standard PCA.}}
+    \label{fig:explained_variance}
+\end{figure}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{figs/toy_coefficient_distributions.pdf}
+    \caption{\added{Coefficient distributions for the toy dataset: histograms for PCA and RPCA (top and middle rows), and scatter plot for RHMF colored by robust weights (bottom row). Each column shows one of the first 5 components (K1--K5). The RHMF scatter plot demonstrates how robust weights downweight outlier spectra (red/warm colors indicate low weights), providing a continuous measure of how anomalous each spectrum is in the space of each basis component.}}
+    \label{fig:coefficients}
+\end{figure}
+
 We performed cross-validation for the fitted RHMF model using the KL-divergence specified in Section~\ref{sec:cv}.
 The validation score for each hyperparameter pair $(Q, K)$ is shown in the top panel of Figure~\ref{fig:cv}.
 The lowest divergence is achieved at $Q=5$, and at the true rank of $K=5$; this is the pair used in Figures~\ref{fig:toy_residuals} and \ref{fig:toy_spectra}. The score is more sensitive to the choice of $Q$ than $K$, as the $K>5$ cases with $Q=5$ fare similarly.
