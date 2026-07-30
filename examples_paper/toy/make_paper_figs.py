@@ -178,7 +178,7 @@ def fig_toy_weights():
 
     # Per-pixel robust weights on all data, then per-object median.
     weights = plot_rhmf.robust_weights(all_spectra_for_fit, all_ivar, state=all_state)
-    per_object_weights = np.median(weights, axis=1)
+    per_object_weights = np.median(weights, axis=1)  # Changed from mean to median
 
     outlier_spectra_mask = os_mask.any(axis=1)
     clean_spectra_mask = ~outlier_spectra_mask
@@ -208,7 +208,7 @@ def fig_toy_weights():
         lw=0,
     )
     ax.set_yscale("log")
-    ax.set_xlabel("Median Robust Weight per Spectrum")
+    ax.set_xlabel("Median Robust Weight per Spectrum")  # Changed from 'Mean' to 'Median'
     ax.set_ylabel("Count")
     ax.legend(loc="upper left", borderaxespad=1)
     fig.suptitle(
