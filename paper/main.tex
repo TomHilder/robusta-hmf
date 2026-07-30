@@ -864,6 +864,13 @@ The locations were also chosen randomly, except that overlap with pre-existing p
 They were however, allowed to overlap with the column outliers, and to be placed in outlier spectra.
 Missing values were set to \texttt{NaN}, and the corresponding data weights were set to zero.
 
+\added{\begin{figure}
+    \centering
+    \includegraphics[width=\textwidth]{figs/toy_dataset_diversity.pdf}
+    \caption{Representative spectra from the toy dataset illustrating dataset diversity. Top row: normal spectra (with only Gaussian noise), showing the range of underlying spectral shapes. Middle row: individual outlier types—spectrum-level (high-frequency sinusoid), pixel-level (scattered spikes), and column-level (same wavelength affected consistently). Bottom row: absorption-line outliers with extra spectral features, missing data segments (visible as gaps in the spectrum), and mixed outlier types. Outlier regions are highlighted with low-alpha colored shading; solid colored ticks mark individual anomalies.}
+    \label{fig:toy_dataset_diversity}
+\end{figure}}
+
 \raggedright\footnotesize
 \bibliographystyle{aasjournal}
 \bibliography{rhmf}

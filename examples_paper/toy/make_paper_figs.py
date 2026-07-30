@@ -1,6 +1,6 @@
-"""Regenerate the four toy-example paper figures individually.
+"""Regenerate the toy-example paper figures individually.
 
-Each of the four paper figures produced inline by ``analyse_toy.py`` is
+Each of the paper figures produced inline by ``analyse_toy.py`` is
 reproduced here as a standalone function that performs its own minimal setup,
 builds the figure, and writes it into the repo's real paper figures directory.
 
@@ -13,6 +13,7 @@ where ``<name>`` is one of:
     toy_residuals  -> absorption_line_residuals.pdf
     cv             -> test_set_score_heatmap.pdf
     toy_spectra    -> normal_vs_outlier_spectra_reconstructions.pdf
+    toy_diversity  -> toy_dataset_diversity.pdf
     all            -> all of the above
 
 This script is additive: it does not import or modify analyse_toy.py.
@@ -668,11 +669,151 @@ def fig_toy_spectra():
     print(f"Wrote {out}")
 
 
+def fig_toy_diversity():
+    """Figure: toy_dataset_diversity.pdf
+
+    9-panel display showing representative clean and outlier spectra from the
+    toy dataset, with visual encoding of different outlier types.
+    """
+    data, _, _ = _load_results()
+    all_noisy_spectra = data["noisy_spectra"]
+    os_mask = data["os_mask"]
+    op_mask = data["op_mask"]
+    oc_mask = data["oc_mask"]
+    al_mask = data["al_mask"]
+    missing_mask = data["missing_mask"]
+    weird_spectra_idx = data["weird_spectra_idx"]
+    grid = data["grid"]
+
+    # Select representative spectra
+    clean_mask = ~(os_mask | op_mask | oc_mask | al_mask | missing_mask).any(axis=1)
+    clean_indices = np.where(clean_mask)[0]
+    rng = default_rng(seed=42)
+    clean_selected = rng.choice(clean_indices, size=3, replace=False)
+
+    # Spectrum outlier
+    spectrum_outlier_idx = weird_spectra_idx[0]
+
+    # Pixel outlier only
+    pixel_only_mask = op_mask.any(axis=1) & ~(os_mask | oc_mask | al_mask | missing_mask).any(axis=1)
+    pixel_outlier_idx = np.where(pixel_only_mask)[0][0] if pixel_only_mask.any() else np.where(op_mask.any(axis=1))[0][0]
+
+    # Column outlier only
+    column_only_mask = oc_mask.any(axis=1) & ~(os_mask | op_mask | al_mask | missing_mask).any(axis=1)
+    column_outlier_idx = np.where(column_only_mask)[0][0] if column_only_mask.any() else np.where(oc_mask.any(axis=1))[0][0]
+
+    # Absorption line outlier only
+    al_only_mask = al_mask.any(axis=1) & ~(os_mask | op_mask | oc_mask | missing_mask).any(axis=1)
+    al_outlier_idx = np.where(al_only_mask)[0][0] if al_only_mask.any() else np.where(al_mask.any(axis=1))[0][0]
+
+    # Missing data only
+    missing_only_mask = missing_mask.any(axis=1) & ~(os_mask | op_mask | oc_mask | al_mask).any(axis=1)
+    missing_idx = np.where(missing_only_mask)[0][0] if missing_only_mask.any() else np.where(missing_mask.any(axis=1))[0][0]
+
+    # Complex case (multiple outlier types)
+    multi_outlier_mask = (op_mask | oc_mask | al_mask).any(axis=1) & missing_mask.any(axis=1)
+    if multi_outlier_mask.any():
+        complex_idx = np.where(multi_outlier_mask)[0][0]
+    else:
+        complex_idx = np.where((op_mask | oc_mask | al_mask | missing_mask).any(axis=1))[0][-1]
+
+    # Create figure
+    fig, axes = plt.subplots(3, 3, figsize=(14, 10), dpi=100, sharex=True)
+    axes = axes.flatten()
+
+    indices = [
+        *clean_selected,
+        spectrum_outlier_idx,
+        pixel_outlier_idx,
+        column_outlier_idx,
+        al_outlier_idx,
+        missing_idx,
+        complex_idx,
+    ]
+
+    labels = [
+        "Clean Spectrum 1",
+        "Clean Spectrum 2",
+        "Clean Spectrum 3",
+        "Spectrum Outlier",
+        "Pixel Outliers",
+        "Column Outlier",
+        "Absorption Line Outlier",
+        "Missing Data",
+        "Mixed Outliers",
+    ]
+
+    flux_min, flux_max = -0.3, 1.3
+
+    for i, (ax, idx, label) in enumerate(zip(axes, indices, labels)):
+        spec = np.nan_to_num(all_noisy_spectra[idx, :], nan=_SPECTRA_MEAN)
+        ax.plot(grid / 10, spec, color="black", lw=1.0, alpha=1.0, zorder=3)
+
+        # Outlier highlighting (low alpha so data dominates)
+        if os_mask[idx, :].any():
+            ax.axvspan(grid.min() / 10, grid.max() / 10, alpha=0.08, color="C1", zorder=-1)
+
+        if op_mask[idx, :].any():
+            op_pixels = np.where(op_mask[idx, :])[0]
+            ax.vlines(grid[op_pixels] / 10, ymin=flux_min, ymax=flux_max,
+                     color="gray", alpha=0.3, lw=0.5, zorder=0)
+
+        if oc_mask[idx, :].any():
+            oc_pixels = np.where(oc_mask[idx, :])[0]
+            if oc_pixels.size > 0:
+                oc_wavelengths = grid[oc_pixels] / 10
+                ax.axvspan(oc_wavelengths.min() - 2, oc_wavelengths.max() + 2,
+                          alpha=0.08, color="gray", zorder=-1)
+
+        if al_mask[idx, :].any():
+            al_pixels = np.where(al_mask[idx, :])[0]
+            ax.vlines(grid[al_pixels] / 10, ymin=flux_min, ymax=flux_max,
+                     color="C0", alpha=0.3, lw=0.5, zorder=0)
+
+        # Set fixed flux range
+        ax.set_ylim(flux_min, flux_max)
+
+        # Minimalist styling
+        ax.set_title(label, fontsize=9, fontweight="bold", pad=4)
+
+        is_left = i % 3 == 0
+        is_bottom = i >= 6
+
+        if is_left:
+            ax.set_ylabel("Flux", fontsize=8)
+        else:
+            ax.set_ylabel("")
+
+        if is_bottom:
+            ax.set_xlabel("Wavelength [nm]", fontsize=8)
+        else:
+            ax.set_xlabel("")
+
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.grid(False)
+        ax.tick_params(labelsize=7)
+        if not is_left:
+            ax.set_yticklabels([])
+        if not is_bottom:
+            ax.set_xticklabels([])
+
+    fig.suptitle(r"$\textsf{\textbf{Toy Dataset: Representative Spectra}}$",
+                fontsize="18", c="dimgrey", y=0.98)
+    plt.tight_layout()
+
+    out = PAPER_FIGS / "toy_dataset_diversity.pdf"
+    plt.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+
+
 FIGURES = {
     "toy_weights": fig_toy_weights,
     "toy_residuals": fig_toy_residuals,
     "cv": fig_cv,
     "toy_spectra": fig_toy_spectra,
+    "toy_diversity": fig_toy_diversity,
 }
 
 
