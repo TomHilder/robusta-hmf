@@ -55,10 +55,12 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import polars as pl
 from analysis_funcs import clip_edge_pix
-from collect import compute_abs_mag
+from collect import META, compute_abs_mag
 from matplotlib.ticker import MultipleLocator
 from plot_final_full_rvs import check_text_rendering
+from rvs_plot_utils import add_line_markers, load_linelists
 from train_full_ms import DEFAULT_PRECISION, RESULTS_DIR, build_sample, configure_precision
 
 import gaia_config as cfg
@@ -106,10 +108,6 @@ def load_radec(source_ids):
     are read here instead and joined on source id. Returns two arrays in the
     order of *source_ids*, NaN where the id is not in the CSV.
     """
-    import polars as pl
-
-    from collect import META
-
     want = pl.DataFrame({"source_id": np.asarray(source_ids, np.int64)})
     got = want.join(
         pl.scan_csv(META).select(["source_id", "ra", "dec"]).collect(),
@@ -157,8 +155,6 @@ def _add_lines(axes, lines, λ_grid):
     """Spectral line markers on every panel, labelled on the top one only."""
     if lines is None:
         return
-    from rvs_plot_utils import add_line_markers
-
     wl_range = (float(λ_grid.min()), float(λ_grid.max()))
     kwargs = dict(show_strong=True, show_abundance=False, show_cn=False, show_dib=False)
     try:
@@ -411,8 +407,6 @@ def main():
     )
 
     try:
-        from rvs_plot_utils import load_linelists
-
         lines = load_linelists()
     except Exception as exc:
         print(f"note: no spectral line markers ({type(exc).__name__}: {exc})")
