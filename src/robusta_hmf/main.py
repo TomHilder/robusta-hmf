@@ -4,14 +4,13 @@ import warnings
 from copy import deepcopy
 from dataclasses import dataclass
 
-import jax.numpy as jnp
 from jaxtyping import Array
 
-from .als import WeightedAStep
 from .convergence import ConvergenceTester
 from .frame import OptFrame
 from .hmf import HMF, OptMethod
 from .initialisation import Initialiser
+from .metrics import ZMoments
 from .rotations import RotationMethod
 from .state import RHMFState
 
@@ -52,6 +51,8 @@ class Robusta:
         conv_strategy: str = "max_frac_G",
         conv_tol: float = 1e-3,
         override_conv_tester: ConvergenceTester | None = None,
+        # Execution params
+        override_frame: OptFrame | None = None,
         # HMF params
         als_ridge: float | None = None,
         learning_rate: float = 1e-3,
@@ -83,6 +84,12 @@ class Robusta:
             Convergence tolerance
         conv_tester : ConvergenceTester | None, default=None
             Custom convergence tester (overrides conv_strategy/conv_tol if provided)
+        override_frame : OptFrame | None, default=None
+            Custom optimisation frame, which owns how the loop is scheduled.
+            Defaults to a plain ``OptFrame`` that evaluates each step over the
+            whole matrix. Pass
+            :class:`robusta_hmf.sharded.ShardedFrame` to chunk and shard the
+            row axis, for data larger than one device's memory.
         als_ridge : float | None, default=None
             Ridge parameter for ALS updates (only used if method="als")
         learning_rate : float, default=1e-3
@@ -123,8 +130,13 @@ class Robusta:
         else:
             self._conv_tester = override_conv_tester
 
-        # Build optimization frame
-        self._frame = OptFrame(method=self._hmf, conv_tester=self._conv_tester)
+        # Build optimization frame. A provided frame carries only its
+        # scheduling parameters; bind() wires it to this model so the two never
+        # hold duplicate copies of the configuration.
+        if override_frame is None:
+            self._frame = OptFrame(method=self._hmf, conv_tester=self._conv_tester)
+        else:
+            self._frame = override_frame.bind(self._hmf, self._conv_tester)
 
         # Initialize internal state
         self._state = None
@@ -151,7 +163,7 @@ class Robusta:
     def fit(
         self,
         Y: Array,
-        W: Array,
+        W: Array | None = None,
         max_iter: int = 1000,
         rotation_cadence: int = 1,
         conv_check_cadence: int = 10,
@@ -164,8 +176,12 @@ class Robusta:
         Parameters
         ----------
         Y : Array, shape (N, M)
-            Data matrix to factorize
-        W : Array, shape (N, M)
+            Data matrix to factorize. May instead be a handle returned by the
+            frame's ``prepare()`` (e.g. a
+            :class:`robusta_hmf.sharded.ShardedData`), in which case ``W`` is
+            already carried inside it and is ignored. Reuse that handle to fit
+            several models to one sample without re-transferring it.
+        W : Array, shape (N, M), optional
             Weight matrix (inverse variance)
         max_iter : int, default=1000
             Maximum number of optimization iterations
@@ -185,6 +201,9 @@ class Robusta:
         loss_history : Array
             Loss values over iterations
         """
+        # Let the frame place the data first: the initialiser and the loop both
+        # consume whatever it hands back.
+        Y, W = self._frame.prepare(Y, W)
         N, M = Y.shape
 
         # Give warning if rotation cadence is not 1 for ALS
@@ -197,12 +216,16 @@ class Robusta:
         if init_state is None:
             # Create initialiser if not provided
             if self._initialiser is None:
-                self._initialiser = Initialiser(
+                self._initialiser = self._frame.make_initialiser(
                     N=N,
                     M=M,
                     K=self.rank,
                     strategy=self._init_strategy,
                 )
+            else:
+                # A user-supplied initialiser may have been built without
+                # knowing the data shape; fill in whatever it left unset.
+                self._initialiser = self._initialiser.with_dims(N, M, self.rank)
             print("Initializing state... ", flush=True, end="")
             init_state = self._initialiser.execute(
                 seed=seed,
@@ -257,7 +280,7 @@ class Robusta:
     def infer(
         self,
         Y_infer: Array,
-        W_infer: Array,
+        W_infer: Array | None = None,
         state: RHMFState | None = None,
         max_iter: int = 100,
         conv_strategy: str = "max_frac_A",
@@ -265,31 +288,61 @@ class Robusta:
         conv_check_cadence: int = 10,
     ) -> tuple[RHMFState, Array]:
         """
-        Predict coefficients and reconstruction for new observation(s). Always uses least-squares not gradient descent.
-        """
-        # NOTE: This implementation is a bit of a mess
+        Infer coefficients for new observation(s) with the basis held fixed.
 
-        N, _ = Y_infer.shape
-        A_dummy = jnp.zeros((N, self.rank))
+        Always uses least-squares, not gradient descent. Runs through the same
+        frame as :meth:`fit`, so a sharded model infers on sharded data with
+        the same chunking and the same convergence rule.
+
+        Parameters
+        ----------
+        Y_infer : Array, shape (N, M)
+            Held-out data, or a handle from the frame's ``prepare()``.
+        W_infer : Array, shape (N, M), optional
+            Held-out weights.
+        state : RHMFState | None, default=None
+            State supplying the fixed basis. If None, use the last fit.
+        max_iter : int, default=100
+            Maximum IRLS iterations.
+        conv_strategy : str, default="max_frac_A"
+            Convergence strategy. ``"max_frac_G"`` is meaningless here (G is
+            fixed) and is switched to ``"max_frac_A"`` with a warning.
+        conv_tol : float, default=1e-3
+            Convergence tolerance.
+        conv_check_cadence : int, default=10
+            How often to check convergence.
+
+        Returns
+        -------
+        state : RHMFState
+            Inferred coefficients, with ``state.G`` unchanged.
+        loss_history : Array
+            Loss values over iterations.
+        """
         try:
             G_fixed = state.G if state is not None else self.G
         except AttributeError:
+            G_fixed = None
+        if G_fixed is None:
             raise ValueError(
                 "No trained state available. Either provide state or call fit() first."
             )
 
+        # Place the held-out data the same way the frame places training data.
+        Y_infer, W_infer = self._frame.prepare(Y_infer, W_infer)
+
         # Get an initial guess for the coefficients using the data weights
-        a_step = WeightedAStep(ridge=self._hmf.a_step.ridge if self.method == "als" else None)
-        A_init = a_step(Y_infer, W_infer, RHMFState(A=A_dummy, G=G_fixed, it=0)).A
+        ridge = self._hmf.a_step.ridge if self.method == "als" else None
+        A_init = self._frame.initial_coefficients(Y_infer, W_infer, G_fixed, ridge)
 
         # We can't use conv_strategy of max_frac_G here because G is fixed
         if conv_strategy == "max_frac_G":
             warnings.warn("max_frac_G is not supported for infer(). Using max_frac_A instead.")
             conv_strategy = "max_frac_A"
 
-        # Run one-sided optimization
+        # Run one-sided optimization through this model's frame
         conv_tester = ConvergenceTester(strategy=conv_strategy, tol=conv_tol)
-        frame = OptFrame(method=self._hmf, conv_tester=conv_tester)
+        frame = self._frame.bind(self._hmf, conv_tester)
         final_state, loss_history = frame.run(
             Y=Y_infer,
             W=W_infer,
@@ -304,6 +357,43 @@ class Robusta:
             skip_G=True,
         )
         return final_state, loss_history  # Not stored because this is not the main fit
+
+    def score(
+        self,
+        Y: Array,
+        W: Array | None = None,
+        state: RHMFState | None = None,
+    ) -> ZMoments:
+        """
+        Held-out scores for a state, as sufficient statistics.
+
+        Parameters
+        ----------
+        Y : Array, shape (N, M)
+            Held-out data, or a handle from the frame's ``prepare()``.
+        W : Array, shape (N, M), optional
+            Held-out weights.
+        state : RHMFState | None, default=None
+            State to score, normally the output of :meth:`infer`. If None, use
+            the last fit.
+
+        Returns
+        -------
+        moments : ZMoments
+            Read ``.kl`` for the paper's model-selection score (Eq. 20), or
+            ``.std_z``, ``.chi2_red``, ``.rmse``. Accumulated chunk by chunk
+            when the frame is sharded, so this never forms an ``(N, M)`` array.
+
+        See Also
+        --------
+        robusta_hmf.metrics.mad_z : needs the full residual array, so it is
+            not available here.
+        """
+        state = state if state is not None else self._state
+        if state is None:
+            raise ValueError("No trained state available. Call fit() first.")
+        Y, W = self._frame.prepare(Y, W)
+        return self._frame.z_moments(Y, W, state)
 
     def basis_vectors(self, state: RHMFState | None = None) -> Array:
         """
