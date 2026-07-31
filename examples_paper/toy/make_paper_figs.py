@@ -1,6 +1,6 @@
-"""Regenerate the four toy-example paper figures individually.
+"""Regenerate the toy-example paper figures individually.
 
-Each of the four paper figures produced inline by ``analyse_toy.py`` is
+Each of the paper figures produced inline by ``analyse_toy.py`` is
 reproduced here as a standalone function that performs its own minimal setup,
 builds the figure, and writes it into the repo's real paper figures directory.
 
@@ -9,11 +9,16 @@ Usage
     uv run python make_paper_figs.py <name>
 
 where ``<name>`` is one of:
-    toy_weights    -> weights_per_object_clean_vs_outlier.pdf
-    toy_residuals  -> absorption_line_residuals.pdf
-    cv             -> test_set_score_heatmap.pdf
-    toy_spectra    -> normal_vs_outlier_spectra_reconstructions.pdf
-    all            -> all of the above
+    toy_weights           -> weights_per_object_clean_vs_outlier.pdf
+    toy_residuals         -> absorption_line_residuals.pdf
+    cv                    -> test_set_score_heatmap.pdf
+    toy_spectra           -> normal_vs_outlier_spectra_reconstructions.pdf
+    toy_diversity         -> toy_dataset_diversity.pdf
+    eigenspectra          -> toy_eigenspectra_comparison.pdf
+    explained_variance    -> toy_explained_variance.pdf
+    coefficients          -> toy_coefficient_distributions.pdf
+    eigenspectra_kq       -> toy_eigenspectra_vs_q.pdf, toy_eigenspectra_vs_k.pdf
+    all                   -> all of the above
 
 This script is additive: it does not import or modify analyse_toy.py.
 """
@@ -24,6 +29,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from empca import empca
 from numpy.random import default_rng
 from r_pca import RobustPCA
 from run_toy_gen_and_fits import M_PIXELS, N_SPECTRA, N_TRAIN, Q_VALS, RANKS
@@ -118,6 +124,65 @@ def _load_or_compute_rpca(all_spectra_for_fit, max_iter=500, tol=1e-4):
     return Vh_rpca
 
 
+def _load_or_compute_empca(Y, W, nvec=None, niter=25):
+    """EMPCA (Bailey 2012) eigenvectors, cached to disk.
+
+    EMPCA is the weighted-PCA baseline the referee requested: it uses the
+    inverse-variance weights and handles missing data (weight zero), but has
+    no outlier mechanism. Deterministic via randseed=1.
+    """
+    nvec = PLOT_K if nvec is None else nvec
+    n, m = Y.shape
+    cache_file = results_dir / f"empca_cache_N{n}_M{m}_K{nvec}.npz"
+    if cache_file.exists():
+        cached = np.load(cache_file)
+        if int(cached["niter"]) == niter:
+            print(f"Loaded cached EMPCA basis from {cache_file.name}")
+            return cached["eigvec"]
+    print("Running EMPCA (this may take a few minutes)...")
+    model = empca(Y, W, niter=niter, nvec=nvec, randseed=1, silent=True)
+    eigvec = np.array(model.eigvec)  # (nvec, M), orthonormal rows
+    np.savez(cache_file, eigvec=eigvec, niter=niter)
+    print(f"EMPCA complete; cached to {cache_file.name}")
+    return eigvec
+
+
+def _sign_align(basis, ref_basis):
+    """Flip each column of basis so it positively aligns with its
+    best-matching column of ref_basis (eigenvector signs are arbitrary)."""
+    basis = basis.copy()
+    for k in range(basis.shape[1]):
+        overlaps = ref_basis.T @ basis[:, k]
+        j = np.argmax(np.abs(overlaps))
+        if overlaps[j] < 0:
+            basis[:, k] *= -1
+    return basis
+
+
+def _ordered_true_basis(data, K):
+    """True basis as (M, K), unit-norm columns, ordered by each component's
+    data-power contribution E[a^2]*||g||^2 (raw second moment, matching the
+    canonical ordering of the fitted methods on non-mean-subtracted data)."""
+    true_basis = np.array(data["true_basis"])[:K, :].T  # (M, K)
+    true_coeffs = np.array(data["true_coeffs"])[:, :K]
+    power = np.mean(true_coeffs**2, axis=0) * np.sum(true_basis**2, axis=0)
+    order = np.argsort(power)[::-1]
+    true_basis = true_basis[:, order]
+    true_basis = true_basis / np.linalg.norm(true_basis, axis=0, keepdims=True)
+    return true_basis, np.sort(power)[::-1]
+
+
+def _canonical_rotation(state):
+    """Rotate a trained RHMF state's basis to the principal axes of its
+    coefficient second moment, ordered by coefficient power -- the canonical
+    frame the SVD gives PCA for free. Returns (basis (M, K), V (K, K))."""
+    G = np.array(state.G)  # (M, K), orthonormal columns
+    A = np.array(state.A)  # (N, K)
+    evals, V = np.linalg.eigh(A.T @ A)
+    V = V[:, np.argsort(evals)[::-1]]
+    return G @ V, V
+
+
 def _plot_model_and_state(data, results, rhmf_objs, all_spectra_for_fit, all_ivar):
     """Select the (PLOT_Q, PLOT_K) model and infer its state on all data."""
     result_ind = np.where(
@@ -165,7 +230,7 @@ def split_by_near_uniform(x, *, factor=3.0, step=None, return_breaks=False):
 def fig_toy_weights():
     """Figure: weights_per_object_clean_vs_outlier.pdf
 
-    Histogram of mean robust weight per spectrum, split into normal vs outlier
+    Histogram of median robust weight per spectrum, split into normal vs outlier
     spectra (single-panel version).
     """
     data, results, rhmf_objs = _load_results()
@@ -176,9 +241,9 @@ def fig_toy_weights():
         data, results, rhmf_objs, all_spectra_for_fit, all_ivar
     )
 
-    # Per-pixel robust weights on all data, then per-object mean.
+    # Per-pixel robust weights on all data, then per-object median.
     weights = plot_rhmf.robust_weights(all_spectra_for_fit, all_ivar, state=all_state)
-    per_object_weights = np.mean(weights, axis=1)
+    per_object_weights = np.median(weights, axis=1)  # Changed from mean to median
 
     outlier_spectra_mask = os_mask.any(axis=1)
     clean_spectra_mask = ~outlier_spectra_mask
@@ -208,7 +273,7 @@ def fig_toy_weights():
         lw=0,
     )
     ax.set_yscale("log")
-    ax.set_xlabel("Mean Robust Weight per Spectrum")
+    ax.set_xlabel("Median Robust Weight per Spectrum")  # Changed from 'Mean' to 'Median'
     ax.set_ylabel("Count")
     ax.legend(loc="upper left", borderaxespad=1)
     fig.suptitle(
@@ -668,11 +733,445 @@ def fig_toy_spectra():
     print(f"Wrote {out}")
 
 
+def fig_eigenspectra_comparison():
+    """Figure: toy_eigenspectra_comparison.pdf
+
+    Side-by-side comparison of basis vectors (eigenspectra) from PCA, RPCA,
+    EMPCA, RHMF, and the ground truth, all under the shared conventions in
+    _canonical_coefficients.
+    """
+    data, results, rhmf_objs = _load_results()
+    all_noisy_spectra, all_spectra_for_fit, all_ivar, grid = _all_data_arrays(data)
+
+    bases = _canonical_coefficients(
+        data, results, rhmf_objs, all_spectra_for_fit, all_ivar
+    )["bases"]
+    methods = ["PCA", "RPCA", "EMPCA", "RHMF", "True"]
+
+    fig, axes = plt.subplots(PLOT_K, len(methods), figsize=(16, 12), sharex=True, dpi=100)
+
+    for i in range(PLOT_K):
+        for j, method in enumerate(methods):
+            ax = axes[i, j]
+            ax.plot(grid / 10, bases[method][:, i], color=f"C{i}", lw=2, alpha=0.9)
+
+            if i == 0:
+                ax.set_title(method, fontweight="bold")
+            if j == 0:
+                ax.set_ylabel(f"K{i+1}")
+            else:
+                ax.set_yticklabels([])
+
+            ylim = 0.05 if i == 0 else 0.15
+            ax.set_ylim(-ylim, ylim)
+
+    axes[-1, 0].set_xlabel("Wavelength [nm]")
+
+    fig.suptitle(r"$\textsf{\textbf{Toy Dataset: Eigenspectra Comparison}}$",
+                fontsize="24", c="dimgrey", y=0.99)
+    plt.tight_layout()
+
+    out = PAPER_FIGS / "toy_eigenspectra_comparison.pdf"
+    plt.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+
+
+def _canonical_coefficients(data, results, rhmf_objs, all_spectra_for_fit, all_ivar):
+    """Shared conventions for the method-comparison figures.
+
+    Fits PCA, RPCA, and EMPCA on the same training split used for RHMF (EMPCA
+    additionally receives the inverse-variance weights, which is the point of
+    including it), and expresses the RHMF solution in the canonical frame
+    (principal axes of the coefficient second moment, ordered by coefficient
+    power) that the SVD gives the other methods for free. All bases are
+    unit-norm (M, K) with signs aligned to the true basis.
+
+    Returns a dict with:
+        bases      : {"PCA", "RPCA", "EMPCA", "RHMF", "True"} -> (M, K)
+        rhmf_A     : (N, K) all-data RHMF coefficients, sign-consistent with
+                     bases["RHMF"]
+        true_power : (K,) per-component data power of the true components,
+                     E[a^2] * ||g||^2, sorted descending
+    """
+    N = all_spectra_for_fit.shape[0]
+    rng = np.random.RandomState(0)
+    train_idx = rng.permutation(N)[: int(N * 0.5)]
+    Y_train = all_spectra_for_fit[train_idx]
+    W_train = all_ivar[train_idx]
+
+    U_pca, S_pca, Vh_pca = np.linalg.svd(Y_train, full_matrices=False)
+    pca_basis = Vh_pca[:PLOT_K, :].T
+
+    Vh_rpca = _load_or_compute_rpca(Y_train)
+    rpca_basis = Vh_rpca[:PLOT_K, :].T
+
+    empca_basis = _load_or_compute_empca(Y_train, W_train).T  # (M, K)
+
+    # RHMF: coefficients for every spectrum (G held at its trained value), then
+    # rotate to the principal axes of the coefficient second moment.
+    plot_rhmf, all_state = _plot_model_and_state(
+        data, results, rhmf_objs, all_spectra_for_fit, all_ivar
+    )
+    rhmf_basis, V = _canonical_rotation(all_state)
+    rhmf_A = np.array(all_state.A) @ V
+
+    true_basis, true_power = _ordered_true_basis(data, PLOT_K)
+
+    bases = {}
+    for name, basis in [("PCA", pca_basis), ("RPCA", rpca_basis),
+                        ("EMPCA", empca_basis), ("RHMF", rhmf_basis)]:
+        basis = basis / np.linalg.norm(basis, axis=0, keepdims=True)
+        bases[name] = _sign_align(basis, true_basis)
+    bases["True"] = true_basis
+
+    # Keep RHMF coefficient signs consistent with the sign-aligned basis.
+    flips = np.sign(np.sum(bases["RHMF"] * rhmf_basis, axis=0))
+    rhmf_A = rhmf_A * flips
+
+    return {"bases": bases, "rhmf_A": rhmf_A, "true_power": true_power}
+
+
+def fig_explained_variance():
+    """Figure: toy_explained_variance.pdf
+
+    Per-component captured data power for PCA, RPCA, RHMF, and the truth, as a
+    percentage of the total mean-square data power. All methods are fit on the
+    training set, evaluated on the full dataset, and expressed in the same
+    canonical frame as the eigenspectra figure, so the panels are directly
+    comparable.
+    """
+    data, results, rhmf_objs = _load_results()
+    all_noisy_spectra, all_spectra_for_fit, all_ivar, grid = _all_data_arrays(data)
+
+    canon = _canonical_coefficients(
+        data, results, rhmf_objs, all_spectra_for_fit, all_ivar
+    )
+    bases = canon["bases"]
+
+    total_power = np.mean(np.sum(all_spectra_for_fit**2, axis=1))
+
+    # Per-component captured power: mean-square projection coefficient (bases are
+    # orthonormal, so this is the power along each component direction).
+    fig, axes = plt.subplots(1, 5, figsize=(16, 4), dpi=100, sharey=True)
+    panels = [
+        ("PCA", np.mean((all_spectra_for_fit @ bases["PCA"]) ** 2, axis=0)),
+        ("RPCA", np.mean((all_spectra_for_fit @ bases["RPCA"]) ** 2, axis=0)),
+        ("EMPCA", np.mean((all_spectra_for_fit @ bases["EMPCA"]) ** 2, axis=0)),
+        ("RHMF", np.mean(canon["rhmf_A"] ** 2, axis=0)),
+        ("True", canon["true_power"]),
+    ]
+    for ax, (label, power) in zip(axes, panels):
+        frac = 100 * power / total_power
+        ax.bar(np.arange(1, PLOT_K + 1), frac, color="C0", alpha=0.7, edgecolor="black", lw=0.5)
+        ax.set_yscale("log")
+        ax.set_xlabel("Component")
+        ax.set_title(label, fontweight="bold")
+        ax.set_xticks(range(1, PLOT_K + 1))
+    axes[0].set_ylabel("Captured power (%)")
+
+    fig.suptitle(r"$\textsf{\textbf{Toy Dataset: Captured Power by Component}}$",
+                fontsize="24", c="dimgrey", y=1.04)
+    plt.tight_layout()
+
+    out = PAPER_FIGS / "toy_explained_variance.pdf"
+    plt.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+
+
+def fig_coefficient_distributions():
+    """Figure: toy_coefficient_distributions.pdf
+
+    Per-component coefficient distributions for PCA, RPCA, and RHMF, split into
+    normal vs outlier spectra. Directly addresses whether outliers can be
+    identified from coefficient values alone for each method. All methods use
+    the shared conventions in _canonical_coefficients.
+    """
+    data, results, rhmf_objs = _load_results()
+    all_noisy_spectra, all_spectra_for_fit, all_ivar, grid = _all_data_arrays(data)
+    is_outlier = data["os_mask"].any(axis=1)
+
+    canon = _canonical_coefficients(
+        data, results, rhmf_objs, all_spectra_for_fit, all_ivar
+    )
+    bases = canon["bases"]
+
+    # Projection coefficients onto the (orthonormal) train-set bases.
+    rows = [
+        ("PCA", all_spectra_for_fit @ bases["PCA"]),
+        ("RPCA", all_spectra_for_fit @ bases["RPCA"]),
+        ("EMPCA", all_spectra_for_fit @ bases["EMPCA"]),
+        ("RHMF", canon["rhmf_A"]),
+    ]
+
+    fig, axes = plt.subplots(len(rows), PLOT_K, figsize=(14, 10.5), dpi=100)
+
+    for i, (label, A) in enumerate(rows):
+        for k in range(PLOT_K):
+            ax = axes[i, k]
+            bins = np.histogram_bin_edges(A[:, k], bins=40)
+            ax.hist(A[~is_outlier, k], bins=bins, color="C0", alpha=0.7,
+                    label="Normal Spectra")
+            ax.hist(A[is_outlier, k], bins=bins, color="C1", alpha=0.7,
+                    hatch="oo", edgecolor="#8B4513", lw=0, label="Outlier Spectra")
+            ax.set_yscale("log")
+            if i == 0:
+                ax.set_title(f"K{k+1}", fontweight="bold")
+            if k == 0:
+                ax.set_ylabel(label)
+            if i == len(rows) - 1:
+                ax.set_xlabel("Coefficient")
+            ax.tick_params(labelsize=11)
+
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper right", frameon=False,
+               bbox_to_anchor=(0.99, 1.05))
+
+    fig.suptitle(r"$\textsf{\textbf{Toy Dataset: Coefficient Distributions}}$",
+                fontsize="24", c="dimgrey", y=1.04)
+    plt.tight_layout()
+
+    out = PAPER_FIGS / "toy_coefficient_distributions.pdf"
+    plt.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+
+
+def fig_toy_diversity():
+    """Figure: toy_dataset_diversity.pdf
+
+    9-panel display showing representative clean and outlier spectra from the
+    toy dataset, with visual encoding of different outlier types.
+    """
+    data, _, _ = _load_results()
+    all_noisy_spectra = data["noisy_spectra"]
+    os_mask = data["os_mask"]
+    op_mask = data["op_mask"]
+    oc_mask = data["oc_mask"]
+    al_mask = data["al_mask"]
+    missing_mask = data["missing_mask"]
+    weird_spectra_idx = data["weird_spectra_idx"]
+    grid = data["grid"]
+
+    # Select representative spectra
+    clean_mask = ~(os_mask | op_mask | oc_mask | al_mask | missing_mask).any(axis=1)
+    clean_indices = np.where(clean_mask)[0]
+    rng = default_rng(seed=42)
+    clean_selected = rng.choice(clean_indices, size=3, replace=False)
+
+    # Spectrum outlier
+    spectrum_outlier_idx = weird_spectra_idx[0]
+
+    # Pixel outlier only
+    pixel_only_mask = op_mask.any(axis=1) & ~(os_mask | oc_mask | al_mask | missing_mask).any(axis=1)
+    pixel_outlier_idx = np.where(pixel_only_mask)[0][0] if pixel_only_mask.any() else np.where(op_mask.any(axis=1))[0][0]
+
+    # Column outlier only
+    column_only_mask = oc_mask.any(axis=1) & ~(os_mask | op_mask | al_mask | missing_mask).any(axis=1)
+    column_outlier_idx = np.where(column_only_mask)[0][0] if column_only_mask.any() else np.where(oc_mask.any(axis=1))[0][0]
+
+    # Absorption line outlier only
+    al_only_mask = al_mask.any(axis=1) & ~(os_mask | op_mask | oc_mask | missing_mask).any(axis=1)
+    al_outlier_idx = np.where(al_only_mask)[0][0] if al_only_mask.any() else np.where(al_mask.any(axis=1))[0][0]
+
+    # Missing data only
+    missing_only_mask = missing_mask.any(axis=1) & ~(os_mask | op_mask | oc_mask | al_mask).any(axis=1)
+    missing_idx = np.where(missing_only_mask)[0][0] if missing_only_mask.any() else np.where(missing_mask.any(axis=1))[0][0]
+
+    # Complex case (multiple outlier types)
+    multi_outlier_mask = (op_mask | oc_mask | al_mask).any(axis=1) & missing_mask.any(axis=1)
+    if multi_outlier_mask.any():
+        complex_idx = np.where(multi_outlier_mask)[0][0]
+    else:
+        complex_idx = np.where((op_mask | oc_mask | al_mask | missing_mask).any(axis=1))[0][-1]
+
+    # Create figure. sharex/sharey hide inner tick labels automatically -- do
+    # NOT call set_xticklabels([]) on shared axes (it clears the bottom row too).
+    fig, axes = plt.subplots(3, 3, figsize=(14, 10), dpi=100, sharex=True, sharey=True)
+    axes = axes.flatten()
+
+    indices = [
+        *clean_selected,
+        spectrum_outlier_idx,
+        pixel_outlier_idx,
+        column_outlier_idx,
+        al_outlier_idx,
+        missing_idx,
+        complex_idx,
+    ]
+
+    labels = [
+        "Clean Spectrum 1",
+        "Clean Spectrum 2",
+        "Clean Spectrum 3",
+        "Spectrum Outlier",
+        "Pixel Outliers",
+        "Column Outlier",
+        "Absorption Line Outlier",
+        "Missing Data",
+        "Mixed Outliers",
+    ]
+
+    for i, (ax, idx, label) in enumerate(zip(axes, indices, labels)):
+        # Plot with NaNs preserved so missing segments appear as real gaps,
+        # not lines imputed to zero.
+        ax.plot(grid / 10, all_noisy_spectra[idx, :], color="black", lw=1.0, zorder=3)
+
+        # Outlier highlighting (low alpha so data dominates)
+        if os_mask[idx, :].any():
+            ax.axvspan(grid.min() / 10, grid.max() / 10, alpha=0.08, color="C1", zorder=-1)
+
+        for pix in np.where(op_mask[idx, :])[0]:
+            ax.axvline(grid[pix] / 10, color="gray", alpha=0.3, lw=0.5, zorder=0)
+
+        if oc_mask[idx, :].any():
+            oc_wavelengths = grid[np.where(oc_mask[idx, :])[0]] / 10
+            ax.axvspan(oc_wavelengths.min() - 2, oc_wavelengths.max() + 2,
+                      alpha=0.15, color="gray", zorder=-1)
+
+        for pix in np.where(al_mask[idx, :])[0]:
+            ax.axvline(grid[pix] / 10, color="C0", alpha=0.3, lw=0.5, zorder=0)
+
+        # Shade missing-data segments
+        if missing_mask[idx, :].any():
+            missing_chunks = split_by_near_uniform(grid[missing_mask[idx, :]], factor=2.0)
+            for chunk in missing_chunks:
+                if chunk.size > 0:
+                    ax.axvspan(chunk.min() / 10, chunk.max() / 10,
+                              alpha=0.15, color="grey", zorder=-1, hatch="//")
+
+        ax.set_title(label)
+        if i % 3 == 0:
+            ax.set_ylabel("Flux")
+        if i >= 6:
+            ax.set_xlabel("Wavelength [nm]")
+
+    axes[0].set_ylim(0.0, 1.75)
+
+    fig.suptitle(r"$\textsf{\textbf{Toy Dataset: Representative Spectra}}$",
+                fontsize="24", c="dimgrey", y=0.99)
+    plt.tight_layout()
+
+    out = PAPER_FIGS / "toy_dataset_diversity.pdf"
+    plt.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+
+
+def fig_eigenspectra_kq():
+    """Figures: toy_eigenspectra_vs_q.pdf and toy_eigenspectra_vs_k.pdf
+
+    RHMF eigenspectra across the hyperparameter grid: the recovered basis
+    vectors as a function of Q at the true rank K=5, and as a function of K at
+    the CV-optimal Q=5. Every model is expressed in its canonical frame
+    (principal axes of its coefficients) with signs aligned to the true basis,
+    so panels are directly comparable. Uses the converged states already on
+    disk; no re-training.
+    """
+    data, results, rhmf_objs = _load_results()
+    grid = data["grid"]
+
+    max_k = max(r.K for r in results)
+    true_basis, _ = _ordered_true_basis(data, min(PLOT_K, max_k))
+
+    def canonical(res):
+        basis, _ = _canonical_rotation(res.state)
+        basis = basis / np.linalg.norm(basis, axis=0, keepdims=True)
+        return _sign_align(basis, true_basis)
+
+    # --- Eigenspectra vs Q at fixed K = PLOT_K --- #
+    q_vals = sorted({r.Q for r in results})
+    fig, axes = plt.subplots(PLOT_K, len(q_vals), figsize=(2.6 * len(q_vals), 12),
+                             sharex=True, dpi=100)
+    for j, q in enumerate(q_vals):
+        res = next(r for r in results if r.K == PLOT_K and r.Q == q)
+        basis = canonical(res)
+        for i in range(PLOT_K):
+            ax = axes[i, j]
+            ax.plot(grid / 10, basis[:, i], color=f"C{i}", lw=1.5, alpha=0.9)
+            if i == 0:
+                ax.set_title(f"$Q={q:g}$", fontweight="bold")
+            if j == 0:
+                ax.set_ylabel(f"K{i+1}")
+            else:
+                ax.set_yticklabels([])
+            ax.set_ylim(-0.15, 0.15)
+    axes[-1, 0].set_xlabel("Wavelength [nm]")
+    fig.suptitle(r"$\textsf{\textbf{RHMF Eigenspectra vs } Q \textsf{\textbf{ (}} K=5 \textsf{\textbf{)}}}$",
+                fontsize="24", c="dimgrey", y=0.99)
+    plt.tight_layout()
+    out = PAPER_FIGS / "toy_eigenspectra_vs_q.pdf"
+    plt.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+
+    # --- Overlay variant: one panel per component, lines colored by Q --- #
+    fig, axes = plt.subplots(1, PLOT_K, figsize=(16, 4), sharex=True, dpi=100)
+    cmap = plt.get_cmap("viridis")
+    for jq, q in enumerate(q_vals):
+        res = next(r for r in results if r.K == PLOT_K and r.Q == q)
+        basis = canonical(res)
+        color = cmap(jq / max(len(q_vals) - 1, 1))
+        for i in range(PLOT_K):
+            axes[i].plot(grid / 10, basis[:, i], color=color, lw=1.5, alpha=0.85,
+                         label=f"$Q={q:g}$" if i == 0 else None)
+    for i, ax in enumerate(axes):
+        ax.set_title(f"K{i+1}", fontweight="bold")
+        ax.set_ylim(-0.15, 0.15)
+        if i > 0:
+            ax.set_yticklabels([])
+    axes[0].set_xlabel("Wavelength [nm]")
+    axes[0].legend(loc="lower left", fontsize=9, frameon=False, ncol=2,
+                   handlelength=1.2, columnspacing=0.8)
+    fig.suptitle(r"$\textsf{\textbf{RHMF Eigenspectra vs } Q \textsf{\textbf{ (}} K=5 \textsf{\textbf{)}}}$",
+                fontsize="24", c="dimgrey", y=1.06)
+    plt.tight_layout()
+    out = PAPER_FIGS / "toy_eigenspectra_vs_q_overlay.pdf"
+    plt.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+
+    # --- Eigenspectra vs K at fixed Q = PLOT_Q --- #
+    k_vals = sorted({r.K for r in results})
+    fig, axes = plt.subplots(max_k, len(k_vals), figsize=(2.9 * len(k_vals), 2.1 * max_k),
+                             sharex=True, dpi=100)
+    for j, k_val in enumerate(k_vals):
+        res = next(r for r in results if r.K == k_val and r.Q == PLOT_Q)
+        basis = canonical(res)
+        for i in range(max_k):
+            ax = axes[i, j]
+            if i < basis.shape[1]:
+                ax.plot(grid / 10, basis[:, i], color=f"C{i}", lw=1.5, alpha=0.9)
+            else:
+                ax.set_facecolor("0.95")
+            if i == 0:
+                ax.set_title(f"$K={k_val}$", fontweight="bold")
+            if j == 0:
+                ax.set_ylabel(f"K{i+1}")
+            else:
+                ax.set_yticklabels([])
+            ax.set_ylim(-0.15, 0.15)
+    axes[-1, 0].set_xlabel("Wavelength [nm]")
+    fig.suptitle(r"$\textsf{\textbf{RHMF Eigenspectra vs } K \textsf{\textbf{ (}} Q=5 \textsf{\textbf{)}}}$",
+                fontsize="24", c="dimgrey", y=0.995)
+    plt.tight_layout()
+    out = PAPER_FIGS / "toy_eigenspectra_vs_k.pdf"
+    plt.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+
+
 FIGURES = {
     "toy_weights": fig_toy_weights,
     "toy_residuals": fig_toy_residuals,
     "cv": fig_cv,
     "toy_spectra": fig_toy_spectra,
+    "toy_diversity": fig_toy_diversity,
+    "eigenspectra": fig_eigenspectra_comparison,
+    "explained_variance": fig_explained_variance,
+    "coefficients": fig_coefficient_distributions,
+    "eigenspectra_kq": fig_eigenspectra_kq,
 }
 
 

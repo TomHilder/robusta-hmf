@@ -126,7 +126,7 @@ def plot_stacked_hist(
         ax_objs[-1].set_yticklabels([])
 
         if i == len(bins_to_replot) - 1:
-            ax_objs[-1].set_xlabel("Per-Spectrum Weight")
+            ax_objs[-1].set_xlabel("Median Per-Spectrum Weight")  # Changed from 'Per-Spectrum Weight' to 'Median Per-Spectrum Weight'
         else:
             ax_objs[-1].set_xticklabels([])
 
