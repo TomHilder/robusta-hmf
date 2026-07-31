@@ -700,6 +700,13 @@ class GramInitialiser(Initialiser):
     the ``(N, min(N, M))`` ``U`` that ``jnp.linalg.svd`` wants -- which for the
     Gaia RVS sample is as large as ``Y`` itself.
 
+    Equivalent does not mean identical in floating point: forming ``Y.T @ Y``
+    squares the condition number, so the recovered subspace agrees with
+    ``svd_init`` at around ``sqrt(eps)`` (~1e-8 in float64) rather than
+    ``eps``. This is an initialiser, and the first few ALS iterations wash the
+    difference out -- fits started from either route agree to ~1e-12 -- but do
+    not expect bitwise agreement at iteration zero.
+
     Parameters
     ----------
     N, M, K : int | None
