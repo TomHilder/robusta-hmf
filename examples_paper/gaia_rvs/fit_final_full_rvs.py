@@ -27,13 +27,20 @@ the data (zero data weight) get a robust weight of 1, since the residual there
 is zero by construction; that is the existing convention in
 ``analysis_funcs.compute_outlier_scores``, kept here deliberately.
 
+FIGURES are drawn by ``plot_final_full_rvs.py``, called at the end of this
+script and equally runnable on its own. That module reads only the weights
+npz below and imports nothing but numpy and matplotlib, so the figures can be
+made on a machine with neither the spectra nor a GPU -- useful here, where the
+plot style needs a LaTeX installation the compute node may not have.
+
 OUTPUTS (in ./gaia_rvs_results and ./plots_<tag>_final):
     converged_state_R<K>_Q<Q>_bin_<tag>_allrows.npz  -- A, G for all spectra
     <tag>_final_weights.npz    -- source_id, score, median/mean weight, colour,
                                   absolute magnitude, for EVERY spectrum
     <tag>_final_outliers.csv   -- source ids and scores below the threshold
     plots_<tag>_final/hr_by_weight.pdf      -- HRD, every spectrum by weight
-    plots_<tag>_final/hr_weight_hexbin.pdf  -- HRD, median weight per cell
+    plots_<tag>_final/hr_weight_hexbin.pdf  -- HRD, per-cell worst/median/
+                                               outlier-fraction, plus density
     plots_<tag>_final/hr_outliers.pdf       -- HRD, outliers over a grey field
     plots_<tag>_final/weights_hist.pdf      -- score distribution
 
@@ -48,7 +55,8 @@ USAGE
     uv run python fit_final_full_rvs.py --from-state \
         gaia_rvs_results/converged_state_R32_Q3.00_bin_full_rvs.npz
 
-    # replot from a finished run without touching the GPU
+    # replot from a finished run without touching the GPU (or, anywhere at
+    # all, with only the weights npz: python plot_final_full_rvs.py <npz>)
     uv run python fit_final_full_rvs.py --plots-only
 
 Under Slurm, ask for the GPUs and let JAX see all of them:
@@ -63,12 +71,11 @@ import time
 from pathlib import Path
 
 import jax
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from analyse_full_ms import plot_weight_hist
 from analysis_funcs import get_test_train_split_idx
 from collect import compute_abs_mag
+from plot_final_full_rvs import WEIGHT_THRESHOLD, check_text_rendering, make_plots
 from train_full_ms import (
     DEFAULT_PRECISION,
     PRECISIONS,
@@ -78,8 +85,6 @@ from train_full_ms import (
 )
 
 from robusta_hmf.state import RHMFState, load_state_from_npz
-
-plt.style.use("mpl_drip.custom")
 
 # The grid search lives in a date-stamped module whose name is not a valid
 # Python identifier, so a plain import statement cannot reach it. Its block
@@ -96,13 +101,11 @@ SAMPLE_TAGS = _grid.SAMPLE_TAGS
 # CONFIGURATION
 # ============================================================================ #
 
-# Spectra scoring below this are called outliers. 0.5 as in analyse_full_ms.py;
-# every score is saved, so the cut can be moved without refitting anything.
-WEIGHT_THRESHOLD = 0.5
-
-# HR diagram framing, matching plot_bins.py and analysis_funcs.py.
-HR_XLIM = (-0.5, 3.5)
-HR_YLIM = (15, -5)
+# The figures, the outlier threshold and the LaTeX probe live in
+# plot_final_full_rvs.py, which depends on nothing but numpy and matplotlib so
+# it can be run on a machine that has neither the spectra nor a GPU. Every
+# score is saved, so the threshold can be moved and replotted from there
+# without refitting anything.
 
 MAX_ITER = 1000
 
@@ -185,183 +188,6 @@ def per_spectrum_weights(model, Y, W, state, row_block):
         print(f"  weights: {stop}/{n} spectra", end="\r", flush=True)
     print(f"  weights: {n} spectra in {time.time() - t0:.0f} s" + " " * 20, flush=True)
     return out
-
-
-def check_text_rendering():
-    """Warn early if the LaTeX toolchain the plot style needs is unavailable.
-
-    ``mpl_drip.custom`` sets ``text.usetex``, so on a node whose texmf tree is
-    missing the Computer Modern fonts every ``savefig`` raises -- and the
-    figures come last, after hours of fitting. Probing costs a second here.
-    Nothing is lost either way: the weights are written before the figures, so
-    ``--plots-only`` finishes the job once ``module load texlive`` is in effect.
-    """
-    fig = plt.figure()
-    try:
-        fig.text(0.5, 0.5, "probe")
-        fig.canvas.draw()
-        return True
-    except Exception as exc:
-        print(
-            f"WARNING: matplotlib cannot render text ({type(exc).__name__}: {exc}).\n"
-            "         Try 'module load texlive' before running. The weights are saved\n"
-            "         before plotting, so '--plots-only' can make the figures later.",
-            flush=True,
-        )
-        return False
-    finally:
-        plt.close(fig)
-
-
-def _frame_hr(ax):
-    ax.set_xlim(*HR_XLIM)
-    ax.set_ylim(*HR_YLIM)
-    ax.set_xlabel("Color (BP - RP)")
-    ax.set_ylabel("G-Band Absolute Magnitude")
-
-
-def plot_hr_by_weight(score, bp_rp, abs_mag_G, threshold, K, Q, out, label):
-    """Every spectrum on the HR diagram, coloured by its per-spectrum weight.
-
-    Same colour convention as ``analysis_funcs.plot_all_spectra_hr_by_weight``
-    (viridis over [0, 1]), but drawn for ~1e6 points: rasterized, so the PDF
-    stays small, and sorted by descending weight so the most anomalous spectra
-    are painted last instead of being buried under the bulk of the sample.
-    """
-    order = np.argsort(-score)
-    fig, ax = plt.subplots(figsize=(10, 8), dpi=150)
-    scatter = ax.scatter(
-        bp_rp[order],
-        abs_mag_G[order],
-        c=score[order],
-        cmap="viridis",
-        s=2,
-        alpha=0.6,
-        marker=".",
-        linewidths=0,
-        vmin=0,
-        vmax=1,
-        rasterized=True,
-    )
-    plt.colorbar(scatter, ax=ax, label="1st-percentile robust weight per spectrum")
-    _frame_hr(ax)
-    n_out = int(np.sum(score < threshold))
-    # Titles avoid "<" and "|": the style file renders text through LaTeX,
-    # where both come out as something else entirely in text mode.
-    ax.set_title(
-        f"{label}, K={K}, Q={Q:.2f}, N={len(score)}, outliers={n_out} (score below {threshold})"
-    )
-    plt.tight_layout()
-    plt.savefig(out, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Wrote {out}")
-
-
-def plot_hr_hexbin(score, bp_rp, abs_mag_G, K, Q, out, label, gridsize=200, mincnt=5):
-    """Median weight per HR cell, next to the sample density.
-
-    At ~1e6 spectra the scatter above is dominated by whichever points happen
-    to be drawn last; binning shows where in the HR diagram the model fits
-    badly on average, which is the part that carries information.
-    """
-    extent = (HR_XLIM[0], HR_XLIM[1], min(HR_YLIM), max(HR_YLIM))
-    fig, axes = plt.subplots(1, 2, figsize=(16, 7), dpi=150)
-
-    hb = axes[0].hexbin(
-        bp_rp,
-        abs_mag_G,
-        C=score,
-        reduce_C_function=np.median,
-        gridsize=gridsize,
-        mincnt=mincnt,
-        extent=extent,
-        cmap="viridis",
-    )
-    # Cell medians occupy a narrow band near the top of [0, 1] -- on the fixed
-    # scale the scatter uses, this panel would be one flat colour. Stretched to
-    # the bulk of the cell medians instead, so the structure is visible; read
-    # the colour bar, not the colour.
-    cells = hb.get_array()
-    if cells.size:
-        hb.set_clim(np.nanpercentile(cells, 1), np.nanpercentile(cells, 99))
-    plt.colorbar(hb, ax=axes[0], label="Median robust weight score")
-    axes[0].set_title(f"Median score per cell (at least {mincnt} spectra)")
-
-    hb = axes[1].hexbin(
-        bp_rp,
-        abs_mag_G,
-        gridsize=gridsize,
-        mincnt=1,
-        extent=extent,
-        cmap="magma",
-        bins="log",
-    )
-    plt.colorbar(hb, ax=axes[1], label="Spectra per cell")
-    axes[1].set_title("Sample density")
-
-    for ax in axes:
-        _frame_hr(ax)
-    fig.suptitle(
-        rf"$\textsf{{\textbf{{{label}: K={K}, Q={Q:.2f}}}}}$", fontsize="24", c="dimgrey", y=1.02
-    )
-    plt.tight_layout()
-    plt.savefig(out, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Wrote {out}")
-
-
-def plot_hr_outliers(score, bp_rp, abs_mag_G, threshold, K, Q, out, label):
-    """Outliers over a grey field of the whole sample, as in plot_outliers_on_hr."""
-    mask = score < threshold
-    fig, ax = plt.subplots(figsize=(10, 8), dpi=150)
-    ax.scatter(bp_rp, abs_mag_G, s=0.5, alpha=0.1, c="grey", zorder=0, marker=".", rasterized=True)
-    if mask.any():
-        scatter = ax.scatter(
-            bp_rp[mask],
-            abs_mag_G[mask],
-            c=score[mask],
-            cmap="viridis_r",
-            s=6,
-            alpha=0.8,
-            marker=".",
-            linewidths=0,
-            zorder=5,
-            rasterized=True,
-        )
-        plt.colorbar(scatter, ax=ax, label="Outlier score (lower = more anomalous)")
-    _frame_hr(ax)
-    ax.set_title(
-        f"{label}, K={K}, Q={Q:.2f}, {int(mask.sum())} outliers "
-        f"of {len(score)} (score below {threshold})"
-    )
-    plt.tight_layout()
-    plt.savefig(out, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Wrote {out}")
-
-
-def make_plots(weights_file, plots_dir, threshold, label):
-    """All four figures, from the saved per-spectrum weights."""
-    d = np.load(weights_file)
-    score, K, Q = d["score"], int(d["best_K"]), float(d["best_Q"])
-    bp_rp, abs_mag_G = d["bp_rp"], d["abs_mag_G"]
-
-    # Sources with no usable astrometry/photometry cannot be placed on the HRD;
-    # they still have weights and stay in the npz/CSV.
-    finite = np.isfinite(bp_rp) & np.isfinite(abs_mag_G)
-    if not finite.all():
-        print(f"  {np.sum(~finite)} spectra lack colour/magnitude and are omitted from the HRD")
-    score, bp_rp, abs_mag_G = score[finite], bp_rp[finite], abs_mag_G[finite]
-
-    plots_dir.mkdir(parents=True, exist_ok=True)
-    plot_hr_by_weight(
-        score, bp_rp, abs_mag_G, threshold, K, Q, plots_dir / "hr_by_weight.pdf", label
-    )
-    plot_hr_hexbin(score, bp_rp, abs_mag_G, K, Q, plots_dir / "hr_weight_hexbin.pdf", label)
-    plot_hr_outliers(
-        score, bp_rp, abs_mag_G, threshold, K, Q, plots_dir / "hr_outliers.pdf", label
-    )
-    plot_weight_hist(score, threshold, plots_dir / "weights_hist.pdf", label)
 
 
 def main():
