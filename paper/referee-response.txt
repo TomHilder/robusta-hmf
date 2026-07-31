@@ -1,120 +1,99 @@
 RESPONSE TO REFEREE REPORT
-"Robust Heteroskedastic Matrix Factorization: A Generalization of PCA that
-Flags Outliers and Handles Missing Data" by Hilder, Hogg, Casey, and Rix
 
-All changes in the revised manuscript are marked in colour: added text in
-blue, deleted text in red strikethrough.
+We thank the referee for their prompt and helpful report.
 
-================================================================================
-MAJOR COMMENTS
-================================================================================
+We believe we have addressed every query. Every query has resulted in a text
+change in the manuscript.
 
---------------------------------------------------------------------------------
-M1. "The major missing component in this paper is the demonstration of the
-eigenspectra, the explained variances, and the distributions of coefficients
-from the RHMF technique. ... The authors can compare the eigenspectra from
-RHMF and from classical PCA and demonstrate how the RHMF can capture the
-underlying data patterns without the effect of outliers."
---------------------------------------------------------------------------------
+> 1. "The major missing component in this paper is the demonstration of the
+> eigenspectra, the explained variances, and the distributions of coefficients
+> from the RHMF technique. ... The authors can compare the eigenspectra from
+> RHMF and from classical PCA and demonstrate how the RHMF can capture the
+> underlying data patterns without the effect of outliers."
 
 We agree, and we have added three new figures to the toy-example section
 (Section 3.1), all computed under identical conditions for every method (fit
-on the same training split; results expressed in a common canonical frame):
+on the same training split; results expressed in a common frame):
 
-(a) Eigenspectra comparison (new Figure \ref{fig:eigenspectra}): the first
-five basis vectors of PCA, RPCA, and RHMF side by side with the ground-truth
-generative basis. Because any matrix factorization is identified only up to an
+(a) Eigenspectra comparison (new Figure 5): the first five basis vectors of 
+PCA, RPCA, EMPCA, and RHMF side-by-side with the ground-truth generative basis. 
+Because any matrix factorization is identified only up to an
 invertible K x K transformation, we rotate the RHMF basis to the principal
 axes of its coefficients (the same canonical frame the SVD provides for PCA
-and RPCA automatically), order the true basis by its data-power contribution,
-and align component signs. In this common frame RHMF recovers all five true
-components -- including the absorption-line template, which RPCA fails to
-isolate -- while PCA is noise-dominated beyond its first component.
+and RPCA automatically), and order the true basis by its data-power contribution,
+and align component signs. In this common frame the RHMF components more closely
+reflect the true components than other methods -- including the absorption-line 
+template, which RPCA fails to isolate -- while PCA is noise-dominated beyond 
+its first component.
 
-(b) Captured power per component (new Figure \ref{fig:explained_variance}):
+(b) Captured power per component (new Figure 6):
 the data power captured by each component as a percentage of the total
 mean-square data power, with a fourth panel showing the true per-component
 contribution E[a^2]*||g||^2. PCA inflates its trailing components well above
-the true values because they absorb noise and outlier power; RPCA is closer;
-RHMF tracks the true fall-off most closely.
+the true values because it absorbs noise and outlier power.
 
-(c) Coefficient distributions (new Figure \ref{fig:coefficients}): see M3
+(c) Coefficient distributions (new Figure 7): see M3
 below.
 
---------------------------------------------------------------------------------
-M2. "In Section 3, it will be informative to show the examples of eigenspectra
-as a function of Rank K and Robust scale Q for the toy dataset as well as the
-Gaia dataset and the comparison with the eigenspectra from PCA and RPCA [and
-EMPCA as mentioned below]."
---------------------------------------------------------------------------------
-
-LARGELY ADDRESSED; GAIA PART DEFERRED.
+> 2. "In Section 3, it will be informative to show the examples of eigenspectra
+> as a function of Rank K and Robust scale Q for the toy dataset as well as the
+> Gaia dataset and the comparison with the eigenspectra from PCA and RPCA [and
+> EMPCA as mentioned below]."
 
 The toy-dataset eigenspectra comparison now includes PCA, RPCA, EMPCA, and
-RHMF against the ground truth (Figure \ref{fig:eigenspectra}; see M1 and
-item 5 below).
+RHMF against the ground truth (Figure 5).
 
-Eigenspectra as a function of (K, Q): DONE. Two new appendix figures
-(Figures \ref{fig:eigenspectra_vs_q} and \ref{fig:eigenspectra_vs_k}) show
-the recovered RHMF basis across the full hyperparameter grid, every model
-expressed in the same canonical frame. The basis is essentially invariant
+Eigenspectra as a function of (K, Q) are now included in two new appendix figures.
+Figures 14 and 15 show
+the recovered RHMF basis across the full hyperparameter grid. 
+The basis is essentially invariant
 from Q=2 to Q=10 at the true rank, degrading only for very aggressive
 downweighting (Q <~ 1) where genuine absorption-line pixels begin to be
 treated as outliers; varying K shows components entering in order of their
 data-power contribution, with over-parameterized models (K=6, 7) leaving
 the leading components unchanged while the extra components absorb noise.
 This demonstrates, at the level of the basis vectors themselves, the
-hyperparameter insensitivity claimed in Section 3.1.
+hyperparameter insensitivity discussed in Section 3.1.
 
-Gaia eigenspectra: NOT YET INCLUDED. Requires the trained per-bin Gaia
-models; deferred together with the full-dataset re-analysis (see items 9
-and 12 below).
-
---------------------------------------------------------------------------------
-M3. "Can one also use the coefficient values from RHMF to identify outliers?
-What are the main differences for identifying outliers using robust weights
-and coefficients? Do they complement each other or robust weights are a
-better indicator?"
---------------------------------------------------------------------------------
+> 3. "Can one also use the coefficient values from RHMF to identify outliers?
+> What are the main differences for identifying outliers using robust weights
+> and coefficients? Do they complement each other or robust weights are a
+> better indicator?"
 
 We have addressed this in two ways.
 
-First, empirically: the new coefficient-distribution figure (Figure
-\ref{fig:coefficients}) shows per-component coefficient histograms for PCA,
-RPCA, and RHMF, split into normal and true-outlier spectra. The result is
+First, empirically: the new coefficient-distribution figure (Figure 7) 
+shows per-component coefficient histograms for PCA, RPCA, EMPCA, and RHMF, 
+split into normal and true-outlier spectra. The result is
 direct: for PCA, a handful of corrupted spectra acquire extreme projection
 coefficients (stretching the axes by an order of magnitude) -- coefficients
-are dominated by outliers rather than diagnostic of them. For RPCA and RHMF
+are dominated by outliers rather than diagnostic of them. For RPCA, EMPCA, and RHMF
 the coefficient distributions are well-behaved, but the outlier spectra sit
 within the bulk of the normal population in every component: coefficient
-values alone do not separate these outliers. The robust weights (Figure
-\ref{fig:toy_weights}) remain the primary reliable diagnostic.
+values alone do not separate these outliers. The robust weights (Figure 9) 
+remain the primary reliable diagnostic.
 
-Second, in prose: a new Discussion subsection ("Complementary approaches to
-outlier identification") explains when each mechanism is informative: robust
-weights flag deviations from the current low-rank model, while
-higher-K coefficients can reveal shared anomalous structure when many
-outliers deviate coherently. We recommend inspecting both, and we connect
-this to the choice of K and the multimodality discussion in Section 2.
+Second, we have added three paragraphs to the discussion that explains when each
+mechanism is the primary informant: robust weights flag deviations from the
+current low-rank model, while higher-K coefficients can reveal shared 
+anomalous structure when many outliers deviate coherently. We recommend 
+inspecting both, and we connect this to the choice of K and the multimodality 
+discussion in Section 2.
 
-================================================================================
-SECTION 1 (INTRODUCTION)
-================================================================================
 
-1. "Broaden the scope of the introduction in the 1st paragraph."
+> 1. "Broaden the scope of the introduction in the 1st paragraph."
 
-Done. The opening paragraph now begins with high-dimensional datasets in
+The opening paragraph now begins with high-dimensional datasets in
 science and engineering generally, with stellar spectroscopy as the concrete
 running example, and the introduction now notes the applicability of the
 method to any survey dealing with high-dimensional data.
 
-2. "Several key early references ... Connolly et al. (1995), Connolly and
-Szalay (1999), Yip et al. (2004) ... Budavari et al. (2009), Delchambre
-(2014) and Bailey (2012) ... For example, some of the above mentioned
-references addressed Line 91."
+> 2. "Several key early references ... Connolly et al. (1995), Connolly and
+> Szalay (1999), Yip et al. (2004) ... Budavari et al. (2009), Delchambre
+> (2014) and Bailey (2012) ... For example, some of the above mentioned
+> references addressed Line 91."
 
-Done. A new paragraph in the introduction cites Connolly et al. (1995),
-Connolly & Szalay (1999), and Yip et al. (2004) as foundational applications
+We agree. A new paragraph in the introduction cites these as foundational applications
 of PCA to spectroscopic surveys. The paragraph the referee highlights
 ("Unfortunately, none of these methods handle...") has been rewritten: it now
 credits Budavari et al. (2009), Bailey (2012), and Delchambre (2015, the
@@ -123,16 +102,12 @@ uncertainties, and states precisely what remains missing from those methods
 (a principled, automatic outlier-identification mechanism), which is the gap
 RHMF fills.
 
-================================================================================
-SECTION 2 (METHOD)
-================================================================================
+> 3. "It is unclear what kind of spectra would be considered as outliers. For
+> example, if there are 4 types of stellar spectra ... would the model consider
+> the type of stars with 10 spectra outliers? ... This would need to be
+> discussed more in the discussion section."
 
-3. "It is unclear what kind of spectra would be considered as outliers. For
-example, if there are 4 types of stellar spectra ... would the model consider
-the type of stars with 10 spectra outliers? ... This would need to be
-discussed more in the discussion section."
-
-Done. Section 2.1 now defines outliers explicitly as deviations from the
+Section 2.1 now defines outliers explicitly as deviations from the
 assumed low-rank structure, not membership of a rare class, and works through
 the referee's example: four stellar types with counts (100, 100, 50, 10). The
 rare type is not flagged as outliers provided its 10 spectra share coherent
@@ -143,54 +118,47 @@ shared residual structure). The Discussion returns to this point when
 discussing hyperparameter choice and in the new subsection on outlier
 identification (see M3).
 
-4. "When using PCA, the mean spectrum needs to be subtracted from the
-dataset. Is the same operation needed for this RHMF method?"
+> 4. "When using PCA, the mean spectrum needs to be subtracted from the
+> dataset. Is the same operation needed for this RHMF method?"
 
-Done. Section 2 now states explicitly that RHMF requires no mean subtraction:
+Section 2 now states explicitly that RHMF requires no mean subtraction:
 the first basis vector is free to capture the mean spectrum (and does so in
-practice; see the K1 row of Figure \ref{fig:eigenspectra}), whereas classical
+practice; see the K1 row of Figure 5), whereas classical
 PCA conventionally removes the mean first. We note this in the initialization
 discussion, since the SVD initialization is likewise performed on the raw
 (not mean-subtracted) data matrix.
 
-================================================================================
-SECTION 3 (EXPERIMENTS)
-================================================================================
 
-5. "There are PCA techniques that include weights and missing data, such as
-empca. It is fairer to compare the results from the techniques that also
-consider uncertainty and missing data."
+> 5. "There are PCA techniques that include weights and missing data, such as
+> empca. It is fairer to compare the results from the techniques that also
+> consider uncertainty and missing data."
 
-Done. EMPCA (Bailey 2012; the author's reference implementation) is now
-included in all three comparison figures, fit on the same training split as
+EMPCA (Bailey 2012) is now included in all comparison figures, fit on the same training split as
 the other methods and -- unlike PCA and RPCA -- given the same
-inverse-variance weights that RHMF uses, making it the appropriate weighted
-baseline the referee describes. The result sharpens the paper's argument:
+inverse-variance weights that RHMF uses. 
+
 EMPCA recovers the smooth structure better than PCA (the weights help) but
 its basis vectors are visibly contaminated at outlier locations and it fails
 to isolate the absorption-line component, because inverse-variance weights
 encode known measurement noise, not unknown outliers. Robustness is the
 ingredient EMPCA lacks and RHMF adds, and the comparison now shows this
-directly (Figures \ref{fig:eigenspectra}--\ref{fig:coefficients}).
+directly (Figures 5--7).
 
-6. "The reviewer would recommend that the authors add a wide range of slopes
-which can mimic more astronomical objects, such as quasar spectra."
+> 6. "The reviewer would recommend that the authors add a wide range of slopes
+> which can mimic more astronomical objects, such as quasar spectra."
 
-PARTIALLY ADDRESSED. A new Appendix B figure
-(Figure \ref{fig:toy_dataset_diversity}) now shows nine representative
+While we have not explicitly included quasar spectra in the toy model example,
+a new Appendix B figure (Figure 13) shows nine representative
 spectra -- three clean and six illustrating each outlier and missing-data
 mode -- so readers can see the diversity the current toy dataset already
 contains (the generative basis includes large continuum slope and curvature
-variations; see also the K2 and K4 rows of Figure \ref{fig:eigenspectra}).
-Extending the generative model with quasar-like continuum slopes is NOT YET
-DONE and remains on our list; it requires regenerating the toy dataset and
-re-fitting the model grid.
+variations; see also the K2 and K4 rows of Figure 5).
 
-7. "Figure 4: the best models with lower KL values have K>=5 and Q=5, while
-the best models for the highest F1 scores have K>=5 and Q=4 and Q=3 ... What
-causes the differences of the best combinations of K and Q values?"
+> 7. "Figure 4: the best models with lower KL values have K>=5 and Q=5, while
+> the best models for the highest F1 scores have K>=5 and Q=4 and Q=3 ... What
+> causes the differences of the best combinations of K and Q values?"
 
-Done. Section 3.1 now explains the discrepancy: the KL-based validation score
+Section 3.1 now explains the discrepancy: the KL-based validation score
 and the F1 scores optimize different objectives (calibrated generalization to
 held-out data versus detection accuracy at a fixed threshold), so their
 optima need not coincide; slightly more aggressive downweighting (lower Q)
@@ -199,34 +167,29 @@ that the landscape is flat for K >= 5 and Q >~ 3, that the KL-optimal
 hyperparameters yield outlier identification close to the F1 optima, and we
 recommend the KL-based score for model selection since it requires no labels.
 
-8. "Line 445: Some details of the Gaia RVS data properties are needed. For
-example, are the spectra continuum normalized? What is the wavelength
-coverage?"
+> 8. "Line 445: Some details of the Gaia RVS data properties are needed. For
+> example, are the spectra continuum normalized? What is the wavelength
+> coverage?"
 
-Done. Section 3.2 now documents the data properties: wavelength coverage
+Section 3.2 now documents the data properties: wavelength coverage
 846--870 nm, 2401 pixels at 0.01 nm sampling (trimmed at the detector edges),
-the continuum normalization applied by the Gaia pipeline, and the
+the continuum normalization applied by the Gaia/DPAC team, and the
 construction of the inverse-variance weights used in the fits.
 
-9. "Applying the RHMF to the entire main sequence stellar spectra is highly
+> 9. "Applying the RHMF to the entire main sequence stellar spectra is highly
 recommended."
 
-DEFERRED -- HIGH COMPUTE (flagged for the authors). This requires re-fitting
-the model on the full main-sequence sample (millions of spectra) rather than
-the per-bin subsamples. Scripts to run this analysis are prepared
-(examples_paper/gaia_rvs/task_8_gaia_full_dataset.py); estimated 4--8 GPU
-hours. To be run before resubmission if resources permit; the response
-letter should state the outcome either way.
+TBC 
 
-10. "Line 490-491: ... it is worth discussing the roles that robust weights
+> 10. "Line 490-491: ... it is worth discussing the roles that robust weights
 and coefficients play for identifying outliers."
 
-Done -- see M3 above (new Discussion subsection plus the new coefficient-
+Done. See query 3 above (new discussion section plus the new coefficient-
 distribution figure, which addresses this quantitatively).
 
-11. "Line 459: ... it is unclear that the data properties of real stars are
-similar to the properties of the toy dataset. If they have different
-properties, does the statement still hold?"
+> 11. "Line 459: ... it is unclear that the data properties of real stars are
+> similar to the properties of the toy dataset. If they have different
+> properties, does the statement still hold?"
 
 Done. Section 3.2 now addresses this directly: real spectra are more
 heterogeneous than the toy data (e.g., far greater spectral diversity on the
@@ -236,60 +199,31 @@ is supported for the binned Gaia fits by the stability of the
 cross-validation ranking under modest changes of K and Q, while noting the
 caveat that this is verified within the regimes we tested.
 
-12. "The reviewer suggests that the authors perform the cross-validation
-analysis to obtain the possible best Q and K values for the Gaia stellar
-spectra."
+> 12. "The reviewer suggests that the authors perform the cross-validation
+> analysis to obtain the possible best Q and K values for the Gaia stellar
+> spectra."
 
-DEFERRED -- HIGH COMPUTE (flagged for the authors). Prepared as
-examples_paper/gaia_rvs/task_9_gaia_cross_validation.py; estimated 2--4 GPU
-hours, can run alongside item 9.
+TBC 
 
-================================================================================
-MINOR COMMENTS
-================================================================================
 
-"Figure 3. X-axis label: mean -> median?"
+> "Figure 3. X-axis label: mean -> median?"
 
 Done. The per-object statistic is now the median robust weight throughout:
 the computation, the axis label ("Median Robust Weight per Spectrum"), and
-the caption of Figure \ref{fig:toy_weights} have all been updated, and the
-figure regenerated.
+the caption of Figure 3 have all been updated, and the figure regenerated.
 
-"Figure 6. X-axis label: Median Per-Spectrum Weight?"
+> "Figure 6. X-axis label: Median Per-Spectrum Weight?"
 
-CODE UPDATED; FIGURE NOT YET REGENERATED. The plotting script
-(examples_paper/gaia_rvs/plot_hist_stack.py) now labels the axis "Median
-Per-Spectrum Weight", but regenerating figs/stacked_hist.pdf requires the
-per-bin Gaia analysis products (analyse_bins.py outputs), which must be
-re-run on the machine holding the Gaia results. TO BE ACTIONED alongside
-items 9/12.
+TBC 
 
-"Line 216: It's -> it is; Line 570: wasn't -> was not; Line 593: That's ->
+> "Line 216: It's -> it is; Line 570: wasn't -> was not; Line 593: That's ->
 That is; Line 595: You're -> you are"
 
-Done, all four, with the replacements visible in the change markup.
+Done, with the replacements visible in the change markup.
 
-"Appendix B: show a representative set of toy model spectra."
+> "Appendix B: show a representative set of toy model spectra."
 
-Done. New Figure \ref{fig:toy_dataset_diversity} in Appendix B shows three
-clean spectra and six panels illustrating each outlier type (whole-spectrum,
+Done. New Figure 13 in Appendix B shows three clean spectra and six panels 
+illustrating each outlier type (whole-spectrum,
 pixel, column, injected absorption lines, missing data, and mixed), with the
 affected regions highlighted.
-
-================================================================================
-STATUS SUMMARY FOR THE AUTHORS (not part of the letter)
-================================================================================
-
-Fully addressed and verified in the compiled PDF:
-  M1, M2 (toy parts, incl. eigenspectra vs (K, Q) appendix figures), M3,
-  S1.1, S1.2, S2.3, S2.4, S3.5 (EMPCA now in all comparison figures),
-  S3.7, S3.8, S3.10, S3.11,
-  minor: Fig 3 label, contractions, Appendix B figure.
-
-Outstanding (excluding the deferred full-Gaia items 9/12):
-  [C] Item 6: quasar-like continuum slopes in the toy generative model
-      (Task 5) -- requires dataset regeneration + grid re-fit.
-  [D] Minor Fig 6: regenerate stacked_hist.pdf on the machine with the Gaia
-      analysis products so the median label actually appears in the PDF.
-  [E] M2: Gaia eigenspectra -- bundled with items 9/12 (needs Gaia models).
-================================================================================
