@@ -224,8 +224,11 @@ class Robusta:
                 )
             else:
                 # A user-supplied initialiser may have been built without
-                # knowing the data shape; fill in whatever it left unset.
-                self._initialiser = self._initialiser.with_dims(N, M, self.rank)
+                # knowing the data shape, or without knowing which frame it
+                # would run under; fill in both.
+                self._initialiser = self._frame.adopt_initialiser(
+                    self._initialiser.with_dims(N, M, self.rank)
+                )
             print("Initializing state... ", flush=True, end="")
             init_state = self._initialiser.execute(
                 seed=seed,

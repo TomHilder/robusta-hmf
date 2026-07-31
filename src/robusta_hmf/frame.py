@@ -52,6 +52,16 @@ class OptFrame:
         """The initialiser this frame can consume, when none was overridden."""
         return Initialiser(N=N, M=M, K=K, strategy=strategy)
 
+    def adopt_initialiser(self, initialiser: Initialiser) -> Initialiser:
+        """Adapt a user-supplied initialiser to this frame's execution model.
+
+        The base frame takes any initialiser as-is. A frame that hands its
+        initialiser something other than a plain array -- as the sharded one
+        does -- uses this to swap in an equivalent it can actually consume,
+        rather than failing deep inside ``execute()``.
+        """
+        return initialiser
+
     def initial_coefficients(self, Y: Array, W: Array, G: Array, ridge: float | None) -> Array:
         """One weighted A step against a fixed basis, seeding :meth:`Robusta.infer`."""
         A_dummy = jnp.zeros((Y.shape[0], G.shape[1]), dtype=G.dtype)

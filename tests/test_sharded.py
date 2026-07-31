@@ -330,6 +330,44 @@ def test_gram_init_needs_a_frame():
         GramInitialiser(N=4, M=3, K=2).execute(Y=None)
 
 
+def test_bare_gram_initialiser_is_bound_by_the_frame(problem):
+    """The documented spelling: neither the mesh nor the shapes stated up front."""
+    model = Robusta(
+        rank=RANK,
+        robust=True,
+        conv_tol=0.0,
+        override_frame=ShardedFrame(
+            row_block=64, devices=cpu_devices(4), store_dtype=np.float64, verbose=False
+        ),
+        override_initialiser=GramInitialiser(),
+    )
+    state, _ = model.fit(problem["Y"], problem["W"], max_iter=8, conv_check_cadence=99)
+    assert state.A.shape == (199, RANK)
+
+    ref = sharded_model(4, 64, rank=RANK, robust=True, conv_tol=0.0)
+    ref_state, _ = ref.fit(problem["Y"], problem["W"], max_iter=8, conv_check_cadence=99)
+    assert np.max(np.abs(align_signs(ref_state.G, state.G) - np.asarray(ref_state.G))) < 1e-12
+
+
+def test_plain_initialiser_is_rerouted_through_the_gram_path(problem):
+    """A dense Initialiser would be handed a ShardedData and die inside svd()."""
+    from robusta_hmf.initialisation import Initialiser
+
+    model = Robusta(
+        rank=RANK,
+        robust=True,
+        conv_tol=0.0,
+        override_frame=ShardedFrame(
+            row_block=64, devices=cpu_devices(4), store_dtype=np.float64, verbose=False
+        ),
+        override_initialiser=Initialiser(strategy="svd"),
+    )
+    state, _ = model.fit(problem["Y"], problem["W"], max_iter=8, conv_check_cadence=99)
+    assert isinstance(model._initialiser, GramInitialiser)
+    assert state.A.shape == (199, RANK)
+    assert np.all(np.isfinite(np.asarray(state.G)))
+
+
 def test_rank_above_min_dimension_is_rejected(problem):
     model = sharded_model(1, 64, rank=99, robust=False)
     with pytest.raises(ValueError, match="exceeds"):

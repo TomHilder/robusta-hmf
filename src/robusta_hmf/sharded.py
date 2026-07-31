@@ -79,7 +79,7 @@ Contracts
 
 import inspect
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import jax
@@ -402,6 +402,27 @@ class ShardedFrame(OptFrame):
     def make_initialiser(self, N: int, M: int, K: int, strategy: InitStrategy) -> Initialiser:
         """A :class:`GramInitialiser`, which is the only kind this frame can use."""
         return GramInitialiser(N=N, M=M, K=K, strategy=strategy, frame=self)
+
+    def adopt_initialiser(self, initialiser: Initialiser) -> Initialiser:
+        """Bind or convert a user-supplied initialiser to this frame.
+
+        A bare ``GramInitialiser()`` gets this frame's mesh, so the user never
+        has to hand it one. A plain :class:`~robusta_hmf.Initialiser` keeps its
+        strategy but is re-routed through the chunked equivalent, because it
+        would otherwise be handed a :class:`ShardedData` and fail inside
+        ``jnp.linalg.svd``.
+        """
+        if isinstance(initialiser, GramInitialiser):
+            if initialiser.frame is None:
+                return replace(initialiser, frame=self)
+            return initialiser
+        return GramInitialiser(
+            N=initialiser.N,
+            M=initialiser.M,
+            K=initialiser.K,
+            strategy=initialiser.strategy,
+            frame=self,
+        )
 
     def _pad_A(self, A, plan: RowPlan) -> Array:
         """Coerce an ``A`` of ``n_rows`` or ``n_padded`` rows onto the mesh."""
