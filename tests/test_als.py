@@ -4,7 +4,12 @@ import jax
 import jax.numpy as jnp
 import pytest
 from jax.numpy.linalg import norm
-from robusta_hmf.als import WeightedAStep, WeightedGStep
+from robusta_hmf.als import (
+    WeightedAStep,
+    WeightedGStep,
+    normal_equations,
+    solve_normal_equations,
+)
 from robusta_hmf.state import RHMFState
 
 jax.config.update("jax_enable_x64", True)
@@ -105,3 +110,67 @@ def test_g_step_ridge_solution(ridge, tol=1e-8):
         lhs = (A.T * W[:, j]) @ A + ridge * jnp.eye(K)
         rhs = (A.T * W[:, j]) @ Y[:, j]
         assert norm(lhs @ G[j] - rhs) / norm(rhs) < tol
+
+
+# ----------------------------
+# Normal equations agree with the whitened formulation
+# ----------------------------
+@pytest.mark.parametrize("shape", [(6, 5, 3), (12, 7, 4), (200, 50, 3)])
+def test_normal_equations_match_whitening(shape, tol=1e-10):
+    N, M, K = shape
+    Y, W, _, G = rng(0, N, M, K)
+    Mat, b = normal_equations(W, W * Y, G)
+    for i in range(min(N, 8)):
+        s = jnp.sqrt(W[i])
+        Gw = G * s[:, None]
+        assert norm(Mat[i] - Gw.T @ Gw) / norm(Gw.T @ Gw) < tol
+        assert norm(b[i] - Gw.T @ (s * Y[i])) / norm(Gw.T @ (s * Y[i])) < tol
+
+
+# ----------------------------
+# Degenerate rows and pixels: zero weights must not poison the batch
+# ----------------------------
+def test_a_step_all_zero_weight_row():
+    """A spectrum masked in every pixel gives a zero coefficient row, not NaN."""
+    N, M, K = 6, 5, 3
+    Y, W, state = get_init_problem(0, N, M, K)
+    W = W.at[2, :].set(0.0)  # row 2 entirely masked
+    A_new = WeightedAStep()(Y, W, state).A
+    assert jnp.all(jnp.isfinite(A_new))
+    assert jnp.allclose(A_new[2], 0.0)
+    # Every other row is unaffected by the degenerate one.
+    keep = jnp.array([0, 1, 3, 4, 5])
+    A_ref = WeightedAStep()(Y[keep], W[keep], state).A
+    assert jnp.allclose(A_new[keep], A_ref)
+
+
+def test_g_step_all_zero_weight_pixel():
+    """A pixel masked in every spectrum gives a zero basis row, not NaN."""
+    N, M, K = 6, 5, 3
+    Y, W, state = get_init_problem(0, N, M, K)
+    W = W.at[:, 1].set(0.0)  # pixel 1 masked everywhere
+    G_new = WeightedGStep()(Y, W, state).G
+    assert jnp.all(jnp.isfinite(G_new))
+    assert jnp.allclose(G_new[1], 0.0)
+
+
+def test_solve_normal_equations_guard_is_elementwise():
+    """Only the empty entries are substituted; the rest solve normally."""
+    K = 3
+    Mat = jnp.stack([jnp.eye(K) * 2.0, jnp.zeros((K, K)), jnp.eye(K) * 4.0])
+    b = jnp.stack([jnp.ones(K), jnp.ones(K), jnp.ones(K)])
+    x = solve_normal_equations(Mat, b)
+    assert jnp.allclose(x[0], 0.5)
+    assert jnp.allclose(x[1], 0.0)
+    assert jnp.allclose(x[2], 0.25)
+
+
+@pytest.mark.parametrize("ridge", [1e-6, 0.1])
+def test_ridge_makes_empty_rows_zero_too(ridge):
+    """With a ridge the guard never fires, but empty rows still solve to zero."""
+    N, M, K = 6, 5, 3
+    Y, W, state = get_init_problem(0, N, M, K)
+    W = W.at[2, :].set(0.0)
+    A_new = WeightedAStep(ridge=ridge)(Y, W, state).A
+    assert jnp.all(jnp.isfinite(A_new))
+    assert jnp.allclose(A_new[2], 0.0)
