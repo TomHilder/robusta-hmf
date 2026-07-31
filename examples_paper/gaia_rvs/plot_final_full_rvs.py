@@ -7,6 +7,12 @@ but numpy and matplotlib: no JAX, no GPU, no ``robusta_hmf``, and none of the
 19 GB of spectra. Copy that one npz to a machine with a working LaTeX
 installation and run this.
 
+The one exception is ``hr_by_component.pdf``, which needs the per-spectrum
+amplitudes ``A`` and so reads the converged state npz as well (another ~130 MB,
+and still plain numpy). It is picked up automatically when it sits next to the
+weights file and skipped with a note when it does not, so the one-file usage
+above is unaffected.
+
 That constraint is why the weight histogram is written out here rather than
 imported from ``analyse_full_ms.py``: importing it drags in ``analysis_funcs``
 and ``collect``, which assert the HDF5 and the metadata CSV are present. The
@@ -314,6 +320,73 @@ def plot_weight_hist(score, threshold, out, label):
     print(f"Wrote {out}")
 
 
+def plot_hr_by_component(A, bp_rp, abs_mag_G, K, Q, out, label, gridsize=150, mincnt=5):
+    """One HRD panel per component, coloured by the median coefficient per cell.
+
+    ``A`` is the (N, K) matrix of per-spectrum amplitudes: row *i* says how much
+    of each of the K eigenspectra in ``G`` the model used to rebuild spectrum
+    *i*. Binned onto the HR diagram and reduced by the median, each panel shows
+    where in colour-magnitude space that component is being used -- which is
+    how you read what a component means, since the eigenspectra themselves are
+    just vectors over wavelength.
+
+    Two things to keep in mind. The factorisation is only defined up to an
+    invertible rotation of (A, G), so the individual components are a basis and
+    not physical parameters; the sign of any one of them is arbitrary, and a
+    panel that looks inverted from what you expect is not a bug. And component
+    order here is the order in ``G``, not a variance ranking -- the fit's
+    rotation targets G, so there is no guarantee component 0 dominates.
+
+    Each panel is stretched to its own percentiles: the components differ in
+    scale by orders of magnitude, so a shared colour scale would show the
+    largest one and flat grey for the rest. Panels whose values straddle zero
+    get a zero-centred diverging scale, so the sign is readable; the rest get
+    the same sequential map as the weight figures.
+    """
+    extent = (HR_XLIM[0], HR_XLIM[1], min(HR_YLIM), max(HR_YLIM))
+    ncol = int(np.ceil(np.sqrt(K)))
+    nrow = int(np.ceil(K / ncol))
+    fig, axes = plt.subplots(nrow, ncol, figsize=(5.6 * ncol, 5.0 * nrow), dpi=130)
+    axes = np.atleast_1d(axes).ravel()
+
+    for k in range(K):
+        ax = axes[k]
+        hb = ax.hexbin(
+            bp_rp,
+            abs_mag_G,
+            C=A[:, k],
+            reduce_C_function=np.median,
+            gridsize=gridsize,
+            mincnt=mincnt,
+            extent=extent,
+        )
+        cells = hb.get_array()
+        cells = cells.compressed() if np.ma.isMaskedArray(cells) else np.asarray(cells)
+        clim = _robust_clim(cells)
+        if clim is not None and clim[0] < clim[1]:
+            if clim[0] < 0 < clim[1]:
+                # Symmetric about zero, so mid-colour means "this component is
+                # unused here" and the two signs are distinguishable.
+                lim = max(abs(clim[0]), abs(clim[1]))
+                hb.set_cmap("RdBu_r")
+                hb.set_clim(-lim, lim)
+            else:
+                hb.set_cmap("viridis")
+                hb.set_clim(*clim)
+        plt.colorbar(hb, ax=ax, extend="both")
+        ax.set_title(f"Component {k}")
+        _frame_hr(ax)
+
+    for ax in axes[K:]:
+        ax.set_visible(False)
+
+    _suptitle(fig, f"{label}: median component amplitude per cell, K={K}, Q={Q:.2f}")
+    plt.tight_layout()
+    plt.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+
+
 def _suptitle(fig, text, y=1.02):
     """The folder's suptitle: LaTeX sans-serif bold when usetex is on.
 
@@ -326,8 +399,28 @@ def _suptitle(fig, text, y=1.02):
         fig.suptitle(text, fontsize="24", c="dimgrey", y=y, fontweight="bold")
 
 
-def make_plots(weights_file, plots_dir, threshold, label):
-    """All four figures, from the saved per-spectrum weights."""
+def default_state_file(weights_file):
+    """The all-rows state npz that goes with a weights npz, by naming convention.
+
+    ``fit_final_full_rvs.py`` writes both into the same directory from the same
+    (K, Q), so the name is derivable; returns None when it is not there.
+    """
+    weights_file = Path(weights_file)
+    d = np.load(weights_file)
+    tag = weights_file.name.replace("_final_weights.npz", "")
+    path = weights_file.parent / (
+        f"converged_state_R{int(d['best_K'])}_Q{float(d['best_Q']):.2f}_bin_{tag}_allrows.npz"
+    )
+    return path if path.exists() else None
+
+
+def make_plots(weights_file, plots_dir, threshold, label, state_file=None):
+    """The sample-level figures, from the saved per-spectrum weights.
+
+    *state_file* is the converged all-rows state npz. It is optional and only
+    adds the per-component HRD panels: everything else comes from the weights
+    file alone, which is what lets this module run anywhere.
+    """
     d = np.load(weights_file)
     score, K, Q = d["score"], int(d["best_K"]), float(d["best_Q"])
     bp_rp, abs_mag_G = d["bp_rp"], d["abs_mag_G"]
@@ -352,6 +445,21 @@ def make_plots(weights_file, plots_dir, threshold, label):
     )
     plot_weight_hist(score, threshold, plots_dir / "weights_hist.pdf", label)
 
+    if state_file is None:
+        print("note: no state file, so the per-component HRD panels are skipped")
+        return
+    A = np.load(state_file)["A"]
+    if A.shape[0] != len(finite):
+        raise SystemExit(
+            f"{state_file} has {A.shape[0]} rows but the weights file has {len(finite)} -- "
+            "these are not from the same fit."
+        )
+    if A.shape[1] != K:
+        raise SystemExit(f"{state_file} has rank {A.shape[1]}, but the weights say K={K}")
+    plot_hr_by_component(
+        A[finite], bp_rp, abs_mag_G, K, Q, plots_dir / "hr_by_component.pdf", label
+    )
+
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -375,6 +483,19 @@ def main():
         help="outlier cut; default: the threshold recorded in the npz",
     )
     p.add_argument("--label", default=None, help="figure title prefix")
+    p.add_argument(
+        "--state",
+        type=Path,
+        default=None,
+        help="converged all-rows state npz, for the per-component HRD panels "
+        "(default: the matching converged_state_*_allrows.npz next to the weights, "
+        "if it is there)",
+    )
+    p.add_argument(
+        "--no-state",
+        action="store_true",
+        help="skip the per-component HRD panels even if the state file is present",
+    )
     p.add_argument(
         "--no-latex",
         action="store_true",
@@ -402,8 +523,14 @@ def main():
     )
     print(f"Outliers at score below {threshold}: {n_out}")
 
+    state_file = None if args.no_state else (args.state or default_state_file(args.weights))
+    if args.state is not None and not args.state.exists():
+        raise SystemExit(f"{args.state} does not exist.")
+    if state_file is not None:
+        print(f"Component panels from {state_file}")
+
     check_text_rendering()
-    make_plots(args.weights, plots_dir, threshold, label)
+    make_plots(args.weights, plots_dir, threshold, label, state_file)
     print(f"\nDone. Figures in {plots_dir}")
 
 

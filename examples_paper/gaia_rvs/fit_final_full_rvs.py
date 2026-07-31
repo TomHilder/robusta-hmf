@@ -43,6 +43,8 @@ OUTPUTS (in ./gaia_rvs_results and ./plots_<tag>_final):
                                                outlier-fraction, plus density
     plots_<tag>_final/hr_outliers.pdf       -- HRD, outliers over a grey field
     plots_<tag>_final/weights_hist.pdf      -- score distribution
+    plots_<tag>_final/hr_by_component.pdf   -- HRD, one panel per component,
+                                               median amplitude per cell
 
 USAGE
     # take (K, Q) from the grid's score file (the paper's KL criterion)
@@ -75,7 +77,12 @@ import numpy as np
 import pandas as pd
 from analysis_funcs import get_test_train_split_idx
 from collect import compute_abs_mag
-from plot_final_full_rvs import WEIGHT_THRESHOLD, check_text_rendering, make_plots
+from plot_final_full_rvs import (
+    WEIGHT_THRESHOLD,
+    check_text_rendering,
+    default_state_file,
+    make_plots,
+)
 from train_full_ms import (
     DEFAULT_PRECISION,
     PRECISIONS,
@@ -248,7 +255,13 @@ def main():
         if not weights_file.exists():
             raise SystemExit(f"{weights_file} does not exist -- run without --plots-only first.")
         check_text_rendering()
-        make_plots(weights_file, plots_dir, args.weight_threshold, label)
+        make_plots(
+            weights_file,
+            plots_dir,
+            args.weight_threshold,
+            label,
+            default_state_file(weights_file),
+        )
         return
 
     # Before the fit, not after it: a broken plot backend should be a warning
@@ -387,7 +400,9 @@ def main():
     # Everything above is on disk by now, so a plotting failure costs the
     # figures and nothing else -- do not let it take the run down with it.
     try:
-        make_plots(weights_file, plots_dir, args.weight_threshold, label)
+        # state_file is written above (or was already there), so the component
+        # panels come out of the same run that produced the weights.
+        make_plots(weights_file, plots_dir, args.weight_threshold, label, state_file)
     except Exception as exc:
         print(f"Plotting failed ({type(exc).__name__}: {exc})")
         print("Weights are saved; replot with 'uv run python fit_final_full_rvs.py --plots-only'")
