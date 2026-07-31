@@ -45,6 +45,57 @@ Missing or masked data is handled by setting the corresponding entries of `W` to
 See `examples_paper/` for complete, worked pipelines (synthetic validation in `toy/` and
 Gaia RVS spectra in `gaia_rvs/`).
 
+### Model selection
+
+`score()` returns the held-out statistics used in the paper. The headline number is the KL
+divergence of the standardised residuals from `N(0, 1)` (Eq. 20) — zero is perfect, lower is
+better — which is what to minimise over a `(K, Q)` grid:
+
+```python
+infer_state, _ = model.infer(Y_test, W_test, state=state)
+scores = model.score(Y_test, W_test, state=infer_state)
+
+scores.kl        # KL divergence from N(0, 1); the model-selection criterion
+scores.std_z     # sigma_z, target 1
+scores.chi2_red  # reduced chi-squared, target 1
+```
+
+### Fitting data larger than one GPU
+
+Each ALS step over the whole `(N, M)` matrix materialises about five full-size
+intermediates on top of `Y` and `W`. For 496,955 × 2321 spectra in float64 that is ~43 GiB
+of scratch, which will not fit in a 48 GiB card.
+
+**Chunking the row axis is what fixes this**, and it needs no second device — peak scratch
+drops to ~0.4 GiB, set by `row_block` rather than by `N`. Sharding across devices is a
+speed knob layered on top. Both come from swapping in one frame:
+
+```python
+from robusta_hmf import Robusta, ShardedFrame
+
+model = Robusta(
+    rank=10,
+    robust_scale=5.0,
+    override_frame=ShardedFrame(row_block=4096),  # devices default to all visible
+)
+state, loss_history = model.fit(Y, W)   # plain numpy arrays; never fully copied to host
+```
+
+Everything else — `infer`, `synthesize`, `score`, `coefficients`, `residuals` — works
+unchanged, and the results match the ordinary path to round-off. `Y` and `W` are stored on
+device in float32 by default while all arithmetic stays in float64, halving resident memory.
+
+To fit several models to one sample (say a `(K, Q)` grid) without re-transferring the data,
+place it once and reuse the handle:
+
+```python
+frame = ShardedFrame(row_block=4096)
+data, _ = frame.prepare(Y, W)          # one transfer to device
+for rank in ranks:
+    model = Robusta(rank=rank, override_frame=frame)   # bind() copies, so reuse is safe
+    state, _ = model.fit(data)
+```
+
 ## Citation
 
 If you use `robusta-hmf` in your research, please cite the accompanying paper
