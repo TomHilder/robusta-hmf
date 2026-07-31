@@ -57,6 +57,12 @@ except OSError:
 # Spectra scoring below this are called outliers. 0.5 as in analyse_full_ms.py.
 WEIGHT_THRESHOLD = 0.5
 
+# A second, much tighter cut, drawn as its own figure. At 0.5 the HRD carries
+# ~1500 points and reads as a population; this one keeps only the few dozen
+# most extreme spectra, where individual objects can be picked out and looked
+# up. Nothing downstream uses it -- the outlier catalogue is still the 0.5 cut.
+EXTREME_THRESHOLD = 0.05
+
 # HR diagram framing, matching plot_bins.py and analysis_funcs.py.
 HR_XLIM = (-0.5, 3.5)
 HR_YLIM = (15, -5)
@@ -268,9 +274,18 @@ def plot_hr_hexbin(score, bp_rp, abs_mag_G, threshold, K, Q, out, label, gridsiz
     print(f"Wrote {out}")
 
 
-def plot_hr_outliers(score, bp_rp, abs_mag_G, threshold, K, Q, out, label):
-    """Outliers over a grey field of the whole sample, as in plot_outliers_on_hr."""
+def plot_hr_outliers(score, bp_rp, abs_mag_G, threshold, K, Q, out, label, marker_size=None):
+    """Outliers over a grey field of the whole sample, as in plot_outliers_on_hr.
+
+    *marker_size* defaults to a size chosen from how many points survive the
+    cut: the ~1500 outliers at the standard threshold need small dots to stay
+    legible, while the few dozen at a tight cut would be all but invisible at
+    the same size.
+    """
     mask = score < threshold
+    n = int(mask.sum())
+    if marker_size is None:
+        marker_size = 6 if n > 500 else (30 if n > 100 else 70)
     fig, ax = plt.subplots(figsize=(10, 8), dpi=150)
     ax.scatter(bp_rp, abs_mag_G, s=0.5, alpha=0.1, c="grey", zorder=0, marker=".", rasterized=True)
     if mask.any():
@@ -279,10 +294,11 @@ def plot_hr_outliers(score, bp_rp, abs_mag_G, threshold, K, Q, out, label):
             abs_mag_G[mask],
             c=score[mask],
             cmap="viridis_r",
-            s=6,
-            alpha=0.8,
-            marker=".",
-            linewidths=0,
+            s=marker_size,
+            alpha=0.85,
+            marker="o",
+            edgecolors="k",
+            linewidths=0.4 if n <= 500 else 0,
             zorder=5,
             rasterized=True,
         )
@@ -414,7 +430,14 @@ def default_state_file(weights_file):
     return path if path.exists() else None
 
 
-def make_plots(weights_file, plots_dir, threshold, label, state_file=None):
+def make_plots(
+    weights_file,
+    plots_dir,
+    threshold,
+    label,
+    state_file=None,
+    extreme_threshold=EXTREME_THRESHOLD,
+):
     """The sample-level figures, from the saved per-spectrum weights.
 
     *state_file* is the converged all-rows state npz. It is optional and only
@@ -442,6 +465,19 @@ def make_plots(weights_file, plots_dir, threshold, label, state_file=None):
     )
     plot_hr_outliers(
         score, bp_rp, abs_mag_G, threshold, K, Q, plots_dir / "hr_outliers.pdf", label
+    )
+    # The same figure at a much tighter cut. Named for the value so that
+    # changing --extreme-threshold writes a new file rather than silently
+    # overwriting a figure drawn at a different cut.
+    plot_hr_outliers(
+        score,
+        bp_rp,
+        abs_mag_G,
+        extreme_threshold,
+        K,
+        Q,
+        plots_dir / f"hr_outliers_below_{extreme_threshold:g}.pdf",
+        label,
     )
     plot_weight_hist(score, threshold, plots_dir / "weights_hist.pdf", label)
 
@@ -481,6 +517,12 @@ def main():
         type=float,
         default=None,
         help="outlier cut; default: the threshold recorded in the npz",
+    )
+    p.add_argument(
+        "--extreme-threshold",
+        type=float,
+        default=EXTREME_THRESHOLD,
+        help="second, tighter cut for its own HRD figure (default: %(default)s)",
     )
     p.add_argument("--label", default=None, help="figure title prefix")
     p.add_argument(
@@ -530,7 +572,7 @@ def main():
         print(f"Component panels from {state_file}")
 
     check_text_rendering()
-    make_plots(args.weights, plots_dir, threshold, label, state_file)
+    make_plots(args.weights, plots_dir, threshold, label, state_file, args.extreme_threshold)
     print(f"\nDone. Figures in {plots_dir}")
 
 

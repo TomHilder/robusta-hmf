@@ -42,6 +42,7 @@ OUTPUTS (in ./gaia_rvs_results and ./plots_<tag>_final):
     plots_<tag>_final/hr_weight_hexbin.pdf  -- HRD, per-cell worst/median/
                                                outlier-fraction, plus density
     plots_<tag>_final/hr_outliers.pdf       -- HRD, outliers over a grey field
+    plots_<tag>_final/hr_outliers_below_0.05.pdf -- the same, at a tighter cut
     plots_<tag>_final/weights_hist.pdf      -- score distribution
     plots_<tag>_final/hr_by_component.pdf   -- HRD, one panel per component,
                                                median amplitude per cell
