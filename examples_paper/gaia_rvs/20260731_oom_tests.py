@@ -1,41 +1,66 @@
-"""Fit one Robusta model to the entire Gaia RVS sample in float64.
+"""Sequential (K, Q) grid search on the full Gaia RVS sample, in float64.
 
-The obstacle is scratch memory, not the model. ``Robusta.fit`` evaluates each
-ALS step over the whole matrix at once, so a step holds ~5 full ``(N, M)``
-intermediates. At N = 499_822 training rows and M = 2321 pixels that is 8.6 GiB
-each in float64, i.e. ~43 GiB of scratch on top of 17 GiB of resident Y and W:
-hence every 5th spectrum fits on a 48 GiB A6000 and every 4th does not.
+The obstacle to fitting the whole sample was scratch memory, not the model.
+``Robusta.fit`` evaluates each ALS step over the whole matrix at once, so a
+step holds ~5 full ``(N, M)`` intermediates. At N = 496_955 training rows and
+M = 2321 pixels that is 8.6 GiB each in float64, i.e. ~43 GiB of scratch on
+top of 17 GiB of resident Y and W: hence every 5th spectrum fits on a 48 GiB
+A6000 and every 4th does not.
 
-:mod:`distributed_robusta` restructures the same ALS iteration so that
+:mod:`distributed_robusta` restructures the same ALS iteration so the row axis
+is traversed in chunks and sharded over every visible GPU. Measured peak
+device memory for the full sample is 9.0 GiB at K=10 and 9.2 GiB at K=30, so
+the grid runs on one card. See that module for the details.
 
-  * the row axis is traversed in chunks -- peak scratch becomes
-    ``O(row_block * M)`` rather than ``O(N * M)``, ~0.4 GiB at row_block=4096;
-  * the row axis is sharded over all visible GPUs, with only a small
-    ``(M, K, K)`` all-reduce per iteration;
-  * Y and W live on device as float32 (they are float32 measurements) while
-    every accumulation stays in float64.
+MODEL SELECTION follows the paper (Section 4.3, Eq. 20) rather than the
+``std_z`` shortcut in ``analyse_full_ms.py``. Each model is fit on the
+training split, then used to predict the held-out split with G held fixed
+(a-step and w-step only). With
 
-The arithmetic is unchanged: ``distributed_robusta.compare_to_reference``
-reproduces the library's loss trajectory to ~1e-12.
+    z_ij = r_ij sqrt(w_data_ij w_robust_ij)
+
+unit normal under a well-calibrated model, the score is the KL divergence
+from the empirical distribution of z to N(0, 1), Gaussian-approximated:
+
+    S(Q, K) = -log(sigma_z) + (sigma_z^2 + mu_z^2) / 2 - 1/2
+
+which is zero only at mu_z = 0, sigma_z = 1. Lower is better. ``std_z``,
+``chi2_red`` and ``rmse`` come free from the same sums and are recorded too,
+so the ``analyse_full_ms.py`` ranking can be compared against the paper's.
+
+DATA. One 50/50 train/test split of the whole sample -- the canonical seeded
+split from ``get_test_train_split_idx``, the same one ``train_full_ms.py`` and
+``analyse_full_ms.py`` use. ``--subsample N`` then keeps every Nth spectrum of
+*both* halves, so the grid fits on 1/N of train and scores on 1/N of test,
+still disjoint. That is only to make the grid affordable: the winning (K, Q)
+is refit on the full training half at the end.
 
 USAGE
-    # all visible GPUs, whole RVS sample, K=10, Q=2
-    uv run python 20260731_oom_tests.py --sample all --rank 10 --q 2
+    # grid on 1/10 of each half (fast), then refit the winner on all of train
+    uv run python 20260731_oom_tests.py
+
+    # the whole split at every grid point -- expensive, watch the ETA
+    uv run python 20260731_oom_tests.py --subsample 1
+
+    # a single model, no grid
+    uv run python 20260731_oom_tests.py --ranks 10 --q-vals 2 --no-refit-best
 
     # reproduce the OOM with the stock library implementation
-    uv run python 20260731_oom_tests.py --engine reference --subsample 4
+    uv run python 20260731_oom_tests.py --engine reference --ranks 10 --q-vals 2 --subsample 4
 
-Under Slurm ask for the GPUs and let JAX see all of them -- do NOT set
+Finished models are skipped, so an interrupted grid resumes where it stopped.
+Under Slurm, ask for the GPUs and let JAX see all of them -- do NOT set
 CUDA_VISIBLE_DEVICES to a single device:
 
-    sbatch -p gpu --gpus=4 -c 16 --mem=256G -t 4:00:00 --wrap \
-      "cd $PWD && UV_NO_SYNC=1 uv run python -u 20260731_oom_tests.py --sample all"
+    sbatch -p gpu --gpus=4 -c 16 --mem=256G -t 12:00:00 --wrap \
+      "cd $PWD && UV_NO_SYNC=1 uv run python -u 20260731_oom_tests.py"
 
 If a GPU is shared with anything else, cap the pool with
 ``XLA_PYTHON_CLIENT_MEM_FRACTION=0.9``.
 """
 
 import argparse
+import gc
 import time
 from pathlib import Path
 
@@ -47,6 +72,12 @@ import numpy as np
 # CONFIGURATION
 # ============================================================================ #
 
+# The full sample is far more heterogeneous than any single bin (the per-bin
+# analysis uses K=10), so the grid extends to larger ranks. Same grid as
+# train_full_ms.py.
+RANKS = [2, 4, 8, 16, 32, 64]
+Q_VALS = [2.0, 3.0, 5.0, 7.5]
+
 MAX_ITER = 1000
 TRAIN_FRAC = cfg.TRAIN_FRAC
 
@@ -54,6 +85,22 @@ RESULTS_DIR = Path("./gaia_rvs_results")
 
 # Bin tag used in state filenames: converged_state_R{K}_Q{Q}_bin_{tag}.npz
 SAMPLE_TAGS = {"ms": "full_ms", "all": "full_rvs"}
+
+# How much of the sample the grid search uses. The canonical 50/50 train/test
+# split (get_test_train_split_idx, seeded with cfg.RNG_SEED, shared with
+# train_full_ms.py and analyse_full_ms.py) is made first; this then keeps every
+# Nth spectrum of BOTH halves, so the grid trains on 1/N of the training half
+# and scores on 1/N of the held-out half, and the two stay disjoint.
+# The winner is refit on the full training set afterwards, so this only has to
+# rank models correctly, not produce the final basis.
+GRID_SUBSAMPLE = 10
+
+# Optional extra cap on held-out spectra, off by default now that --subsample
+# sets the test size too. The scoring statistics are means over n_test * 2321
+# per-pixel residuals -- already >1e8 at 50k spectra, converged far beyond the
+# differences between grid points -- so capping costs nothing if a run ever
+# needs it. analyse_full_ms.py caps at 50_000 for the same reason.
+CV_MAX_TEST = 0
 
 # Numeric precision. The per-bin analysis in the paper ran on CPU, where float32
 # matmuls are exact; on Ampere and later GPUs jax defaults to TF32, which keeps
@@ -81,7 +128,7 @@ def configure_precision(precision):
     return np.float64 if precision == "fp64" else np.float32
 
 
-def build_sample(sample="ms"):
+def build_sample(sample="all"):
     """Return (data, idx, ids, tag) for the requested sample.
 
     "ms":  union of all main-sequence bins, deduplicated (bins overlap since
@@ -105,10 +152,18 @@ def build_sample(sample="ms"):
     raise ValueError(f"Unknown sample: {sample!r} (use 'ms' or 'all')")
 
 
-def load_training_data(
-    data, idx, ids, train_frac=TRAIN_FRAC, dtype=np.float32, block=65536, subsample=1
+def load_split(
+    data,
+    idx,
+    ids,
+    which="train",
+    train_frac=TRAIN_FRAC,
+    subsample=1,
+    max_rows=0,
+    dtype=np.float32,
+    block=65536,
 ):
-    """Training Y, W (and the matching source ids) for the requested sample.
+    """Y, W and source ids for one side of the train/test split.
 
     Same masking as ``train_bins.train_bin``, but assembled block by block
     straight into preallocated float32 output arrays. The original route --
@@ -122,12 +177,19 @@ def load_training_data(
     """
     from analysis_funcs import clip_edge_pix, get_test_train_split_idx
 
-    train_idx, _ = get_test_train_split_idx(len(idx), train_frac=train_frac)
+    train_idx, test_idx = get_test_train_split_idx(len(idx), train_frac=train_frac)
+    split_idx = train_idx if which == "train" else test_idx
     if subsample > 1:
-        train_idx = train_idx[::subsample]
-    sel = idx[train_idx]
-    n = len(sel)
+        split_idx = split_idx[::subsample]
+    if max_rows and len(split_idx) > max_rows:
+        # Seeded, so every model is scored on the same held-out spectra --
+        # matching the --cv-max-test subsample in analyse_full_ms.py.
+        split_idx = np.random.default_rng(cfg.RNG_SEED).choice(
+            split_idx, size=max_rows, replace=False
+        )
 
+    sel = idx[split_idx]
+    n = len(sel)
     order = np.argsort(data.spectra_indices[sel])
     Y = W = None
     n_masked = 0
@@ -146,28 +208,185 @@ def load_training_data(
         n_masked += int(bad.sum())
         Y[rows] = np.where(bad, 0, flux)
         W[rows] = np.where(bad, 0, w)
-        print(
-            f"  read {min(start + block, n)}/{n} rows ({time.time() - t0:.0f} s)",
-            end="\r",
-            flush=True,
-        )
+        print(f"  reading {which}: {min(start + block, n)}/{n} rows", end="\r", flush=True)
     print(
-        f"\n  read {n} rows in {time.time() - t0:.0f} s; "
-        f"masked {n_masked / (n * Y.shape[1]):.3%} of pixels",
+        f"  {which}: {n} x {Y.shape[1]} in {time.time() - t0:.0f} s, "
+        f"{2 * Y.nbytes / 2**30:.2f} GiB for Y+W, "
+        f"{n_masked / (n * Y.shape[1]):.3%} of pixels masked",
         flush=True,
     )
-    return Y, W, ids[train_idx]
+    return Y, W, ids[split_idx]
+
+
+def state_path(results_dir, rank, q, tag, subsample):
+    """Naming as train_full_ms.py, with a suffix when only a subsample was fit."""
+    stem = f"converged_state_R{rank}_Q{q:.2f}_bin_{tag}"
+    if subsample > 1:
+        stem += f"_sub{subsample}"
+    return results_dir / f"{stem}.npz"
+
+
+def make_model(rank, q, args, dtype, devices):
+    from distributed_robusta import DistributedRobusta
+
+    return DistributedRobusta(
+        rank=rank,
+        robust_scale=q,
+        conv_strategy="max_frac_G",
+        conv_tol=args.conv_tol,
+        rotation="fast",
+        target="G",
+        whiten=True,
+        row_block=args.row_block,
+        devices=devices,
+        store_dtype=np.float64 if args.store_fp64 else np.float32,
+        compute_dtype=dtype,
+    )
+
+
+def fit_one(rank, q, train, args, dtype, devices):
+    """Fit one (K, Q) model on ``train``. Returns an RHMFState."""
+    if args.engine == "reference":
+        # The stock library path, kept for reproducing the OOM. It needs Y and
+        # W in the compute dtype up front, which is half the problem.
+        from robusta_hmf import Robusta
+
+        Y, W = train
+        model = Robusta(
+            rank=rank,
+            robust_scale=q,
+            conv_strategy="max_frac_G",
+            conv_tol=args.conv_tol,
+            init_strategy="svd",
+            rotation="fast",
+            target="G",
+            whiten=True,
+        )
+        state, _ = model.fit(
+            Y.astype(dtype, copy=False),
+            W.astype(dtype, copy=False),
+            max_iter=args.max_iter,
+            conv_check_cadence=args.conv_check_cadence,
+        )
+        return state
+
+    state, _ = make_model(rank, q, args, dtype, devices).fit(
+        train,
+        max_iter=args.max_iter,
+        conv_check_cadence=args.conv_check_cadence,
+        verbose=args.verbose,
+    )
+    return state
+
+
+def run_grid(ranks, q_vals, train, test, args, dtype, devices, tag):
+    """Fit and score every (K, Q) in turn. Returns a dict of (n_K, n_Q) arrays."""
+    from robusta_hmf.state import load_state_from_npz
+
+    shape = (len(ranks), len(q_vals))
+    out = {k: np.full(shape, np.nan) for k in ("kl", "mu_z", "std_z", "chi2_red", "rmse")}
+    out["seconds"] = np.full(shape, np.nan)
+
+    n_models = len(ranks) * len(q_vals)
+    done = 0
+    t_start = time.time()
+    print(f"\nGrid: {len(ranks)} ranks x {len(q_vals)} Q values = {n_models} models", flush=True)
+    print(f"{'K':>4} {'Q':>5} {'KL':>12} {'std_z':>9} {'mu_z':>10} {'chi2_red':>10} {'s':>7}")
+
+    for i, rank in enumerate(ranks):
+        for j, q in enumerate(q_vals):
+            t0 = time.time()
+            path = state_path(args.out, rank, q, tag, args.subsample)
+            if path.exists() and not args.overwrite:
+                state = load_state_from_npz(path)
+                cached = "  (cached)"
+            else:
+                state = fit_one(rank, q, train, args, dtype, devices)
+                np.savez(
+                    path, A=np.asarray(state.A), G=np.asarray(state.G), it=np.asarray(state.it)
+                )
+                cached = ""
+
+            # Scored with the chunked scorer whichever engine did the fitting:
+            # held-out scoring only needs G.
+            scorer = make_model(rank, q, args, dtype, devices)
+            inferred, _ = scorer.infer(
+                test, state=state, max_iter=args.infer_max_iter, tol=args.infer_tol
+            )
+            scores = scorer.score(test, inferred)
+            for k, v in scores.items():
+                out[k][i, j] = v
+            out["seconds"][i, j] = time.time() - t0
+            done += 1
+
+            print(
+                f"{rank:>4} {q:>5g} {scores['kl']:>12.6f} {scores['std_z']:>9.4f} "
+                f"{scores['mu_z']:>10.2e} {scores['chi2_red']:>10.4f} "
+                f"{out['seconds'][i, j]:>7.0f}{cached}",
+                flush=True,
+            )
+            if done == 1 and n_models > 1 and not cached:
+                print(
+                    f"     ~{out['seconds'][i, j] * (n_models - 1) / 60:.0f} min remaining "
+                    "at this rate",
+                    flush=True,
+                )
+            del scorer, inferred, state
+            gc.collect()
+
+    print(f"Grid finished in {(time.time() - t_start) / 60:.1f} min", flush=True)
+    return out
+
+
+def report_best(grid, ranks, q_vals):
+    """Best model by the paper's KL score; also by analyse_full_ms.py's std_z."""
+    kl = grid["kl"]
+    i, j = np.unravel_index(np.nanargmin(kl), kl.shape)
+    print(f"\nBest by KL (paper Eq. 20): K={ranks[i]}, Q={q_vals[j]:g}  (KL={kl[i, j]:.6f})")
+
+    # analyse_full_ms.py ranks on |std_z - 1| instead. Report both, so the
+    # choice of criterion stays visible rather than implicit.
+    dev = np.abs(grid["std_z"] - 1.0)
+    a, b = np.unravel_index(np.nanargmin(dev), dev.shape)
+    print(
+        f"Best by std_z (analyse_full_ms.py): K={ranks[a]}, Q={q_vals[b]:g}  "
+        f"(std_z={grid['std_z'][a, b]:.4f})"
+    )
+    if (a, b) != (i, j):
+        print("  NOTE: the two criteria disagree; the paper advocates the KL score.")
+    return ranks[i], q_vals[j]
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--sample", default="all", choices=("ms", "all"))
-    p.add_argument("--rank", type=int, default=10, help="K")
-    p.add_argument("--q", type=float, default=2.0, help="robust scale Q")
-    p.add_argument("--max-iter", type=int, default=100)
+    p.add_argument("--ranks", type=int, nargs="+", default=RANKS)
+    p.add_argument("--q-vals", type=float, nargs="+", default=Q_VALS)
+    p.add_argument("--max-iter", type=int, default=MAX_ITER)
     p.add_argument("--conv-tol", type=float, default=1e-4)
-    p.add_argument("--conv-check-cadence", type=int, default=1)
-    p.add_argument("--subsample", type=int, default=1, help="keep every Nth training spectrum")
+    p.add_argument("--conv-check-cadence", type=int, default=5)
+    p.add_argument("--infer-max-iter", type=int, default=1000)
+    p.add_argument("--infer-tol", type=float, default=1e-4)
+    p.add_argument(
+        "--subsample",
+        type=int,
+        default=GRID_SUBSAMPLE,
+        help="keep every Nth spectrum of both halves of the split for the grid "
+        "(1 = the whole sample; default: %(default)s)",
+    )
+    p.add_argument(
+        "--cv-max-test",
+        type=int,
+        default=CV_MAX_TEST,
+        help="optional extra cap on held-out spectra used for scoring (0 = no cap)",
+    )
+    p.add_argument(
+        "--refit-best",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="after the grid, refit the winning (K, Q) on the full training set",
+    )
+    p.add_argument("--overwrite", action="store_true", help="refit models that already have state")
     p.add_argument("--precision", default=DEFAULT_PRECISION, choices=PRECISIONS)
     p.add_argument(
         "--engine",
@@ -186,18 +405,20 @@ def main():
         action="store_true",
         help="keep Y and W on device in float64 (2x memory; the inputs are float32)",
     )
+    p.add_argument("--verbose", action="store_true", help="print every convergence check")
     p.add_argument("--out", type=Path, default=RESULTS_DIR)
     args = p.parse_args()
 
     dtype = configure_precision(args.precision)
+    from distributed_robusta import build_mesh, shard_data
+
     devices = jax.devices()
     if args.n_devices is not None:
         devices = devices[: args.n_devices]
     print(f"Devices: {[str(d) for d in devices]}")
     for d in devices:
         try:
-            stats = d.memory_stats() or {}
-            limit = stats.get("bytes_limit")
+            limit = (d.memory_stats() or {}).get("bytes_limit")
             if limit:
                 print(f"  {d}: {limit / 2**30:.1f} GiB pool ({d.device_kind})")
         except Exception:  # CPU devices have no memory_stats
@@ -212,71 +433,102 @@ def main():
     # uncertainties are float32, so the cast to float64 happens per chunk on
     # device and nothing is lost by not paying for it on the host too.
     store_dtype = np.float64 if args.store_fp64 else np.float32
-    Y, W, ids_train = load_training_data(
-        data, idx, ids, dtype=store_dtype, subsample=args.subsample
+    mesh = build_mesh(devices)
+
+    # One 50/50 train/test split of the whole sample (seeded, and the same one
+    # train_full_ms.py and analyse_full_ms.py use), then the same stride on
+    # both halves: the grid fits on 1/N of train and scores on 1/N of test.
+    print("Loading data...", flush=True)
+    Y_tr, W_tr, _ = load_split(
+        data, idx, ids, "train", subsample=args.subsample, dtype=store_dtype
     )
-    N, M = Y.shape
-    print(f"Training matrix: {N} x {M} ({Y.nbytes / 2**30:.2f} GiB each for Y and W)", flush=True)
+    Y_te, W_te, _ = load_split(
+        data,
+        idx,
+        ids,
+        "test",
+        subsample=args.subsample,
+        max_rows=args.cv_max_test,
+        dtype=store_dtype,
+    )
+    if args.subsample > 1:
+        tail = (
+            "the winner is refit on the full training half afterwards."
+            if args.refit_best
+            else "--refit-best is off, so no full-sample fit will be made."
+        )
+        print(
+            f"Grid: fitting on {len(Y_tr)} spectra, scoring on {len(Y_te)} held out "
+            f"(1/{args.subsample} of each half); {tail}",
+            flush=True,
+        )
 
-    t0 = time.time()
-    if args.engine == "reference":
-        from robusta_hmf import Robusta
-
-        model = Robusta(
-            rank=args.rank,
-            robust_scale=args.q,
-            conv_strategy="max_frac_G",
-            conv_tol=args.conv_tol,
-            init_strategy="svd",
-            rotation="fast",
-            target="G",
-            whiten=True,
-        )
-        state, loss = model.fit(
-            Y.astype(dtype, copy=False),
-            W.astype(dtype, copy=False),
-            max_iter=args.max_iter,
-            conv_check_cadence=args.conv_check_cadence,
-        )
-    else:
-        from distributed_robusta import DistributedRobusta
-
-        model = DistributedRobusta(
-            rank=args.rank,
-            robust_scale=args.q,
-            conv_strategy="max_frac_G",
-            conv_tol=args.conv_tol,
-            rotation="fast",
-            target="G",
-            whiten=True,
-            row_block=args.row_block,
-            devices=devices,
-            store_dtype=store_dtype,
-            compute_dtype=dtype,
-        )
-        state, loss = model.fit(
-            Y,
-            W,
-            max_iter=args.max_iter,
-            conv_check_cadence=args.conv_check_cadence,
-        )
-    print(f"Fit finished in {time.time() - t0:.0f} s ({len(loss)} iterations)", flush=True)
+    # Sharded once and reused by every grid point; re-transferring the training
+    # matrices per model would otherwise dominate.
+    test = shard_data(Y_te, W_te, mesh, args.row_block, store_dtype)
+    train = (
+        (Y_tr, W_tr)
+        if args.engine == "reference"
+        else shard_data(Y_tr, W_tr, mesh, args.row_block, store_dtype)
+    )
 
     args.out.mkdir(parents=True, exist_ok=True)
-    # Same stem as train_full_ms.py so analyse_full_ms.py can pick these up.
-    stem = f"R{args.rank}_Q{args.q:.2f}_bin_{tag}"
-    if args.subsample > 1:
-        stem += f"_sub{args.subsample}"
-    path = args.out / f"converged_state_{stem}.npz"
+    grid = run_grid(args.ranks, args.q_vals, train, test, args, dtype, devices, tag)
+    best_K, best_Q = report_best(grid, args.ranks, args.q_vals)
+
+    suffix = f"_sub{args.subsample}" if args.subsample > 1 else ""
+    scores_path = args.out / f"{tag}_grid_scores{suffix}.npz"
     np.savez(
-        path,
+        scores_path,
+        ranks=np.asarray(args.ranks),
+        q_vals=np.asarray(args.q_vals),
+        best_K=best_K,
+        best_Q=best_Q,
+        n_train=len(Y_tr),
+        n_test=len(Y_te),
+        **grid,
+    )
+    print(f"Wrote {scores_path}")
+
+    final_path = state_path(args.out, best_K, best_Q, tag, 1)
+    if args.subsample == 1:
+        print(f"Grid used the full training set; {final_path} is the final model.")
+        return
+    if not args.refit_best:
+        return
+    if final_path.exists() and not args.overwrite:
+        print(f"\nFinal model already exists: {final_path}")
+        return
+
+    # Free the subsampled training data before reloading the full split.
+    del train, Y_tr, W_tr
+    gc.collect()
+
+    print(f"\nRefitting the winner (K={best_K}, Q={best_Q:g}) on the full training set...")
+    Y_tr, W_tr, ids_tr = load_split(data, idx, ids, "train", dtype=store_dtype)
+    full = (
+        (Y_tr, W_tr)
+        if args.engine == "reference"
+        else shard_data(Y_tr, W_tr, mesh, args.row_block, store_dtype)
+    )
+    t0 = time.time()
+    state = fit_one(best_K, best_Q, full, args, dtype, devices)
+    print(f"Refit in {(time.time() - t0) / 60:.1f} min", flush=True)
+
+    scorer = make_model(best_K, best_Q, args, dtype, devices)
+    inferred, _ = scorer.infer(test, state=state, max_iter=args.infer_max_iter, tol=args.infer_tol)
+    final = scorer.score(test, inferred)
+    print("Final model, held out: " + ", ".join(f"{k}={v:.6f}" for k, v in final.items()))
+
+    np.savez(
+        final_path,
         A=np.asarray(state.A),
         G=np.asarray(state.G),
         it=np.asarray(state.it),
-        loss=np.asarray(loss),
-        source_id=ids_train,
+        source_id=ids_tr,
+        **{f"cv_{k}": v for k, v in final.items()},
     )
-    print(f"Wrote {path}", flush=True)
+    print(f"Wrote {final_path}")
 
 
 if __name__ == "__main__":

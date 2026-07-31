@@ -6,7 +6,7 @@ Why this exists
 once. Each step materialises roughly five full-size intermediates -- ``A @ G.T``,
 the squared residuals, the IRLS weights, ``W * Y``, and the loss residuals --
 on top of the resident ``Y`` and ``W``. For the full Gaia RVS training set
-(N = 499_822 rows, M = 2321 pixels) in float64 a single ``(N, M)`` array is
+(N = 496_955 rows, M = 2321 pixels) in float64 a single ``(N, M)`` array is
 8.6 GiB, so a step needs ~43 GiB of scratch on top of 17 GiB of data. That is
 why subsampling every 5th spectrum fits in a 48 GiB A6000 and every 4th does
 not.
@@ -32,7 +32,7 @@ nothing is lost, while the resident data halves to 8.6 GiB total and every
 accumulation (normal equations, loss) still happens in float64.
 
 The SVD initialiser is replaced by a mathematically equivalent Gram-matrix
-route, because ``jnp.linalg.svd`` on a (499_822, 2321) matrix wants a
+route, because ``jnp.linalg.svd`` on a (496_955, 2321) matrix wants a
 ``U`` the size of ``Y`` itself. Instead we accumulate ``C = Y.T @ Y``
 (41 MiB), take its top-K eigenvectors, and recover ``A`` in one chunked pass;
 for ``Y = U S V.T`` this gives exactly the same ``A = U sqrt(S)``,
@@ -53,7 +53,6 @@ shard by shard so the host never holds a second copy.
 
 import time
 from dataclasses import dataclass
-from functools import partial
 
 import jax
 import jax.numpy as jnp
@@ -123,6 +122,37 @@ def build_mesh(devices=None) -> Mesh:
     """A 1-D mesh over the row axis. Works unchanged with a single device."""
     devices = list(jax.devices()) if devices is None else list(devices)
     return Mesh(np.asarray(devices), (ROW_AXIS,))
+
+
+@dataclass(frozen=True)
+class ShardedData:
+    """Y and W resident on the mesh, plus the plan that describes their layout.
+
+    Built once and reused: a (K, Q) grid over the same sample would otherwise
+    re-transfer the full matrices for every grid point.
+    """
+
+    Y: Array
+    W: Array
+    plan: RowPlan
+    n_pixels: int
+
+    @property
+    def n_rows(self) -> int:
+        return self.plan.n_rows
+
+
+def shard_data(Y, W, mesh: Mesh, row_block: int, dtype=np.float32) -> ShardedData:
+    """Place ``Y`` and ``W`` (numpy, (N, M)) on ``mesh``, split along rows."""
+    if W.shape != Y.shape:
+        raise ValueError(f"Y and W must have the same shape, got {Y.shape} and {W.shape}")
+    plan = plan_rows(Y.shape[0], mesh.size, row_block)
+    return ShardedData(
+        Y=shard_rows(Y, plan, mesh, dtype),
+        W=shard_rows(W, plan, mesh, dtype),
+        plan=plan,
+        n_pixels=Y.shape[1],
+    )
 
 
 def shard_rows(x: np.ndarray, plan: RowPlan, mesh: Mesh, dtype) -> Array:
@@ -363,6 +393,165 @@ class DistributedRobusta:
 
         return jax.jit(step, static_argnums=(4,))
 
+    # -- held-out inference and scoring -------------------------------------- #
+
+    def _make_infer(self, plan: RowPlan, max_iter: int, tol: float):
+        """Fixed-G IRLS on held-out rows, run to convergence chunk by chunk.
+
+        With G held fixed each row's a-step is independent of every other row,
+        so the IRLS iteration is row-local and a chunk can be run to
+        convergence before the next one starts. That differs from
+        ``Robusta.infer``, which iterates the whole matrix in lockstep until
+        the slowest row converges; the fixed point is the same, but this
+        touches Y and W once instead of once per iteration.
+
+        The stopping rule is ``max(dA^2) / mean(A^2) < tol`` as in
+        ``convergence.max_frac_mat``, evaluated over the chunk rather than
+        over all rows -- a per-chunk criterion, so chunks that settle early
+        stop early.
+        """
+        K, chunk, cdtype = self.rank, plan.chunk, self.compute_dtype
+        likelihood, ridge = self.likelihood, self.ridge
+
+        def local(Y_l, W_l, G):
+            n_local, M = Y_l.shape
+            nc = n_local // chunk
+            GG = _outer(G)
+
+            def body(_, xs):
+                y, w = xs
+                y = y.astype(cdtype)
+                w = w.astype(cdtype)
+                # Initial guess from the data weights alone, as Robusta.infer does.
+                a0 = _solve_batch((w @ GG).reshape(chunk, K, K), (w * y) @ G, ridge)
+
+                def cond(carry):
+                    a, delta, i = carry
+                    scale = jnp.mean(a * a)
+                    moving = delta >= tol * jnp.where(scale > 0, scale, 1.0)
+                    return (i < max_iter) & moving
+
+                def irls(carry):
+                    a, _, i = carry
+                    Wt = likelihood.weights_total(y, w, a, G)
+                    a_new = _solve_batch((Wt @ GG).reshape(chunk, K, K), (Wt * y) @ G, ridge)
+                    d = a_new - a
+                    return a_new, jnp.max(d * d), i + 1
+
+                init = (a0, jnp.asarray(jnp.inf, cdtype), jnp.asarray(0, jnp.int32))
+                a, _, n_it = jax.lax.while_loop(cond, irls, init)
+                return None, (a, n_it)
+
+            _, (A, n_it) = jax.lax.scan(
+                body, None, (Y_l.reshape(nc, chunk, M), W_l.reshape(nc, chunk, M))
+            )
+            # Per-device scalar; a singleton axis so it can be concatenated
+            # over the mesh into one entry per device.
+            return A.reshape(n_local, K), jnp.max(n_it).reshape(1)
+
+        return jax.jit(
+            shard_map(
+                local,
+                mesh=self.mesh,
+                in_specs=(P(ROW_AXIS, None), P(ROW_AXIS, None), P()),
+                out_specs=(P(ROW_AXIS, None), P(ROW_AXIS)),
+                check_rep=False,
+            )
+        )
+
+    def infer(self, data: ShardedData, state=None, max_iter: int = 1000, tol: float = 1e-4):
+        """Infer coefficients for held-out data with G held fixed.
+
+        Returns ``(RHMFState, n_iterations)``; ``state.A`` covers the padded
+        row grid, so pass it straight to :meth:`score`.
+        """
+        state = state if state is not None else self._state
+        if state is None:
+            raise ValueError("No trained state available. Call fit() first.")
+        A, n_it = self._make_infer(data.plan, max_iter, tol)(data.Y, data.W, state.G)
+        return RHMFState(A=A, G=state.G, it=0), int(jnp.max(n_it))
+
+    def _make_moments(self, plan: RowPlan):
+        """Sums of z, z^2 and chi^2 over the held-out residuals."""
+        K, chunk, cdtype = self.rank, plan.chunk, self.compute_dtype
+        likelihood = self.likelihood
+
+        def local(Y_l, W_l, A_l, G):
+            n_local, M = Y_l.shape
+            nc = n_local // chunk
+
+            def body(carry, xs):
+                s1, s2, chi2 = carry
+                y, w, a = xs
+                y = y.astype(cdtype)
+                w = w.astype(cdtype)
+                r = y - a @ G.T
+                # z = r sqrt(w_data w_robust): unit normal under a calibrated
+                # model with the outliers correctly downweighted.
+                z = r * jnp.sqrt(w * likelihood.weights_irls(y, w, a, G))
+                return (s1 + jnp.sum(z), s2 + jnp.sum(z * z), chi2 + jnp.sum(w * r * r)), None
+
+            zero = jnp.zeros((), cdtype)
+            (s1, s2, chi2), _ = jax.lax.scan(
+                body,
+                (zero, zero, zero),
+                (Y_l.reshape(nc, chunk, M), W_l.reshape(nc, chunk, M), A_l.reshape(nc, chunk, K)),
+            )
+            return (
+                jax.lax.psum(s1, ROW_AXIS),
+                jax.lax.psum(s2, ROW_AXIS),
+                jax.lax.psum(chi2, ROW_AXIS),
+            )
+
+        return jax.jit(
+            shard_map(
+                local,
+                mesh=self.mesh,
+                in_specs=(P(ROW_AXIS, None), P(ROW_AXIS, None), P(ROW_AXIS, None), P()),
+                out_specs=(P(), P(), P()),
+            )
+        )
+
+    def score(self, data: ShardedData, state) -> dict:
+        """Held-out cross-validation scores for ``state`` on ``data``.
+
+        The headline number is ``kl``, the paper's score (Eq. 20): the KL
+        divergence from the empirical distribution of
+        ``z = r sqrt(w_data w_robust)`` to N(0, 1), under a Gaussian
+        approximation to the empirical distribution,
+
+            KL = -log(sigma_z) + (sigma_z^2 + mu_z^2) / 2 - 1/2,
+
+        which is zero only for mu_z = 0, sigma_z = 1 and positive otherwise.
+        Lower is better.
+
+        Also returned, since they come free from the same sums: ``std_z``
+        (= sigma_z, the metric ``analyse_full_ms.py`` selects on),
+        ``chi2_red`` and ``rmse``. ``mad_z`` is not included -- a median needs
+        the whole (N, M) z array, which is exactly what this avoids.
+
+        Statistics run over every pixel, including those masked to zero
+        weight, matching ``analysis_funcs.compute_std_z``. Padding rows are
+        excluded (they contribute nothing to the sums and are not counted).
+        """
+        A = state.A
+        if A.shape[0] != data.plan.n_padded:
+            # e.g. a state returned by fit(), whose A is trimmed to n_rows.
+            A = shard_rows(np.asarray(A), data.plan, self.mesh, self.compute_dtype)
+        s1, s2, chi2 = self._make_moments(data.plan)(data.Y, data.W, A, state.G)
+        n = float(data.n_rows) * float(data.n_pixels)
+        mu = float(s1) / n
+        var = max(float(s2) / n - mu * mu, 0.0)
+        sigma = float(np.sqrt(var))
+        chi2_red = float(chi2) / n
+        return {
+            "kl": -np.log(sigma) + (sigma**2 + mu**2) / 2.0 - 0.5 if sigma > 0 else np.inf,
+            "mu_z": mu,
+            "std_z": sigma,
+            "chi2_red": chi2_red,
+            "rmse": float(np.sqrt(chi2_red)),
+        }
+
     # -- initialisation ------------------------------------------------------ #
 
     def _make_gram(self, plan: RowPlan):
@@ -439,8 +628,8 @@ class DistributedRobusta:
 
     def fit(
         self,
-        Y: np.ndarray,
-        W: np.ndarray,
+        Y,
+        W: np.ndarray | None = None,
         max_iter: int = 1000,
         conv_check_cadence: int = 10,
         seed: int = 0,
@@ -450,13 +639,20 @@ class DistributedRobusta:
     ) -> tuple[RHMFState, Array]:
         """Fit on ``Y``, ``W`` (numpy, shape (N, M)). Returns (state, losses).
 
+        ``Y`` may instead be a :class:`ShardedData` built by
+        :func:`shard_data`, in which case ``W`` is ignored -- use that to fit
+        several models to the same sample without re-transferring it.
+
         The returned ``state.A`` has exactly ``N`` rows; the padding used on
         device is stripped.
         """
-        n_rows, M = Y.shape
-        if W.shape != Y.shape:
-            raise ValueError(f"Y and W must have the same shape, got {Y.shape} and {W.shape}")
-        plan = plan_rows(n_rows, self.n_devices, self.row_block)
+        if isinstance(Y, ShardedData):
+            data = Y
+        else:
+            data = shard_data(Y, W, self.mesh, self.row_block, self.store_dtype)
+        plan = data.plan
+        n_rows, M = data.n_rows, data.n_pixels
+        Y_dev, W_dev = data.Y, data.W
 
         if verbose:
             per_dev = plan.rows_per_device * M
@@ -471,9 +667,6 @@ class DistributedRobusta:
                 f"  (compute in {self.compute_dtype.name})",
                 flush=True,
             )
-
-        Y_dev = shard_rows(Y, plan, self.mesh, self.store_dtype)
-        W_dev = shard_rows(W, plan, self.mesh, self.store_dtype)
 
         if init_state is None:
             t0 = time.time()
