@@ -551,6 +551,56 @@ def fig_full_rvs_hr_weights():
     print(f"Wrote {out}")
 
 
+# The exemplar drawn for the outlier-taxonomy paragraph: the lowest-scoring
+# member of the chromospheric-emission cluster of red giants. Chosen because
+# the binned experiment of Section 5.2 is restricted to the main sequence and
+# so cannot reach this population at all.
+FULL_RVS_EXAMPLE = 5871016304219325184
+
+
+def fig_full_rvs_example():
+    """Figure: full_rvs_spec_giant.pdf
+
+    One member of the Ca II triplet emission group found by clustering the
+    residuals of the full-sample outliers. Built through the same
+    ``_save_spectrum_fig`` helper as the binned spectrum figures, so the panel
+    layout, line markers and styling match the rest of the paper exactly.
+    """
+    from plot_final_outlier_spectra import load_outlier_inputs
+
+    d = np.load(FULL_RVS_WEIGHTS)
+    K, Q = int(d["best_K"]), float(d["best_Q"])
+    state = RESULTS_DIR / f"converged_state_R{K}_Q{Q:.2f}_bin_full_rvs_allrows.npz"
+    λ_grid, Y, W, recon, robust, meta = load_outlier_inputs(
+        FULL_RVS_WEIGHTS, state, float(d["threshold"]), None, "all"
+    )
+    ids = np.array([m["source_id"] for m in meta])
+    hits = np.flatnonzero(ids == FULL_RVS_EXAMPLE)
+    if not len(hits):
+        raise SystemExit(f"{FULL_RVS_EXAMPLE} is not among the flagged spectra")
+    i = int(hits[0])
+
+    _save_spectrum_fig(
+        λ_grid=λ_grid,
+        flux=Y[i],
+        reconstruction=recon[i],
+        robust_weights=robust[i],
+        source_id=FULL_RVS_EXAMPLE,
+        i_bin=0,  # unused by the figure itself; the full-sample fit has no bins
+        idx=i,
+        per_object_weight=float(meta[i]["score"]),
+        best_K=K,
+        best_Q=Q,
+        filename="full_rvs_spec_giant.pdf",
+        suptitle_kwargs=dict(
+            t=r"$\textsf{\textbf{Gaia RVS: Chromospherically Active Giant}}$",
+            fontsize="24",
+            c="dimgrey",
+            y=0.955,
+        ),
+    )
+
+
 FIGURES = {
     "hr_bins": fig_hr_bins,
     "stacked_hist": fig_stacked_hist,
@@ -562,6 +612,7 @@ FIGURES = {
     "full_rvs_cv": fig_full_rvs_cv,
     "full_rvs_outliers": fig_full_rvs_outliers,
     "full_rvs_hr_weights": fig_full_rvs_hr_weights,
+    "full_rvs_example": fig_full_rvs_example,
 }
 
 
