@@ -551,20 +551,46 @@ def fig_full_rvs_hr_weights():
     print(f"Wrote {out}")
 
 
-# The exemplar drawn for the outlier-taxonomy paragraph: the lowest-scoring
-# member of the chromospheric-emission cluster of red giants. Chosen because
-# the binned experiment of Section 5.2 is restricted to the main sequence and
-# so cannot reach this population at all.
-FULL_RVS_EXAMPLE = 5871016304219325184
+# Exemplar spectra for the outlier-taxonomy paragraphs, keyed by Gaia DR3
+# source id. All three are objects whose classification comes from the
+# literature (via SIMBAD) rather than from this work: we use them to show that
+# the categories RHMF recovers correspond to known kinds of star, not to claim
+# the classifications ourselves.
+FULL_RVS_EXAMPLES = [
+    dict(
+        source_id=1965171945678382208,  # sigma Cyg, B9Iab, score 0.0034
+        filename="full_rvs_spec_bsg.pdf",
+        title=r"$\textsf{\textbf{Gaia RVS: Blue Supergiant ($\sigma$ Cyg)}}$",
+    ),
+    dict(
+        source_id=5630127802031015808,  # HD 82221, K1pBa, score 0.0987
+        filename="full_rvs_spec_barium.pdf",
+        title=r"$\textsf{\textbf{Gaia RVS: Barium Star (HD 82221)}}$",
+    ),
+    dict(
+        source_id=1872027127371852800,  # V471 Cyg, S5.5/5.5, score 0.0152
+        filename="full_rvs_spec_sstar.pdf",
+        title=r"$\textsf{\textbf{Gaia RVS: S Star (V471 Cyg)}}$",
+    ),
+    dict(
+        source_id=5871016304219325184,  # active red giant, score 0.1808
+        filename="full_rvs_spec_giant.pdf",
+        title=r"$\textsf{\textbf{Gaia RVS: Chromospherically Active Giant}}$",
+    ),
+]
 
 
 def fig_full_rvs_example():
-    """Figure: full_rvs_spec_giant.pdf
+    """Figures: full_rvs_spec_*.pdf
 
-    One member of the Ca II triplet emission group found by clustering the
-    residuals of the full-sample outliers. Built through the same
-    ``_save_spectrum_fig`` helper as the binned spectrum figures, so the panel
-    layout, line markers and styling match the rest of the paper exactly.
+    Every exemplar spectrum for the full-sample section, drawn in one pass.
+    Reading the flagged spectra out of the HDF5 costs several minutes and is
+    dominated by building the matched-source table, so all the figures share a
+    single load rather than paying it once each.
+
+    Built through the same ``_save_spectrum_fig`` helper as the binned spectrum
+    figures, so panel layout, line markers and styling match the rest of the
+    paper exactly.
     """
     from plot_final_outlier_spectra import load_outlier_inputs
 
@@ -575,30 +601,121 @@ def fig_full_rvs_example():
         FULL_RVS_WEIGHTS, state, float(d["threshold"]), None, "all"
     )
     ids = np.array([m["source_id"] for m in meta])
-    hits = np.flatnonzero(ids == FULL_RVS_EXAMPLE)
-    if not len(hits):
-        raise SystemExit(f"{FULL_RVS_EXAMPLE} is not among the flagged spectra")
-    i = int(hits[0])
 
-    _save_spectrum_fig(
-        λ_grid=λ_grid,
-        flux=Y[i],
-        reconstruction=recon[i],
-        robust_weights=robust[i],
-        source_id=FULL_RVS_EXAMPLE,
-        i_bin=0,  # unused by the figure itself; the full-sample fit has no bins
-        idx=i,
-        per_object_weight=float(meta[i]["score"]),
-        best_K=K,
-        best_Q=Q,
-        filename="full_rvs_spec_giant.pdf",
-        suptitle_kwargs=dict(
-            t=r"$\textsf{\textbf{Gaia RVS: Chromospherically Active Giant}}$",
-            fontsize="24",
-            c="dimgrey",
-            y=0.955,
-        ),
-    )
+    for spec in FULL_RVS_EXAMPLES:
+        hits = np.flatnonzero(ids == spec["source_id"])
+        if not len(hits):
+            raise SystemExit(f"{spec['source_id']} is not among the flagged spectra")
+        i = int(hits[0])
+        _save_spectrum_fig(
+            λ_grid=λ_grid,
+            flux=Y[i],
+            reconstruction=recon[i],
+            robust_weights=robust[i],
+            source_id=spec["source_id"],
+            i_bin=0,  # unused by the figure itself; the full-sample fit has no bins
+            idx=i,
+            per_object_weight=float(meta[i]["score"]),
+            best_K=K,
+            best_Q=Q,
+            filename=spec["filename"],
+            suptitle_kwargs=dict(
+                t=spec["title"], fontsize="24", c="dimgrey", y=0.955
+            ),
+        )
+
+
+def plot_named_sources(specs):
+    """Spectrum figures for arbitrary sources, flagged or not.
+
+    ``FULL_RVS_EXAMPLES`` above goes through ``load_outlier_inputs``, which by
+    construction only carries the spectra below the outlier threshold. Stars
+    that the model fits *well* are equally worth drawing -- a literature-famous
+    object that RHMF does not flag is a result, not an absence of one -- so
+    this path reads any row of the full-sample fit.
+
+    *specs* is a list of dicts with ``source_id``, ``filename`` and ``title``.
+    """
+    from analysis_funcs import clip_edge_pix
+    from train_full_ms import DEFAULT_PRECISION, build_sample, configure_precision
+
+    d = np.load(FULL_RVS_WEIGHTS)
+    K, Q = int(d["best_K"]), float(d["best_Q"])
+    score, row_idx, sids = d["score"], d["row_idx"], d["source_id"]
+    st = np.load(RESULTS_DIR / f"converged_state_R{K}_Q{Q:.2f}_bin_full_rvs_allrows.npz")
+    A, G = st["A"], st["G"]
+
+    # sids is in fit-row order, which is a seeded shuffle rather than sorted,
+    # so build an explicit lookup instead of searchsorted.
+    where = {int(s): i for i, s in enumerate(sids)}
+    rows, keep = [], []
+    for spec in specs:
+        i = where.get(int(spec["source_id"]))
+        if i is None:
+            print(f"note: {spec['source_id']} is not in the fitted sample; skipping")
+            continue
+        rows.append(i)
+        keep.append(spec)
+    if not rows:
+        raise SystemExit("None of the requested sources are in the fitted sample")
+    rows = np.array(rows)
+
+    print("Building the sample...", flush=True)
+    data, idx, ids, _ = build_sample("all")
+    cat = idx[row_idx[rows]]
+    assert np.array_equal(ids[row_idx[rows]], sids[rows]), "row order does not match the fit"
+
+    flux, u_flux = clip_edge_pix(*data.get_flux_batch(cat))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ivar = 1.0 / (u_flux.astype(np.float64) ** 2)
+    bad = ~(np.isfinite(flux) & np.isfinite(ivar))
+    Y = np.where(bad, 0.0, flux).astype(np.float64)
+    W = np.where(bad, 0.0, ivar)
+    λ_grid = data.λ_grid[cfg.N_CLIP_PIX : -cfg.N_CLIP_PIX]
+
+    recon = A[rows] @ G.T
+    configure_precision(DEFAULT_PRECISION)
+    from distributed_robusta import DistributedRobusta
+
+    likelihood = DistributedRobusta(rank=K, robust_scale=Q).likelihood
+    robust = np.asarray(likelihood.weights_irls(Y, W, A[rows], G))
+
+    for n, spec in enumerate(keep):
+        _save_spectrum_fig(
+            λ_grid=λ_grid,
+            flux=Y[n],
+            reconstruction=recon[n],
+            robust_weights=robust[n],
+            source_id=int(spec["source_id"]),
+            i_bin=0,
+            idx=int(rows[n]),
+            per_object_weight=float(score[rows[n]]),
+            best_K=K,
+            best_Q=Q,
+            filename=spec["filename"],
+            suptitle_kwargs=dict(t=spec["title"], fontsize="24", c="dimgrey", y=0.955),
+        )
+
+
+# Literature-famous chemically peculiar stars checked against the fit. CD-38
+# 245 is included precisely because RHMF does *not* flag it.
+NAMED_STARS = [
+    dict(
+        source_id=5000753194373767424,  # CD-38 245, [Fe/H] ~ -4.0, score 0.88
+        filename="full_rvs_spec_ump.pdf",
+        title=r"$\textsf{\textbf{Gaia RVS: Ultra Metal-Poor Star (CD$-$38 245)}}$",
+    ),
+    dict(
+        source_id=2629500925618285952,  # BPS CS 29502-0092, CEMP-no, score 0.87
+        filename="full_rvs_spec_cemp.pdf",
+        title=r"$\textsf{\textbf{Gaia RVS: CEMP-no Star (CS 29502$-$0092)}}$",
+    ),
+]
+
+
+def fig_named_stars():
+    """Figures: spectra of literature-famous stars, flagged or not."""
+    plot_named_sources(NAMED_STARS)
 
 
 FIGURES = {
@@ -613,6 +730,7 @@ FIGURES = {
     "full_rvs_outliers": fig_full_rvs_outliers,
     "full_rvs_hr_weights": fig_full_rvs_hr_weights,
     "full_rvs_example": fig_full_rvs_example,
+    "named_stars": fig_named_stars,
 }
 
 
