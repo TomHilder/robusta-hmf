@@ -311,6 +311,246 @@ def fig_stacked_hist():
     plot_stacked_hist(save_dir=PAPER_FIGS)
 
 
+# --------------------------------------------------------------------------- #
+# Full-RVS experiment (Section: all Gaia RVS sources)
+# --------------------------------------------------------------------------- #
+
+# The grid and the final fit, written by 20260731_oom_tests.py and
+# fit_final_full_rvs.py respectively.
+FULL_RVS_GRID = RESULTS_DIR / "full_rvs_grid_scores_sub10.npz"
+FULL_RVS_WEIGHTS = RESULTS_DIR / "full_rvs_final_weights.npz"
+
+# The model adopted for the full-sample fit. This is NOT the grid's raw KL
+# argmin -- see fig_full_rvs_cv and the paper text: the KL score alone is
+# minimised by a rank-2 model whose reduced chi-squared is 12.7.
+FULL_RVS_ADOPTED = (16, 7.5)
+
+# HR diagram framing, matching plot_bins.py and plot_final_full_rvs.py.
+HR_XLIM = (-0.5, 3.5)
+HR_YLIM = (15, -5)
+
+
+def _heatmap_axes(ax, q_vals, ranks, show_y=True):
+    """Shared (Q, K) heatmap framing, as in the toy example's fig_cv."""
+    ax.set_xticks(np.arange(len(q_vals)), labels=[f"{q:g}" for q in q_vals])
+    ax.set_yticks(np.arange(len(ranks)), labels=[str(r) for r in ranks])
+    ax.set_xlabel("Robust Scale Q")
+    if show_y:
+        ax.set_ylabel("Rank K")
+    else:
+        ax.set_yticklabels([])
+
+
+def _mark_cell(ax, i, j, colour, label):
+    """Outline one grid cell and label it, for the two selected models."""
+    ax.add_patch(
+        plt.Rectangle(
+            (j - 0.5, i - 0.5), 1, 1, fill=False, edgecolor=colour, lw=2.5, zorder=5, label=label
+        )
+    )
+
+
+def fig_full_rvs_cv():
+    """Figure: full_rvs_cv.pdf
+
+    The cross-validation score over the (Q, K) grid for the full RVS sample,
+    beside the reduced chi-squared of the same models.
+
+    Two panels rather than one because the KL score on its own is misleading
+    here: its global minimum sits at K=2, Q=2, a model whose reduced
+    chi-squared is 12.7. The score only asks whether the standardised
+    residuals look like unit normals, and a rank-deficient model with
+    aggressive downweighting satisfies that by discarding most of the data.
+    The right-hand panel is what breaks the degeneracy.
+    """
+    d = np.load(FULL_RVS_GRID)
+    kl, chi2 = d["kl"], d["chi2_red"]
+    ranks, q_vals = d["ranks"], d["q_vals"]
+
+    i_kl, j_kl = np.unravel_index(np.nanargmin(kl), kl.shape)
+    i_ad = int(np.flatnonzero(ranks == FULL_RVS_ADOPTED[0])[0])
+    j_ad = int(np.flatnonzero(q_vals == FULL_RVS_ADOPTED[1])[0])
+
+    # Generous wspace: each colour bar carries a two-line label, and at the
+    # default spacing the left one is overprinted by the right-hand panel.
+    fig = plt.figure(figsize=(14, 5), dpi=100)
+    gs = fig.add_gridspec(
+        1, 4, width_ratios=[1, 0.045, 1, 0.045], left=0.06, right=0.90, wspace=0.75
+    )
+    ax_kl = fig.add_subplot(gs[0, 0])
+    cax_kl = fig.add_subplot(gs[0, 1])
+    ax_chi = fig.add_subplot(gs[0, 2])
+    cax_chi = fig.add_subplot(gs[0, 3])
+
+    text_bbox = dict(boxstyle="square", facecolor="white", alpha=0.7, edgecolor="none")
+    text_loc = (0.06, 0.88)
+
+    im_kl = ax_kl.imshow(np.log10(kl), origin="lower", cmap="viridis", aspect="auto")
+    _heatmap_axes(ax_kl, q_vals, ranks)
+    ax_kl.text(
+        *text_loc, "Cross-Validation", transform=ax_kl.transAxes,
+        ha="left", va="bottom", bbox=text_bbox,
+    )
+    fig.colorbar(
+        im_kl, cax=cax_kl,
+        label=r"$\log_{10}$ KL$(p_z \| \mathcal{N}(0,1))$" + "\n(Lower is Better)",
+    )
+
+    # log10 as well: chi2_red spans 0.94 to 12.7, and on a linear scale the
+    # rank-2 row flattens everything else to one colour.
+    im_chi = ax_chi.imshow(np.log10(chi2), origin="lower", cmap="magma_r", aspect="auto")
+    _heatmap_axes(ax_chi, q_vals, ranks, show_y=False)
+    ax_chi.text(
+        *text_loc, "Goodness of Fit", transform=ax_chi.transAxes,
+        ha="left", va="bottom", bbox=text_bbox,
+    )
+    fig.colorbar(
+        im_chi, cax=cax_chi, label=r"$\log_{10} \chi^2_{\rm red}$" + "\n(Zero is Ideal)"
+    )
+
+    for ax in (ax_kl, ax_chi):
+        _mark_cell(ax, i_kl, j_kl, "tab:red", "KL minimum")
+        # Cyan, not white: the adopted cell is dark in the left panel and pale
+        # in the right one, and a white outline vanishes in the legend too.
+        _mark_cell(ax, i_ad, j_ad, "tab:cyan", "Adopted")
+    # Below the axes rather than inside them: both marked cells sit at corners,
+    # so any in-axes legend lands on one of the two models it is labelling.
+    handles, labels = ax_kl.get_legend_handles_labels()
+    fig.legend(
+        handles, labels, loc="lower center", ncol=2, fontsize=11,
+        frameon=False, bbox_to_anchor=(0.5, -0.06),
+    )
+
+    fig.suptitle(
+        r"$\textsf{\textbf{Gaia RVS: Hyperparameters (Full Sample)}}$",
+        fontsize="24", c="dimgrey", y=1.02,
+    )
+    PAPER_FIGS.mkdir(parents=True, exist_ok=True)
+    out = PAPER_FIGS / "full_rvs_cv.pdf"
+    plt.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+
+
+def _load_full_rvs_weights():
+    """Per-spectrum scores and HR positions, dropping sources with no astrometry."""
+    d = np.load(FULL_RVS_WEIGHTS)
+    score, bp_rp, abs_mag_G = d["score"], d["bp_rp"], d["abs_mag_G"]
+    finite = np.isfinite(bp_rp) & np.isfinite(abs_mag_G)
+    return (
+        score[finite], bp_rp[finite], abs_mag_G[finite],
+        int(d["best_K"]), float(d["best_Q"]), float(d["threshold"]), len(score),
+    )
+
+
+def fig_full_rvs_outliers():
+    """Figure: full_rvs_outliers.pdf
+
+    The outlier population of the full sample: the distribution of the
+    object-level weight, and where the flagged spectra sit on the HR diagram.
+    """
+    score, bp_rp, abs_mag_G, K, Q, threshold, n_total = _load_full_rvs_weights()
+    mask = score < threshold
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5.5), dpi=100)
+
+    axes[0].hist(score, bins=100, color="C0", alpha=0.85)
+    axes[0].axvline(threshold, color="grey", ls="--", label=f"Threshold ({threshold:g})")
+    axes[0].set_yscale("log")
+    axes[0].set_xlabel(r"Object-Level Weight $w_i^{\rm object}$")
+    axes[0].set_ylabel("Number of Spectra")
+    axes[0].legend(loc="upper left")
+    axes[0].text(
+        0.04, 0.72, f"{int(mask.sum())} outliers\nof {n_total}",
+        transform=axes[0].transAxes, ha="left", va="top",
+        bbox=dict(boxstyle="square", facecolor="white", alpha=0.7, edgecolor="none"),
+    )
+
+    axes[1].scatter(
+        bp_rp, abs_mag_G, s=0.5, alpha=0.1, c="grey", zorder=0, marker=".", rasterized=True
+    )
+    sc = axes[1].scatter(
+        bp_rp[mask], abs_mag_G[mask], c=score[mask], cmap="viridis_r",
+        s=7, alpha=0.85, marker="o", linewidths=0, zorder=5, rasterized=True,
+    )
+    fig.colorbar(sc, ax=axes[1], label=r"$w_i^{\rm object}$ (Lower is More Anomalous)")
+    axes[1].set_xlim(*HR_XLIM)
+    axes[1].set_ylim(*HR_YLIM)
+    axes[1].set_xlabel("Color (BP $-$ RP)")
+    axes[1].set_ylabel("G-Band Absolute Magnitude")
+
+    fig.suptitle(
+        r"$\textsf{\textbf{Gaia RVS: Outliers in the Full Sample}}$",
+        fontsize="24", c="dimgrey", y=1.02,
+    )
+    plt.tight_layout()
+    PAPER_FIGS.mkdir(parents=True, exist_ok=True)
+    out = PAPER_FIGS / "full_rvs_outliers.pdf"
+    plt.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+
+
+def fig_full_rvs_hr_weights():
+    """Figure: full_rvs_hr_weights.pdf
+
+    Where on the HR diagram the model fits badly, binned rather than scattered.
+    The per-cell median says how well the bulk of a region is reconstructed;
+    the per-cell outlier fraction says how much of it gets flagged. At ~1e6
+    spectra a scatter plot answers neither question, since it shows only
+    whichever points happen to be drawn last.
+    """
+    score, bp_rp, abs_mag_G, K, Q, threshold, _ = _load_full_rvs_weights()
+    extent = (HR_XLIM[0], HR_XLIM[1], min(HR_YLIM), max(HR_YLIM))
+    common = dict(gridsize=200, mincnt=5, extent=extent)
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5.5), dpi=100)
+
+    hb = axes[0].hexbin(
+        bp_rp, abs_mag_G, C=score, reduce_C_function=np.median, cmap="viridis", **common
+    )
+    # The cell medians occupy a band a few hundredths wide near 0.89; on the
+    # nominal [0, 1] range of a weight this panel is one flat colour.
+    cells = hb.get_array()
+    cells = cells.compressed() if np.ma.isMaskedArray(cells) else np.asarray(cells)
+    cells = cells[np.isfinite(cells)]
+    if cells.size:
+        hb.set_clim(np.percentile(cells, 1), np.percentile(cells, 99))
+    fig.colorbar(hb, ax=axes[0], extend="both", label=r"Median $w_i^{\rm object}$ per Cell")
+
+    hb2 = axes[1].hexbin(
+        bp_rp, abs_mag_G, C=(score < threshold).astype(float),
+        reduce_C_function=np.mean, cmap="inferno", **common,
+    )
+    cells2 = hb2.get_array()
+    cells2 = cells2.compressed() if np.ma.isMaskedArray(cells2) else np.asarray(cells2)
+    cells2 = cells2[np.isfinite(cells2)]
+    if cells2.size:
+        hb2.set_clim(0, np.percentile(cells2, 99.5))
+    fig.colorbar(
+        hb2, ax=axes[1], extend="max",
+        label=rf"Fraction with $w_i^{{\rm object}} < {threshold:g}$",
+    )
+
+    for ax in axes:
+        ax.set_xlim(*HR_XLIM)
+        ax.set_ylim(*HR_YLIM)
+        ax.set_xlabel("Color (BP $-$ RP)")
+    axes[0].set_ylabel("G-Band Absolute Magnitude")
+    axes[1].set_yticklabels([])
+
+    fig.suptitle(
+        r"$\textsf{\textbf{Gaia RVS: Fit Quality Across the HR Diagram}}$",
+        fontsize="24", c="dimgrey", y=1.02,
+    )
+    plt.tight_layout()
+    PAPER_FIGS.mkdir(parents=True, exist_ok=True)
+    out = PAPER_FIGS / "full_rvs_hr_weights.pdf"
+    plt.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+
+
 FIGURES = {
     "hr_bins": fig_hr_bins,
     "stacked_hist": fig_stacked_hist,
@@ -319,6 +559,9 @@ FIGURES = {
     "gaia_spec_2a": fig_gaia_spec_2a,
     "gaia_spec_2b": fig_gaia_spec_2b,
     "gaia_spec_2": fig_gaia_spec_2,
+    "full_rvs_cv": fig_full_rvs_cv,
+    "full_rvs_outliers": fig_full_rvs_outliers,
+    "full_rvs_hr_weights": fig_full_rvs_hr_weights,
 }
 
 
