@@ -62,7 +62,7 @@ TRAIN_FRAC = cfg.TRAIN_FRAC
 RESULTS_DIR = Path("./gaia_rvs_results")
 
 # Bin tag used in state filenames: converged_state_R{K}_Q{Q}_bin_{tag}.npz
-SAMPLE_TAGS = {"ms": "full_ms", "all": "full_rvs"}
+SAMPLE_TAGS = {"ms": "full_ms", "all": "full_rvs", "all_filtered": "full_rvs"}
 
 # Numeric precision. The per-bin analysis in the paper ran on CPU, where float32
 # matmuls are exact; on Ampere and later GPUs jax defaults to TF32, which keeps
@@ -96,7 +96,16 @@ def build_sample(sample="ms"):
     "ms":  union of all main-sequence bins, deduplicated (bins overlap since
            widths exceed spacing), idx/ids kept aligned.
     "all": every spectrum in the RVS file, with the HR-diagram metadata
-           filters off (see the module docstring).
+           filters off (see the module docstring). 999,645 spectra.
+
+    "all_filtered": the same, with the two metadata filters left on, which is
+           993,910 spectra. This is what "all" meant before the filters were
+           turned off, and it is the sample the saved full-RVS fit
+           (``full_rvs_final_weights.npz`` and its converged state, both 993,910
+           rows) was actually made on. Anything reading those files back has to
+           rebuild the sample this way or the rows do not line up; the assertion
+           in ``plot_final_outlier_spectra.load_outlier_inputs`` catches it.
+           Retire this once the final fit is redone on the full 999,645.
     """
     if sample == "ms":
         data, bins, _, _ = build_bins_from_config()
@@ -104,13 +113,14 @@ def build_sample(sample="ms"):
         all_ids = np.concatenate([b.ids for b in bins])
         _, first = np.unique(all_idx, return_index=True)
         return data, all_idx[first], all_ids[first], SAMPLE_TAGS["ms"]
-    elif sample == "all":
+    elif sample in ("all", "all_filtered"):
         from collect import MatchedData
 
-        data = MatchedData(filter_nans=False, filter_neg_parallax=False)
+        on = sample == "all_filtered"
+        data = MatchedData(filter_nans=on, filter_neg_parallax=on)
         idx = np.arange(len(data.spectra_indices))
-        return data, idx, data["source_id"], SAMPLE_TAGS["all"]
-    raise ValueError(f"Unknown sample: {sample!r} (use 'ms' or 'all')")
+        return data, idx, data["source_id"], SAMPLE_TAGS[sample]
+    raise ValueError(f"Unknown sample: {sample!r} (use 'ms', 'all' or 'all_filtered')")
 
 
 def load_full_ms_training_data(data, idx, train_frac=TRAIN_FRAC, dtype=np.float32):
