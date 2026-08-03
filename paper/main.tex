@@ -627,7 +627,7 @@ Convergence was reached after 70 iterations, which took nine minutes on an NVIDI
 
 Using the same median object-level statistic and threshold as before ($w_i^{\rm object} < 0.5$, with $w_i^{\rm object}$ the 1\% quantile over pixels), the model flags $1{,}559$ spectra, or $0.16\%$ of the sample. Their distribution is shown in Figure~\ref{fig:full_rvs_outliers}. The bulk of the population sits near $w_i^{\rm object} \approx 0.9$ with a long tail toward zero, and the flagged spectra are concentrated toward the hot, luminous end of the color-magnitude diagram: of the 77 spectra scoring below $0.05$, 69 lie blueward of BP$-$RP $=1.5$ and 72 are brighter than $M_G = 0$. 
 
-We visually inspected all $1{,}559$ spectra flagged as outliers and grouped them by similarity in their spectrum residuals. While we avoid interpreting every flagged outlier (or groups of outliers), it is worth commenting on the most frequent outlier types identified. The most anomalous group (lowest object score) are blue supergiants, and the largest group includes hot-stars with broad line profiles, where line asymmetry or emission in the Ca II triplet is the dominant residual feature. Other dominate groups include: cool stars with chomospheric activity; stars with significant interstellar absorption; Mira variables; Long Period Variables; or stars rich in neutron-capture abundances. A gallery of these examples are shown in the Appendix (Figures~\ref{fig:X} to \ref{fig:Y}), and in the supplementary materials we provide a catalog of all $999{,}645$ Gaia DR3 spectra, their associated metadata, best-fitting model spectra, and robust weights. This catalog can be used to readily identify outliers in the Gaia RVS sample, and to construct matched-filter searches for specific classes of outliers.}
+We visually inspected all $1{,}559$ spectra flagged as outliers and grouped them by similarity in their spectrum residuals. While we avoid interpreting every flagged outlier (or groups of outliers), it is worth commenting on the most frequent outlier types identified. The most anomalous group (lowest object score) are blue supergiants, and the largest group includes hot-stars with broad line profiles, where line asymmetry or emission in the Ca II triplet is the dominant residual feature. Other dominate groups include: cool stars with chomospheric activity; stars with significant interstellar absorption; Mira variables; Long Period Variables; or stars rich in neutron-capture abundances. A gallery of these examples are shown in the Appendix (Figures~\ref{fig:tax_bsg} to \ref{fig:tax_ncap}), and in the supplementary materials we provide a catalog of all $999{,}645$ Gaia DR3 spectra, their associated metadata, best-fitting model spectra, and robust weights. This catalog can be used to readily identify outliers in the Gaia RVS sample, and to construct matched-filter searches for specific classes of outliers.}
 
 
 \section{Discussion} \label{sec:discussion}
@@ -987,6 +987,73 @@ Missing values were set to \texttt{NaN}, and the corresponding data weights were
     \includegraphics[width=0.9\textwidth]{figs/toy_eigenspectra_vs_k.pdf}
     \caption{RHMF eigenspectra as a function of the rank $K$ at the CV-optimal robust scale $Q=5$. Greyed panels indicate components that do not exist for that model. Components enter in order of their data-power contribution as $K$ increases; for $K$ above the true rank the leading components are unchanged and the extra components absorb noise.}
     \label{fig:eigenspectra_vs_k}
+    }
+\end{figure}
+
+\added{\section{Gallery of outlier classes in the full Gaia RVS sample} \label{sec:tax_gallery}
+
+Figures~\ref{fig:tax_bsg} to \ref{fig:tax_ncap} show representative examples of the most frequent outlier classes identified by visual inspection of the $1{,}559$ spectra flagged in Section~\ref{sec:gaia_full}. Each figure shows the observed spectrum and the RHMF reconstruction (top), the residual flux (middle), and the per-pixel robust weights (bottom).}
+
+\begin{figure}
+    \added{
+    \centering
+    \includegraphics[width=0.9\textwidth]{figs/full_rvs_tax_bsg.pdf}
+    \caption{A blue supergiant (Gaia DR3 457487413730043904). The narrow absorption lines are much deeper than the model prediction, and are downweighted throughout.}
+    \label{fig:tax_bsg}
+    }
+\end{figure}
+
+\begin{figure}
+    \added{
+    \centering
+    \includegraphics[width=0.9\textwidth]{figs/full_rvs_tax_hot_asymmetric.pdf}
+    \caption{A hot star with asymmetric line profiles (Gaia DR3 5362116933618759424). The data show a coherent blueward shift relative to the model in each Ca II triplet line.}
+    \label{fig:tax_hot_asymmetric}
+    }
+\end{figure}
+
+\begin{figure}
+    \added{
+    \centering
+    \includegraphics[width=0.9\textwidth]{figs/full_rvs_tax_chromospheric.pdf}
+    \caption{A cool star with chromospheric activity (Gaia DR3 3136952686035250688). Emission fills in the cores of the Ca II triplet lines, producing sharp positive residuals.}
+    \label{fig:tax_chromospheric}
+    }
+\end{figure}
+
+\begin{figure}
+    \added{
+    \centering
+    \includegraphics[width=0.9\textwidth]{figs/full_rvs_tax_dib.pdf}
+    \caption{A star with strong diffuse interstellar band absorption (Gaia DR3 4515754694061904000). The residual is dominated by the 862~nm DIB, which is cleanly downweighted while the rest of the spectrum is well fit.}
+    \label{fig:tax_dib}
+    }
+\end{figure}
+
+\begin{figure}
+    \added{
+    \centering
+    \includegraphics[width=0.9\textwidth]{figs/full_rvs_tax_mira.pdf}
+    \caption{A Mira variable (Gaia DR3 4538902922817861504). The molecular-band-dominated spectrum is broadly reproduced, with localised residuals near the strongest features.}
+    \label{fig:tax_mira}
+    }
+\end{figure}
+
+\begin{figure}
+    \added{
+    \centering
+    \includegraphics[width=0.9\textwidth]{figs/full_rvs_tax_lpv.pdf}
+    \caption{A long period variable (Gaia DR3 2925631842579225472). The dense forest of molecular features is poorly captured by the basis, leading to widespread downweighting.}
+    \label{fig:tax_lpv}
+    }
+\end{figure}
+
+\begin{figure}
+    \added{
+    \centering
+    \includegraphics[width=0.9\textwidth]{figs/full_rvs_tax_ncap.pdf}
+    \caption{A neutron-capture-rich star (Gaia DR3 5053856547979769728). Negative residuals coincide with Zr I, Ce II, and Nd II transitions (vertical bands); the inset zooms on the Ce II 853.276~nm line.}
+    \label{fig:tax_ncap}
     }
 \end{figure}
 
