@@ -133,7 +133,12 @@ def build_sample(sample="all"):
 
     "ms":  union of all main-sequence bins, deduplicated (bins overlap since
            widths exceed spacing), idx/ids kept aligned.
-    "all": every spectrum in the matched RVS catalogue.
+    "all": every spectrum in the RVS file -- all 999645 of them. The metadata
+           filters (finite BP-RP/G, positive parallax) are off here: they are
+           there so a star can be placed on the HR diagram for the binning,
+           which this sample does not do, and they would drop 5735 spectra
+           that the fit is perfectly able to model. bp_rp and abs_mag_G are
+           NaN for those rows, and the HR plots mask them out.
     """
     from analysis_funcs import build_bins_from_config
 
@@ -146,7 +151,7 @@ def build_sample(sample="all"):
     elif sample == "all":
         from collect import MatchedData
 
-        data = MatchedData()
+        data = MatchedData(filter_nans=False, filter_neg_parallax=False)
         idx = np.arange(len(data.spectra_indices))
         return data, idx, data["source_id"], SAMPLE_TAGS["all"]
     raise ValueError(f"Unknown sample: {sample!r} (use 'ms' or 'all')")
@@ -279,7 +284,7 @@ def fit_one(rank, q, train, args, dtype, devices):
     return state
 
 
-def run_grid(ranks, q_vals, train, test, args, dtype, devices, tag):
+def run_grid(ranks, q_vals, train, test, args, dtype, devices, tag, n_train=None):
     """Fit and score every (K, Q) in turn. Returns a dict of (n_K, n_Q) arrays."""
     from robusta_hmf.state import load_state_from_npz
 
@@ -297,8 +302,21 @@ def run_grid(ranks, q_vals, train, test, args, dtype, devices, tag):
         for j, q in enumerate(q_vals):
             t0 = time.time()
             path = state_path(args.out, rank, q, tag, args.subsample)
+            # A cached state is only the same model if it was fit on the same
+            # rows: the "all" sample changed size when the HR-diagram metadata
+            # filters came off, and scoring only touches G, so a stale state
+            # would otherwise be reused in silence.
+            stale = False
             if path.exists() and not args.overwrite:
                 state = load_state_from_npz(path)
+                stale = n_train is not None and state.A.shape[0] != n_train
+                if stale:
+                    print(
+                        f"  {path.name}: {state.A.shape[0]} rows, but the training set has "
+                        f"{n_train} -- refitting.",
+                        flush=True,
+                    )
+            if path.exists() and not args.overwrite and not stale:
                 cached = "  (cached)"
             else:
                 state = fit_one(rank, q, train, args, dtype, devices)
@@ -473,7 +491,9 @@ def main():
     )
 
     args.out.mkdir(parents=True, exist_ok=True)
-    grid = run_grid(args.ranks, args.q_vals, train, test, args, dtype, devices, tag)
+    grid = run_grid(
+        args.ranks, args.q_vals, train, test, args, dtype, devices, tag, n_train=len(Y_tr)
+    )
     best_K, best_Q = report_best(grid, args.ranks, args.q_vals)
 
     suffix = f"_sub{args.subsample}" if args.subsample > 1 else ""

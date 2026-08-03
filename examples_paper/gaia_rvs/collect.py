@@ -45,9 +45,18 @@ def read_spectra_ids():
         ).with_row_index("spectra_idx")
 
 
-def load_matched_metadata():
-    """Join to get matched metadata + HDF5 indices, without loading flux."""
-    df_meta = read_meta()
+def load_matched_metadata(filter_nans=True, filter_neg_parallax=True):
+    """Join to get matched metadata + HDF5 indices, without loading flux.
+
+    The two filters exist for the colour-magnitude binning, which needs a
+    finite BP-RP and a positive parallax to place a star on the HR diagram;
+    they drop 5735 of the 999645 spectra. Anything fitting spectra directly
+    should pass ``filter_nans=False, filter_neg_parallax=False`` and keep the
+    whole catalogue: source_id is 1:1 between the CSV and the HDF5, so with
+    both filters off the join returns every spectrum, with null metadata where
+    the CSV has none.
+    """
+    df_meta = read_meta(filter_nans=filter_nans, filter_neg_parallax=filter_neg_parallax)
     df_spectra = read_spectra_ids()
 
     df_matched = df_spectra.join(df_meta, on="source_id", how="inner")
@@ -57,8 +66,10 @@ def load_matched_metadata():
 class MatchedData:
     """Lazy access to matched spectra + metadata."""
 
-    def __init__(self):
-        self.df = load_matched_metadata()
+    def __init__(self, filter_nans=True, filter_neg_parallax=True):
+        self.df = load_matched_metadata(
+            filter_nans=filter_nans, filter_neg_parallax=filter_neg_parallax
+        )
         self.spectra_indices = self.df["spectra_idx"].to_numpy()
         self.λ_grid = np.linspace(846, 870, 2401)
         self._f_spec = None
@@ -119,4 +130,7 @@ class MatchedData:
 
 
 def compute_abs_mag(phot_g_mean_mag, parallax):
-    return phot_g_mean_mag + 5 * np.log10(parallax / 1000) + 5
+    # Unfiltered samples carry null/non-positive parallaxes, which are NaN here
+    # rather than an error: the HR plots mask on isfinite.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return phot_g_mean_mag + 5 * np.log10(parallax / 1000) + 5

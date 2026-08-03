@@ -5,8 +5,10 @@ referee-requested full-dataset + CV analysis.
 Two sample choices (--sample):
     ms   (default) union of all 14 main-sequence bins from gaia_config.py,
          deduplicated -- the paper's main-sequence selection, unbinned.
-    all  every spectrum in the matched RVS catalogue (MatchedData), i.e. the
-         whole sample with no colour-magnitude selection at all.
+    all  every spectrum in the RVS file (999645), i.e. the whole sample with
+         no colour-magnitude selection at all -- not even the finite-photometry
+         and positive-parallax cuts MatchedData applies by default, which only
+         exist so a star can be placed on the HR diagram for the binning.
 
 Everything else (edge clipping, train/test split seed, NaN handling, model
 settings) mirrors train_bins.py exactly. State files use the per-bin naming
@@ -93,7 +95,8 @@ def build_sample(sample="ms"):
 
     "ms":  union of all main-sequence bins, deduplicated (bins overlap since
            widths exceed spacing), idx/ids kept aligned.
-    "all": every spectrum in the matched RVS catalogue.
+    "all": every spectrum in the RVS file, with the HR-diagram metadata
+           filters off (see the module docstring).
     """
     if sample == "ms":
         data, bins, _, _ = build_bins_from_config()
@@ -104,7 +107,7 @@ def build_sample(sample="ms"):
     elif sample == "all":
         from collect import MatchedData
 
-        data = MatchedData()
+        data = MatchedData(filter_nans=False, filter_neg_parallax=False)
         idx = np.arange(len(data.spectra_indices))
         return data, idx, data["source_id"], SAMPLE_TAGS["all"]
     raise ValueError(f"Unknown sample: {sample!r} (use 'ms' or 'all')")
