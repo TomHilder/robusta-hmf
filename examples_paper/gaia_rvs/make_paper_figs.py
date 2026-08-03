@@ -331,52 +331,48 @@ HR_XLIM = (-0.5, 3.5)
 HR_YLIM = (15, -5)
 
 
-def _heatmap_axes(ax, q_vals, ranks, show_y=True):
+def _heatmap_axes(ax, q_vals, ranks, show_x=True):
     """Shared (Q, K) heatmap framing, as in the toy example's fig_cv."""
     ax.set_xticks(np.arange(len(q_vals)), labels=[f"{q:g}" for q in q_vals])
     ax.set_yticks(np.arange(len(ranks)), labels=[str(r) for r in ranks])
-    ax.set_xlabel("Robust Scale Q")
-    if show_y:
-        ax.set_ylabel("Rank K")
+    ax.set_ylabel("Rank K")
+    if show_x:
+        ax.set_xlabel("Robust Scale Q")
     else:
-        ax.set_yticklabels([])
+        ax.set_xticklabels([])
 
 
 def fig_full_rvs_cv():
     """Figure: full_rvs_cv.pdf
 
     The cross-validation score over the (Q, K) grid for the full RVS sample,
-    beside the reduced chi-squared of the same models.
+    above the reduced chi-squared of the same models.
 
     Two panels rather than one because the KL score on its own is misleading
     here: its global minimum sits at K=2, Q=2, a model whose reduced
     chi-squared is 12.7. The score only asks whether the standardised
     residuals look like unit normals, and a rank-deficient model with
     aggressive downweighting satisfies that by discarding most of the data.
-    The right-hand panel is what breaks the degeneracy.
+    The lower panel is what breaks the degeneracy.
     """
     d = np.load(FULL_RVS_GRID)
     kl, chi2 = d["kl"], d["chi2_red"]
     ranks, q_vals = d["ranks"], d["q_vals"]
 
-    # Nested gridspecs so each colour bar hugs its own panel (tight inner
-    # wspace) while the two panel+bar pairs stay clear of each other: the
-    # left-hand bar carries a two-line label that would otherwise be
-    # overprinted by the right-hand panel.
-    fig = plt.figure(figsize=(12, 4.4), dpi=100, layout="constrained")
-    gs = fig.add_gridspec(1, 2, wspace=0.16)
-    gs_kl = gs[0, 0].subgridspec(1, 2, width_ratios=[1, 0.05], wspace=0.04)
-    gs_chi = gs[0, 1].subgridspec(1, 2, width_ratios=[1, 0.05], wspace=0.04)
-    ax_kl = fig.add_subplot(gs_kl[0, 0])
-    cax_kl = fig.add_subplot(gs_kl[0, 1])
-    ax_chi = fig.add_subplot(gs_chi[0, 0])
-    cax_chi = fig.add_subplot(gs_chi[0, 1])
+    # Stacked panels sharing one Q axis, each with its own colour bar tight
+    # against its right-hand edge.
+    fig = plt.figure(figsize=(6.5, 7.5), dpi=100, layout="constrained")
+    gs = fig.add_gridspec(2, 2, width_ratios=[1, 0.04], hspace=0.06, wspace=0.03)
+    ax_kl = fig.add_subplot(gs[0, 0])
+    cax_kl = fig.add_subplot(gs[0, 1])
+    ax_chi = fig.add_subplot(gs[1, 0])
+    cax_chi = fig.add_subplot(gs[1, 1])
 
     text_bbox = dict(boxstyle="square", facecolor="white", alpha=0.7, edgecolor="none")
     text_loc = (0.06, 0.88)
 
     im_kl = ax_kl.imshow(np.log10(kl), origin="lower", cmap="viridis", aspect="auto")
-    _heatmap_axes(ax_kl, q_vals, ranks)
+    _heatmap_axes(ax_kl, q_vals, ranks, show_x=False)
     ax_kl.text(
         *text_loc, "Cross-Validation", transform=ax_kl.transAxes,
         ha="left", va="bottom", bbox=text_bbox,
@@ -392,7 +388,7 @@ def fig_full_rvs_cv():
     im_chi = ax_chi.imshow(
         chi2, origin="lower", cmap="magma_r", aspect="auto", norm=LogNorm()
     )
-    _heatmap_axes(ax_chi, q_vals, ranks, show_y=False)
+    _heatmap_axes(ax_chi, q_vals, ranks)
     ax_chi.text(
         *text_loc, "Goodness of Fit", transform=ax_chi.transAxes,
         ha="left", va="bottom", bbox=text_bbox,
