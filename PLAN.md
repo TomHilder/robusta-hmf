@@ -43,4 +43,5 @@ Append-only. Add an entry when you do something notable.
 
 | Date | Event |
 |------|-------|
+| 2026-08-02 | Packed the final full-RVS fit (K=16, Q=7.5) into a single HDF5 file — flux, ivar, model flux, per-pixel robust weights and the whole metadata CSV, in catalogue row order (`export_model_hdf5.py`, `gaia_rvs_results/full_rvs_K16_Q7.50_model.hdf5`, 36 GiB). Added `make_paper_figs.py outlier_taxonomy`: one paper-style exemplar per outlier group named in Section 5, titled "Gaia DR3 <id>: <group>", with Ce/Nd/Zr abundance windows on the neutron-capture example. |
 | 2026-06-27 | Slimmed the project-management scaffolding. The previous PLAN.md (full task/decision/log history through Task 17) is preserved in git history. Reduced PLAN.md to status + outstanding-work; trimmed CLAUDE.md project-management ceremony; removed equinox-report.md (also in history). |

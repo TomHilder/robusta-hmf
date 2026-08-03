@@ -22,7 +22,8 @@ from pathlib import Path
 import gaia_config as cfg
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.colors import LogNorm
+from matplotlib.colors import LogNorm, to_rgba
+from matplotlib.patches import Patch
 from analysis_funcs import (
     LINE_SET_VARIANTS,
     _make_residual_figure,
@@ -107,8 +108,14 @@ def _save_spectrum_fig(
     best_Q,
     filename,
     suptitle_kwargs=None,
+    decorate=None,
 ):
-    """Build the 3-panel residual figure (strong-lines variant) and save to paper/figs."""
+    """Build the 3-panel residual figure (strong-lines variant) and save to paper/figs.
+
+    *decorate* is an optional ``callable(fig)`` run on the finished figure just
+    before it is written -- the hook the neutron-capture example uses to add its
+    element windows without every other figure growing an option for them.
+    """
     residual = flux - reconstruction
     try:
         lines = load_linelists()
@@ -134,6 +141,8 @@ def _save_spectrum_fig(
         dict(strong_kwargs),
         suptitle_kwargs=suptitle_kwargs,
     )
+    if decorate is not None:
+        decorate(fig)
     PAPER_FIGS.mkdir(parents=True, exist_ok=True)
     out_path = PAPER_FIGS / filename
     fig.savefig(out_path, bbox_inches="tight")
@@ -613,7 +622,8 @@ def plot_named_sources(specs):
     object that RHMF does not flag is a result, not an absence of one -- so
     this path reads any row of the full-sample fit.
 
-    *specs* is a list of dicts with ``source_id``, ``filename`` and ``title``.
+    *specs* is a list of dicts with ``source_id``, ``filename`` and ``title``,
+    and optionally ``decorate`` (see ``_save_spectrum_fig``).
     """
     from analysis_funcs import clip_edge_pix
     from train_full_ms import DEFAULT_PRECISION, build_sample, configure_precision
@@ -673,6 +683,7 @@ def plot_named_sources(specs):
             best_Q=Q,
             filename=spec["filename"],
             suptitle_kwargs=dict(t=spec["title"], fontsize="24", c="dimgrey", y=0.955),
+            decorate=spec.get("decorate"),
         )
 
 
@@ -697,6 +708,128 @@ def fig_named_stars():
     plot_named_sources(NAMED_STARS)
 
 
+# ---------------------------------------------------------------------------- #
+# Outlier taxonomy: one exemplar per group named in the text
+# ---------------------------------------------------------------------------- #
+
+# Element windows drawn on the neutron-capture example. The half-width is
+# HALF_CORE from sprocess_line_residuals -- the same window the Ce II index in
+# that analysis integrates over -- so the shading in the figure is literally
+# what was measured, not a decorative approximation of it.
+NCAP_SPECIES = ("Ce II", "Nd II", "Zr I")
+
+
+def _shade_element_windows(fig, species=NCAP_SPECIES, alpha=0.30):
+    """Shade the Ce II, Nd II and Zr I abundance windows on all three panels.
+
+    Drawn after the fact rather than through ``add_line_markers``: that helper
+    marks every GSP-Spec abundance line, which is Si, Ca, Ti, Cr, Fe and Ni as
+    well, and the point here is the three neutron-capture species alone.
+    """
+    from plot_sprocess_spectra import SPECIES_COLOUR
+    from rvs_plot_utils import load_linelists
+    from sprocess_line_residuals import HALF_CORE
+
+    lines = load_linelists().abundance
+    axes = fig.axes
+    # The wavelength grid the flux was drawn on, not the axis limits: the panels
+    # are set to a round 846-870 nm, which runs past both ends of the clipped
+    # grid and would let a window be shaded where there is no data.
+    λ_grid = np.asarray(axes[0].lines[0].get_xdata(), float)
+    lo, hi = float(λ_grid.min()), float(λ_grid.max())
+    handles, drawn = [], []
+    for sp in species:
+        λ0s = [
+            float(λ)
+            for λ in lines.loc[lines["species"] == sp, "lambda_vac_nm"]
+            # The RVS grid stops short of Zr I 869.65; a window hanging off the
+            # end would shade the panel edge and claim a measurement that the
+            # data cannot support.
+            if lo + HALF_CORE <= float(λ) <= hi - HALF_CORE
+        ]
+        if not λ0s:
+            continue
+        colour = SPECIES_COLOUR.get(sp, "grey")
+        # Opaque edges on a translucent face: the strong-line markers are
+        # already wide pastel bands, and without an outline a 0.074 nm element
+        # window reads as just another one of them.
+        style = dict(facecolor=to_rgba(colour, alpha), edgecolor=colour, lw=0.7)
+        for ax in axes:
+            for λ0 in λ0s:
+                ax.axvspan(λ0 - HALF_CORE, λ0 + HALF_CORE, zorder=0.5, **style)
+        handles.append(Patch(label=f"{sp} ({len(λ0s)})", **style))
+        drawn.append(f"{sp}: {len(λ0s)}")
+    print("  element windows -- " + ", ".join(drawn))
+
+    # Rebuild the top-panel legend so the windows sit alongside Data and Model
+    # rather than in a second box competing with them.
+    old, labels = axes[0].get_legend_handles_labels()
+    axes[0].legend(handles=old + handles, labels=labels + [h.get_label() for h in handles],
+                   loc="lower right", ncol=2, fontsize=13, framealpha=0.9)
+
+
+# One exemplar per outlier group named in Section 5's taxonomy paragraph, in
+# the order the text names them. The reason after the colon is the group, not a
+# classification of our own: these are illustrations of what the flagged
+# spectra look like, and the classifications come from the literature.
+TAXONOMY_EXAMPLES = [
+    dict(
+        source_id=457487413730043904,  # lowest object score in the sample
+        filename="full_rvs_tax_bsg.pdf",
+        reason="Blue Supergiant",
+    ),
+    dict(
+        source_id=5362116933618759424,  # largest group: hot, broad-lined
+        filename="full_rvs_tax_hot_asymmetric.pdf",
+        reason="Hot Star with Line Asymmetry",
+    ),
+    dict(
+        source_id=3136952686035250688,  # the M dwarf the binned analysis also found
+        filename="full_rvs_tax_chromospheric.pdf",
+        reason="Cool Star with Chromospheric Activity",
+    ),
+    dict(
+        source_id=4515754694061904000,
+        filename="full_rvs_tax_dib.pdf",
+        reason="Diffuse Interstellar Band Absorption",
+    ),
+    dict(
+        source_id=2808855804962475776,
+        filename="full_rvs_tax_mira.pdf",
+        reason="Mira Variable",
+    ),
+    dict(
+        source_id=2925631842579225472,
+        filename="full_rvs_tax_lpv.pdf",
+        reason="Long Period Variable",
+    ),
+    dict(
+        source_id=5053856547979769728,  # the s-process candidate; Ce/Nd/Zr windows
+        filename="full_rvs_tax_ncap.pdf",
+        reason="Neutron-Capture Rich",
+        decorate=_shade_element_windows,
+    ),
+]
+
+
+def fig_outlier_taxonomy():
+    """Figures: full_rvs_tax_*.pdf, one exemplar per outlier group.
+
+    Same three panels and the same styling as every other spectrum figure in
+    the paper; only the title differs, and deliberately so -- these are read
+    against the taxonomy paragraph, where the group is the whole point and the
+    score, colour and magnitude in the working figures are noise.
+    """
+    specs = [
+        dict(
+            spec,
+            title=r"$\textsf{\textbf{Gaia DR3 %d: %s}}$" % (spec["source_id"], spec["reason"]),
+        )
+        for spec in TAXONOMY_EXAMPLES
+    ]
+    plot_named_sources(specs)
+
+
 FIGURES = {
     "hr_bins": fig_hr_bins,
     "stacked_hist": fig_stacked_hist,
@@ -710,6 +843,7 @@ FIGURES = {
     "full_rvs_hr_weights": fig_full_rvs_hr_weights,
     "full_rvs_example": fig_full_rvs_example,
     "named_stars": fig_named_stars,
+    "outlier_taxonomy": fig_outlier_taxonomy,
 }
 
 
