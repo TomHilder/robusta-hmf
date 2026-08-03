@@ -22,6 +22,7 @@ from pathlib import Path
 import gaia_config as cfg
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.colors import LogNorm
 from analysis_funcs import (
     LINE_SET_VARIANTS,
     _make_residual_figure,
@@ -341,15 +342,6 @@ def _heatmap_axes(ax, q_vals, ranks, show_y=True):
         ax.set_yticklabels([])
 
 
-def _mark_cell(ax, i, j, colour, label):
-    """Outline one grid cell and label it, for the two selected models."""
-    ax.add_patch(
-        plt.Rectangle(
-            (j - 0.5, i - 0.5), 1, 1, fill=False, edgecolor=colour, lw=2.5, zorder=5, label=label
-        )
-    )
-
-
 def fig_full_rvs_cv():
     """Figure: full_rvs_cv.pdf
 
@@ -367,20 +359,18 @@ def fig_full_rvs_cv():
     kl, chi2 = d["kl"], d["chi2_red"]
     ranks, q_vals = d["ranks"], d["q_vals"]
 
-    i_kl, j_kl = np.unravel_index(np.nanargmin(kl), kl.shape)
-    i_ad = int(np.flatnonzero(ranks == FULL_RVS_ADOPTED[0])[0])
-    j_ad = int(np.flatnonzero(q_vals == FULL_RVS_ADOPTED[1])[0])
-
-    # Generous wspace: each colour bar carries a two-line label, and at the
-    # default spacing the left one is overprinted by the right-hand panel.
-    fig = plt.figure(figsize=(14, 5), dpi=100)
-    gs = fig.add_gridspec(
-        1, 4, width_ratios=[1, 0.045, 1, 0.045], left=0.06, right=0.90, wspace=0.75
-    )
-    ax_kl = fig.add_subplot(gs[0, 0])
-    cax_kl = fig.add_subplot(gs[0, 1])
-    ax_chi = fig.add_subplot(gs[0, 2])
-    cax_chi = fig.add_subplot(gs[0, 3])
+    # Nested gridspecs so each colour bar hugs its own panel (tight inner
+    # wspace) while the two panel+bar pairs stay clear of each other: the
+    # left-hand bar carries a two-line label that would otherwise be
+    # overprinted by the right-hand panel.
+    fig = plt.figure(figsize=(12, 4.4), dpi=100, layout="constrained")
+    gs = fig.add_gridspec(1, 2, wspace=0.16)
+    gs_kl = gs[0, 0].subgridspec(1, 2, width_ratios=[1, 0.05], wspace=0.04)
+    gs_chi = gs[0, 1].subgridspec(1, 2, width_ratios=[1, 0.05], wspace=0.04)
+    ax_kl = fig.add_subplot(gs_kl[0, 0])
+    cax_kl = fig.add_subplot(gs_kl[0, 1])
+    ax_chi = fig.add_subplot(gs_chi[0, 0])
+    cax_chi = fig.add_subplot(gs_chi[0, 1])
 
     text_bbox = dict(boxstyle="square", facecolor="white", alpha=0.7, edgecolor="none")
     text_loc = (0.06, 0.88)
@@ -396,38 +386,31 @@ def fig_full_rvs_cv():
         label=r"$\log_{10}$ KL$(p_z \| \mathcal{N}(0,1))$" + "\n(Lower is Better)",
     )
 
-    # log10 as well: chi2_red spans 0.94 to 12.7, and on a linear scale the
-    # rank-2 row flattens everything else to one colour.
-    im_chi = ax_chi.imshow(np.log10(chi2), origin="lower", cmap="magma_r", aspect="auto")
+    # Logarithmic colour *scale*, but the colour bar is ticked in chi2_red
+    # itself: the values span 0.94 to 12.7, and on a linear scale the rank-2
+    # row flattens everything else to one colour.
+    im_chi = ax_chi.imshow(
+        chi2, origin="lower", cmap="magma_r", aspect="auto", norm=LogNorm()
+    )
     _heatmap_axes(ax_chi, q_vals, ranks, show_y=False)
     ax_chi.text(
         *text_loc, "Goodness of Fit", transform=ax_chi.transAxes,
         ha="left", va="bottom", bbox=text_bbox,
     )
-    fig.colorbar(
-        im_chi, cax=cax_chi, label=r"$\log_{10} \chi^2_{\rm red}$" + "\n(Zero is Ideal)"
-    )
-
-    for ax in (ax_kl, ax_chi):
-        _mark_cell(ax, i_kl, j_kl, "tab:red", "KL minimum")
-        # Cyan, not white: the adopted cell is dark in the left panel and pale
-        # in the right one, and a white outline vanishes in the legend too.
-        _mark_cell(ax, i_ad, j_ad, "tab:cyan", "Adopted")
-    # Below the axes rather than inside them: both marked cells sit at corners,
-    # so any in-axes legend lands on one of the two models it is labelling.
-    handles, labels = ax_kl.get_legend_handles_labels()
-    fig.legend(
-        handles, labels, loc="lower center", ncol=2, fontsize=11,
-        frameon=False, bbox_to_anchor=(0.5, -0.06),
-    )
+    cb_chi = fig.colorbar(im_chi, cax=cax_chi, label=r"$\chi^2_{\rm red}$")
+    # Hand-picked ticks: the decade's worth of automatic minor labels (2..9)
+    # crowds a colour bar this narrow.
+    ticks = [1, 2, 3, 5, 10]
+    cb_chi.set_ticks(ticks, labels=[f"{t:g}" for t in ticks])
+    cb_chi.minorticks_off()
 
     fig.suptitle(
         r"$\textsf{\textbf{Gaia RVS: Hyperparameters (Full Sample)}}$",
-        fontsize="24", c="dimgrey", y=1.02,
+        fontsize="24", c="dimgrey",
     )
     PAPER_FIGS.mkdir(parents=True, exist_ok=True)
     out = PAPER_FIGS / "full_rvs_cv.pdf"
-    plt.savefig(out, bbox_inches="tight")
+    plt.savefig(out, bbox_inches="tight", pad_inches=0.02)
     plt.close(fig)
     print(f"Wrote {out}")
 
