@@ -404,17 +404,18 @@ Indeed, if the missing data segment contained an absorption line (which some of 
 \begin{figure}
     \centering
     \includegraphics[width=0.98\linewidth]{figs/absorption_line_residuals.pdf}
-    \caption{Randomly selected noisy toy spectrum containing outlier absorptions lines, random outlier bad pixels, a pixel bad across many spectra, and a missing data segment. Top panel shows the data compared with the best-fit PCA (red, dashed-dotted), RPCA (blue, dotted) and RHMF (green, dashed) models. Middle panel shows the RHMF model-subtracted residuals, demonstrating that the model has ignored the outlier pixels and lines, making them easy to identify by eye. Bottom panel shows the inferred robust weights, showing that the outlier pixels and lines have been down-weighted by the model, also useful for identification. The PCA, RPCA, and RHMF models are all fit with $K=5$ basis vectors, and the RHMF model is fit with $Q=5$.}
+    \caption{Randomly selected noisy toy spectrum containing outlier absorptions lines, random outlier bad pixels, a pixel bad across many spectra, and a missing data segment. Top panel shows the data compared with the best-fit PCA (red, dashed-dotted), RPCA (blue, dotted)\added{, EMPCA (purple, long-dashed),} and RHMF (green, dashed) models. Middle panel shows the RHMF model-subtracted residuals, demonstrating that the model has ignored the outlier pixels and lines, making them easy to identify by eye. Bottom panel shows the inferred robust weights, showing that the outlier pixels and lines have been down-weighted by the model, also useful for identification. The PCA, RPCA, \added{EMPCA, }and RHMF models are all fit with $K=5$ basis vectors, and the RHMF model is fit with $Q=5$. \added{EMPCA, like RHMF, is given the inverse-variance weights.}}
     \label{fig:toy_residuals}
 \end{figure}
 
 Figure~\ref{fig:toy_residuals} shows a randomly selected spectrum from amongst the 10 normal spectra containing outlier lines.
 It also contains 5 outlier pixels, an outlier column, and a missing data segment that covers a region with an absorption line.
 The true, known locations of the outliers are indicated by the vertical bands in all panels.
-The top panel compares the data, the best-fit RHMF model (with $Q=5$ and $K=5$ as selected by the validation results, see below), the best-fit PCA model, and the best-fit RPCA model.
+The top panel compares the data, the best-fit RHMF model (with $Q=5$ and $K=5$ as selected by the validation results, see below), the best-fit PCA model,\removed{ and} the best-fit RPCA model\added{, and the best-fit EMPCA model}.
 The PCA model (red) is very noisy despite the underlying model being truly linear, low-rank, and simple, because the basis vectors are ``used up'' trying to explain a lot of empirical variance caused by the presence of outliers.
 The PCA model thus fails to capture the underlying structure.
 It is also unable to handle the missing data, causing the model to completely fail to reproduce the data near that region.
+\added{The EMPCA model (purple) is given the same inverse-variance weights RHMF uses, both when fitting its basis and when projecting this spectrum onto it, so it accounts for the heteroskedastic noise and interpolates across the missing. Because EMPCA has no outlier mechanism, it is still pulled toward the outlier pixels and lines, and its fit deviates from the underlying structure at those locations.}
 The RPCA model (blue) fares better at capturing the underlying structure due to the robustness.
 However, it is still negatively impacted by the heteroskedasticity, and it deviates from the data severely in the missing data region and mildly elsewhere.
 The RHMF model (green) captures the underlying structure very well, as it is able to ignore the outliers, handle the heteroskedasticity, and handle the missing data.
@@ -607,7 +608,7 @@ block, and allow for data sharding across multiple GPUs. We use the same stoppin
     }
 \end{figure}
 
-We cross-validated over $K \in \{2,4,8,16,32,64\}$ and $Q \in \{2,3,5,7.5\}$ on 10\% of the data: half of that sample (5\% of the full sample) was used for fitting, and the other half for scoring. The resulting scores are shown in the left panel of Figure~\ref{fig:full_rvs_cv}. The minimum sits in a diagonal valley: as $K$ increases, the $Q$ that minimises the score increases with it, as expected, since a more flexible model leaves smaller residuals and requires less aggressive downweighting to make $z_{ij}$ resemble a unit normal.
+We cross-validated over $K \in \{2,4,8,16,32,64\}$ and $Q \in \{2,3,5,7.5\}$ on 10\% of the data: half of that sample (5\% of the full sample) was used for fitting, and the other half for scoring. The resulting scores are shown in the top panel of Figure~\ref{fig:full_rvs_cv}. The minimum sits in a diagonal valley: as $K$ increases, the $Q$ that minimises the score increases with it, as expected, since a more flexible model leaves smaller residuals and requires less aggressive downweighting to make $z_{ij}$ resemble a unit normal.
 
 The global minimum of the KL-divergence is found at $K=2$ and $Q=2$, but this is not a sensible model for us to adopt. The reduced chi-squared on the held-out data is $12.7$ (right panel of Figure~\ref{fig:full_rvs_cv}): highlighting that a rank-2 basis is far too inflexible to capture the diversity of the full RVS sample. The score is nonetheless near-zero because the two quantities it depends on, $\hat{\mu}_z$ and $\hat{\sigma}_z$, are computed \emph{after} robust downweighting. When the model is badly rank-deficient and $Q$ is small, almost every pixel acquires a small $w^{\rm robust}_{ij}$, the surviving $z_{ij}$ are driven toward zero variance, and $\hat{\sigma}_z$ can be tuned through unity on the way down. The score is then satisfied not because the model explains the data, but because it has declared most of the data to be outlying.
 

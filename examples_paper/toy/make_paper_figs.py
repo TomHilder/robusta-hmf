@@ -317,6 +317,11 @@ def fig_toy_residuals():
     Vh_rpca = _load_or_compute_rpca(all_spectra_for_fit)
     rpca_basis = Vh_rpca.T[:, :PLOT_K]
 
+    # EMPCA basis (weighted PCA; fit with the same inverse-variance weights RHMF
+    # uses) — cached to disk. Handles heteroskedasticity and missing data, but
+    # has no outlier mechanism.
+    empca_basis = _load_or_compute_empca(all_spectra_for_fit, all_ivar).T[:, :PLOT_K]
+
     # Spectra with injected absorption lines
     al_spectra_idx = np.where(np.any(al_mask, axis=1))[0]
     al_mask_al_spectra = al_mask[al_spectra_idx, :]
@@ -336,6 +341,13 @@ def fig_toy_residuals():
     pca_recon = pca_coeffs @ pca_basis.T
     rpca_coeffs = spec_i @ rpca_basis
     rpca_recon = rpca_coeffs @ rpca_basis.T
+    # EMPCA reconstruction uses a weighted (inverse-variance) projection onto its
+    # basis — the data weights are the whole point of EMPCA, and zero-weight
+    # missing pixels are correctly ignored. PCA/RPCA above use plain projections.
+    empca_w = all_ivar[al_spectra_idx, :][i_al_spec]
+    empca_Bw = empca_basis * empca_w[:, None]
+    empca_coeffs = np.linalg.solve(empca_basis.T @ empca_Bw, empca_Bw.T @ spec_i)
+    empca_recon = empca_basis @ empca_coeffs
 
     fig, ax = plt.subplots(
         3, 1, figsize=(12, 8), dpi=100, sharex=True, gridspec_kw={"height_ratios": [3, 1, 1]}
@@ -365,6 +377,15 @@ def fig_toy_residuals():
         zorder=9,
         ls=(0, (1, 1)),
         label="RPCA Fit",
+    )
+    ax[0].plot(
+        grid / 10,
+        empca_recon,
+        c="tab:purple",
+        lw=2.0,
+        zorder=8,
+        ls=(0, (7, 2)),
+        label="EMPCA Fit",
     )
     ax[0].plot(
         grid / 10,
@@ -425,7 +446,7 @@ def fig_toy_residuals():
     ax[-1].set_xlabel("Wavelength [nm]")
     ax[1].set_ylabel("Residual \nFlux")
     ax[2].set_ylabel("Robust \nWeight")
-    ax[0].legend(loc=(0.3, 0.6))
+    ax[0].legend(loc=(0.24, 0.68), ncol=2, fontsize="medium")
     handles, labels = ax[1].get_legend_handles_labels()
     fig.legend(
         handles,
