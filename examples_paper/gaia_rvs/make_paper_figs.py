@@ -799,10 +799,19 @@ NCAP_COLOURS = {"Ce II": "#7b3294", "Nd II": "#e66101", "Zr I": "#0571b0"}
 # the reason this star is in the figure set at all.
 CE_LINE = 853.276
 
-# Half-width of the zoom column, in nm: 0.5 A, a little wider than the 0.037 nm
-# window the Ce II index integrates over, so the core sits inside the panel with
-# a few pixels of continuum either side.
-ZOOM_HALF = 0.05
+# Half-width of the zoom column, in nm: 2 A, several times the 0.037 nm window
+# the Ce II index integrates over, so the core sits in enough surrounding
+# spectrum to be read against it.
+ZOOM_HALF = 0.2
+
+
+def _padded_limits(arrays, pad=0.08):
+    """(lo, hi) spanning *arrays* with a margin, for a panel drawn on its own scale."""
+    values = np.concatenate([np.asarray(a, float).ravel() for a in arrays])
+    values = values[np.isfinite(values)]
+    lo, hi = float(values.min()), float(values.max())
+    margin = pad * (hi - lo) or 0.01
+    return lo - margin, hi + margin
 
 
 def _zoom_column_figure(
@@ -812,10 +821,10 @@ def _zoom_column_figure(
     """The standard three panels, with a narrow zoom column beside them.
 
     The right column is the same three quantities over a 1 A window on
-    *zoom_line*, at one fifth the width. Its y-limits are taken from the panel
-    to its left, so it is a magnification in wavelength only and the two columns
-    can be read against each other; the y tick labels are therefore redundant
-    and are dropped, which is most of what makes a column this narrow legible.
+    *zoom_line*, at one fifth the width. Its y scale is its own: shared with the
+    left column the Ce II core is a 0.02 dip inside a panel drawn for a 0.8-deep
+    Ca II line, which is a zoom that shows nothing. The tick labels move to the
+    right-hand side, where they are the only thing that says so.
     """
     fig, axes = plt.subplots(
         3, 2, figsize=(14, 8), dpi=150, sharex="col",
@@ -839,13 +848,16 @@ def _zoom_column_figure(
         for y, style in row:
             ax.plot(λ_grid, y, **style)
         ax.set_xlim(lo, hi)
-        # After the left column is drawn, so the zoom inherits its scaling.
-        ax.set_ylim(left[i].get_ylim())
-        ax.tick_params(labelleft=False)
+        window = (λ_grid >= lo) & (λ_grid <= hi)
+        ax.set_ylim(*_padded_limits([y[window] for y, _ in row]))
+        ax.tick_params(labelleft=False, labelright=True, labelsize=11)
         # Absolute wavelength underneath, offsets on the labels: the ticks have
-        # to line up with the line list, but 853.23 nm does not fit here.
-        ax.set_xticks([zoom_line - 0.04, zoom_line, zoom_line + 0.04])
-        ax.set_xticklabels(["$-0.4$", "$0$", "$+0.4$"], fontsize=11)
+        # to line up with the line list, but 853.076 nm does not fit here.
+        step = zoom_half / 2  # nm
+        ax.set_xticks([zoom_line - step, zoom_line, zoom_line + step])
+        ax.set_xticklabels(
+            [f"${-step * 10:g}$", "$0$", f"$+{step * 10:g}$"], fontsize=11
+        )
         if lines is not None:
             try:
                 add_line_markers(
@@ -859,7 +871,9 @@ def _zoom_column_figure(
     right[-1].set_xlabel(r"$\Delta\lambda$ [\AA]")
 
     if suptitle_kwargs is not None:
-        fig.suptitle(**suptitle_kwargs)
+        # Higher than the three-panel figures put it: the line callouts stand
+        # above the top panel and the default y sits the title on top of them.
+        fig.suptitle(**dict(suptitle_kwargs, y=1.04))
     fig.align_ylabels(left)
     plt.tight_layout()
     return fig
