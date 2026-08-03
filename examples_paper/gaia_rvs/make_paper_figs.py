@@ -804,6 +804,12 @@ CE_LINE = 853.276
 # spectrum to be read against it.
 ZOOM_HALF = 0.2
 
+# Centred on a round wavelength rather than on the line itself: the panel is a
+# piece of spectrum around Ce II 853.276, and a reader placing it on the axis
+# above wants 853.3, not a centre quoted to a thousandth of a nanometre.
+ZOOM_CENTRE = 853.3
+ZOOM_LABEL = "Ce II 853 nm"
+
 
 def _padded_limits(arrays, pad=0.08):
     """(lo, hi) spanning *arrays* with a margin, for a panel drawn on its own scale."""
@@ -816,7 +822,8 @@ def _padded_limits(arrays, pad=0.08):
 
 def _zoom_column_figure(
     λ_grid, flux, reconstruction, residual, robust_weights, lines, line_kwargs,
-    suptitle_kwargs=None, zoom_line=CE_LINE, zoom_half=ZOOM_HALF,
+    suptitle_kwargs=None, zoom_line=ZOOM_CENTRE, zoom_half=ZOOM_HALF,
+    zoom_label=ZOOM_LABEL,
 ):
     """The standard three panels, with a narrow zoom column beside them.
 
@@ -852,12 +859,10 @@ def _zoom_column_figure(
         ax.set_ylim(*_padded_limits([y[window] for y, _ in row]))
         ax.tick_params(labelleft=False, labelright=True, labelsize=11)
         # Absolute wavelength underneath, offsets on the labels: the ticks have
-        # to line up with the line list, but 853.076 nm does not fit here.
+        # to line up with the line list, but 853.1 nm does not fit here.
         step = zoom_half / 2  # nm
         ax.set_xticks([zoom_line - step, zoom_line, zoom_line + step])
-        ax.set_xticklabels(
-            [f"${-step * 10:g}$", "$0$", f"$+{step * 10:g}$"], fontsize=11
-        )
+        ax.set_xticklabels([f"${-step:g}$", "$0$", f"$+{step:g}$"], fontsize=11)
         if lines is not None:
             try:
                 add_line_markers(
@@ -867,8 +872,8 @@ def _zoom_column_figure(
             except Exception as e:  # noqa: BLE001  # decoration only
                 print(f"Warning: could not add line markers to the zoom column: {e}")
 
-    right[0].set_title(f"Ce II {zoom_line} nm", fontsize=13, pad=8)
-    right[-1].set_xlabel(r"$\Delta\lambda$ [\AA]")
+    right[0].set_title(zoom_label, fontsize=13, pad=8)
+    right[-1].set_xlabel(r"$\Delta\lambda$ [nm]")
 
     if suptitle_kwargs is not None:
         # Higher than the three-panel figures put it: the line callouts stand
@@ -943,7 +948,7 @@ TAXONOMY_EXAMPLES = [
         filename="full_rvs_tax_ncap.pdf",
         reason="Neutron-Capture Rich",
         line_kwargs=_ncap_line_kwargs(),
-        zoom_line=CE_LINE,
+        zoom_line=ZOOM_CENTRE,
     ),
 ]
 
