@@ -868,7 +868,7 @@ def fig_explained_variance():
         ax.set_xlabel("Component")
         ax.set_title(label, fontweight="bold")
         ax.set_xticks(range(1, PLOT_K + 1))
-    axes[0].set_ylabel("Captured power (%)")
+    axes[0].set_ylabel(r"Captured power (\%)")
 
     fig.suptitle(r"$\textsf{\textbf{Toy Dataset: Captured Power by Component}}$",
                 fontsize="24", c="dimgrey", y=1.04)
