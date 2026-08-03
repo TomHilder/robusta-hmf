@@ -361,7 +361,7 @@ def fig_full_rvs_cv():
 
     # Stacked panels sharing one Q axis, each with its own colour bar tight
     # against its right-hand edge.
-    fig = plt.figure(figsize=(6.5, 7.5), dpi=100, layout="constrained")
+    fig = plt.figure(figsize=(5.4, 8.6), dpi=100, layout="constrained")
     gs = fig.add_gridspec(2, 2, width_ratios=[1, 0.04], hspace=0.06, wspace=0.03)
     ax_kl = fig.add_subplot(gs[0, 0])
     cax_kl = fig.add_subplot(gs[0, 1])
@@ -401,7 +401,7 @@ def fig_full_rvs_cv():
     cb_chi.minorticks_off()
 
     fig.suptitle(
-        r"$\textsf{\textbf{Gaia RVS: Hyperparameters (Full Sample)}}$",
+        r"$\textsf{\textbf{Gaia RVS: Hyperparameters}}$",
         fontsize="24", c="dimgrey",
     )
     PAPER_FIGS.mkdir(parents=True, exist_ok=True)
