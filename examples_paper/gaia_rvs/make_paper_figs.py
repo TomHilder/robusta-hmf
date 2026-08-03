@@ -109,22 +109,30 @@ def _save_spectrum_fig(
     filename,
     suptitle_kwargs=None,
     decorate=None,
+    line_kwargs=None,
+    show_lines=True,
 ):
     """Build the 3-panel residual figure (strong-lines variant) and save to paper/figs.
 
     *decorate* is an optional ``callable(fig)`` run on the finished figure just
     before it is written -- the hook the neutron-capture example uses to add its
-    element windows without every other figure growing an option for them.
+    legend entries without every other figure growing an option for them.
+
+    *line_kwargs* overrides the strong-lines marker set; *show_lines=False*
+    drops the markers entirely, for figures where the residual is the subject
+    and the line grid is only clutter.
     """
     residual = flux - reconstruction
-    try:
-        lines = load_linelists()
-    except Exception as e:  # noqa: BLE001
-        print(f"Warning: could not load line lists: {e}")
-        lines = None
+    lines = None
+    if show_lines:
+        try:
+            lines = load_linelists()
+        except Exception as e:  # noqa: BLE001
+            print(f"Warning: could not load line lists: {e}")
     # Strong-lines variant (the one the paper uses); copy the kwargs because
     # _make_residual_figure pops label_fontsize from the dict.
     _, strong_kwargs = LINE_SET_VARIANTS[0]
+    strong_kwargs = strong_kwargs if line_kwargs is None else line_kwargs
     fig = _make_residual_figure(
         λ_grid,
         flux,
@@ -684,6 +692,8 @@ def plot_named_sources(specs):
             filename=spec["filename"],
             suptitle_kwargs=dict(t=spec["title"], fontsize="24", c="dimgrey", y=0.955),
             decorate=spec.get("decorate"),
+            line_kwargs=spec.get("line_kwargs"),
+            show_lines=spec.get("show_lines", True),
         )
 
 
@@ -719,53 +729,69 @@ def fig_named_stars():
 NCAP_SPECIES = ("Ce II", "Nd II", "Zr I")
 
 
-def _shade_element_windows(fig, species=NCAP_SPECIES, alpha=0.30):
-    """Shade the Ce II, Nd II and Zr I abundance windows on all three panels.
+def _relegend(fig, extra_handles=()):
+    """Redraw the top-panel legend in two columns, optionally with extra entries.
 
-    Drawn after the fact rather than through ``add_line_markers``: that helper
-    marks every GSP-Spec abundance line, which is Si, Ca, Ti, Cr, Fe and Ni as
-    well, and the point here is the three neutron-capture species alone.
+    ``_make_residual_figure`` gives every figure a one-column Data/Model legend.
+    Two columns keeps it wide and short rather than tall and narrow, which is
+    what fits under the line labels along the top of the panel.
     """
-    from plot_sprocess_spectra import SPECIES_COLOUR
-    from rvs_plot_utils import load_linelists
+    ax = fig.axes[0]
+    handles, labels = ax.get_legend_handles_labels()
+    handles = list(handles) + list(extra_handles)
+    labels = list(labels) + [h.get_label() for h in extra_handles]
+    # "best", as everywhere else in the paper: a fixed corner collides with the
+    # data on at least one of these (the Mira's red-edge spike runs through the
+    # lower right), and the style file draws no frame to hide it behind.
+    ax.legend(handles=handles, labels=labels, ncol=2, loc="best")
+
+
+# The windows themselves are drawn by ``add_line_markers`` in the ordinary way
+# -- same rectangles, same species colours, same labels along the top as every
+# other spectrum figure -- with the species filtered to the three that matter
+# and the half-width set to the one the s-process index integrates over.
+def _ncap_line_kwargs():
     from sprocess_line_residuals import HALF_CORE
 
+    return dict(
+        show_strong=False,
+        show_abundance=True,
+        show_cn=False,
+        show_dib=False,
+        species_filter=list(NCAP_SPECIES),
+        line_width_nm=HALF_CORE,
+    )
+
+
+def _ncap_legend(fig, species=NCAP_SPECIES, alpha=0.30):
+    """Name the three neutron-capture species in the legend, with line counts.
+
+    The markers carry their own labels, but only the legend says how many lines
+    of each species the window contains, and it is the one place the reader can
+    tie a colour to a species without reading the tick labels.
+    """
+    from rvs_plot_utils import SPECIES_COLORS, load_linelists
+
     lines = load_linelists().abundance
-    axes = fig.axes
     # The wavelength grid the flux was drawn on, not the axis limits: the panels
     # are set to a round 846-870 nm, which runs past both ends of the clipped
-    # grid and would let a window be shaded where there is no data.
-    λ_grid = np.asarray(axes[0].lines[0].get_xdata(), float)
+    # grid. add_line_markers filters on the same range, so counting on it here
+    # keeps the legend and the drawn windows in step -- Zr I 869.65 falls off
+    # the red end of the grid and appears in neither.
+    λ_grid = np.asarray(fig.axes[0].lines[0].get_xdata(), float)
     lo, hi = float(λ_grid.min()), float(λ_grid.max())
     handles, drawn = [], []
     for sp in species:
-        λ0s = [
-            float(λ)
-            for λ in lines.loc[lines["species"] == sp, "lambda_vac_nm"]
-            # The RVS grid stops short of Zr I 869.65; a window hanging off the
-            # end would shade the panel edge and claim a measurement that the
-            # data cannot support.
-            if lo + HALF_CORE <= float(λ) <= hi - HALF_CORE
-        ]
-        if not λ0s:
+        n = int(((lines["species"] == sp) & lines["lambda_vac_nm"].between(lo, hi)).sum())
+        if not n:
             continue
-        colour = SPECIES_COLOUR.get(sp, "grey")
-        # Opaque edges on a translucent face: the strong-line markers are
-        # already wide pastel bands, and without an outline a 0.074 nm element
-        # window reads as just another one of them.
-        style = dict(facecolor=to_rgba(colour, alpha), edgecolor=colour, lw=0.7)
-        for ax in axes:
-            for λ0 in λ0s:
-                ax.axvspan(λ0 - HALF_CORE, λ0 + HALF_CORE, zorder=0.5, **style)
-        handles.append(Patch(label=f"{sp} ({len(λ0s)})", **style))
-        drawn.append(f"{sp}: {len(λ0s)}")
+        handles.append(
+            Patch(facecolor=to_rgba(SPECIES_COLORS.get(sp, "#CCCCCC"), alpha), lw=0,
+                  label=f"{sp} ({n})")
+        )
+        drawn.append(f"{sp}: {n}")
     print("  element windows -- " + ", ".join(drawn))
-
-    # Rebuild the top-panel legend so the windows sit alongside Data and Model
-    # rather than in a second box competing with them.
-    old, labels = axes[0].get_legend_handles_labels()
-    axes[0].legend(handles=old + handles, labels=labels + [h.get_label() for h in handles],
-                   loc="lower right", ncol=2, fontsize=13, framealpha=0.9)
+    _relegend(fig, handles)
 
 
 # One exemplar per outlier group named in Section 5's taxonomy paragraph, in
@@ -794,7 +820,7 @@ TAXONOMY_EXAMPLES = [
         reason="Diffuse Interstellar Band Absorption",
     ),
     dict(
-        source_id=2808855804962475776,
+        source_id=4538902922817861504,
         filename="full_rvs_tax_mira.pdf",
         reason="Mira Variable",
     ),
@@ -807,7 +833,8 @@ TAXONOMY_EXAMPLES = [
         source_id=5053856547979769728,  # the s-process candidate; Ce/Nd/Zr windows
         filename="full_rvs_tax_ncap.pdf",
         reason="Neutron-Capture Rich",
-        decorate=_shade_element_windows,
+        line_kwargs=_ncap_line_kwargs(),
+        decorate=_ncap_legend,
     ),
 ]
 
@@ -819,11 +846,20 @@ def fig_outlier_taxonomy():
     the paper; only the title differs, and deliberately so -- these are read
     against the taxonomy paragraph, where the group is the whole point and the
     score, colour and magnitude in the working figures are noise.
+
+    No line markers except on the neutron-capture example, where the Ce II,
+    Nd II and Zr I windows are the reason the figure is there. Elsewhere the
+    residual is the subject and a full grid of strong-line bands only competes
+    with it.
     """
     specs = [
         dict(
             spec,
             title=r"$\textsf{\textbf{Gaia DR3 %d: %s}}$" % (spec["source_id"], spec["reason"]),
+            # Two-column legend on every one of them; the neutron-capture
+            # example gets there through its own decorator.
+            decorate=spec.get("decorate", _relegend),
+            show_lines="line_kwargs" in spec,
         )
         for spec in TAXONOMY_EXAMPLES
     ]
