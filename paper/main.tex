@@ -5,6 +5,11 @@
 \usepackage{graphicx}
 \usepackage{xcolor}
 \usepackage{parskip}
+% aastex631's equation handling makes hyperref write each align-row anchor
+% twice; counter-based destination names then collide ("destination with the
+% same identifier ... duplicate ignored", 60+ warnings). Sequentially-numbered
+% destination names sidestep the collisions; links are unaffected.
+\hypersetup{hypertexnames=false}
 % Referee-response change markup. Two traps here:
 % (1) AASTeX already defines \added (its own track-changes command, which
 %     renders plainly), so \providecommand would be a silent no-op: force our
@@ -34,6 +39,19 @@
 \raggedbottom\frenchspacing % Hogg will die on these hills
 \setlength{\parskip}{0.5\baselineskip}
 \setlength{\parindent}{0pt}
+
+% aastex631's \@makefntext sets \hsize=\columnwidth and then prepends 3mm +
+% mark + space before the footnote-text \vtop, which is itself built at
+% \hsize — so every footnote line overflows the margin by exactly the prefix
+% width (~14.6pt, "Overfull \hbox"). Build the \vtop narrower by the measured
+% prefix, then restore \hsize so the line is broken at full column width.
+\makeatletter
+\long\def\@makefntext#1{%
+  \sbox\z@{\mbox{}\hspace*{3mm}\@makefnmark~}%
+  \hsize=\dimexpr\columnwidth-\wd\z@\relax
+  \mbox{}\hspace*{3mm}\@makefnmark~#1%
+  \hsize=\columnwidth}
+\makeatother
 
 % fix aastex abstract hard-coding.
 % this piece of code is ALSO hard-coded; the 0.05 here matches a 0.05 at the abstract below.
