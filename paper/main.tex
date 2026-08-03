@@ -599,10 +599,12 @@ Unlike the binned experiment, no color or magnitude selection is applied: the up
 block, and allow for data sharding across multiple GPUs. We use the same stopping criterion as before: requiring a maximum fractional g-step adjustment of $<10^{-4}$.
 
 \begin{figure}
+    \added{
     \centering
-    \includegraphics[width=\linewidth]{figs/full_rvs_cv.pdf}
-    \caption{Hyperparameter selection for the full Gaia RVS sample. \emph{Left:} the cross-validation score of Equation~\ref{eq:score}, the KL divergence from the distribution of standardised residuals $z_{ij}$ on held-out data to $\mathcal{N}(0,1)$, over a grid of rank $K$ and robust scale $Q$. \emph{Right:} the reduced chi-squared of the same models on the same held-out data. Both are shown as $\log_{10}$; on a linear scale the $K=2$ row flattens the rest of the goodness-of-fit panel to a single color. The red outline marks the global minimum of the cross-validation score, and the cyan outline the model we adopt. That these are different cells is the point of the figure: see the text.}
+    \includegraphics[width=0.5\linewidth]{figs/full_rvs_cv.pdf}
+    \caption{Hyperparameter selection for the full Gaia RVS sample. \emph{Top:} the cross-validation KL divergence from the distribution of standardised residuals $z_{ij}$ on held-out data to $\mathcal{N}(0,1)$, over a grid of rank $K$ and robust scale $Q$. \emph{Bottom:} the reduced chi-squared of the same models on the same held-out data. Note the logarithmic colorbar for $\chi_\textrm{red}^2$ used for clarity. Strictly the KL divergence is lowest for $K=2$ and $Q=2$, but this is an inflexible model ($\chi_\textrm{red}^2 \approx 12$). The adopted hyperparameters are $K = 16$ and $Q = 7.5$: the second-lowest KL divergence measured, with $\chi_\textrm{red}^2 \approx 1$.}
     \label{fig:full_rvs_cv}
+    }
 \end{figure}
 
 We cross-validated over $K \in \{2,4,8,16,32,64\}$ and $Q \in \{2,3,5,7.5\}$ on 10\% of the data: half of that sample (5\% of the full sample) was used for fitting, and the other half for scoring. The resulting scores are shown in the left panel of Figure~\ref{fig:full_rvs_cv}. The minimum sits in a diagonal valley: as $K$ increases, the $Q$ that minimises the score increases with it, as expected, since a more flexible model leaves smaller residuals and requires less aggressive downweighting to make $z_{ij}$ resemble a unit normal.
@@ -615,16 +617,17 @@ Applying that rule to Figure~\ref{fig:full_rvs_cv} leaves $K=16$, $Q=7.5$, which
 Convergence was reached after 70 iterations, which took nine minutes on an NVIDIA RTX A6000 using 64 bit floating-point arithmetic. The in-sample diagnostics of that final fit ($\hat{\sigma}_z = 1.009$, $\chi^2_{\rm red} = 1.11$) are consistent with the held-out values, as expected when $N \gg K$.
 
 \begin{figure}
+    \added{
     \centering
     \includegraphics[width=\linewidth]{figs/full_rvs_outliers.pdf}
-    \caption{Outliers in the full Gaia RVS sample at $K=16$, $Q=7.5$. \emph{Left:} the distribution of the object-level weight $w_i^{\rm object}$, here the 1\% quantile over pixels of the per-pixel robust weights, with the $0.5$ threshold marked. \emph{Right:} the color-magnitude diagram, with the full sample in grey and the 1{,}543 flagged spectra colored by $w_i^{\rm object}$.}
+    \caption{Outliers in the full Gaia RVS sample at $K=16$, $Q=7.5$. \emph{Left:} the distribution of the median object-level weight $w_i^{\rm object}$, here the 1\% quantile over pixels of the per-pixel robust weights, with the $0.5$ threshold marked. \emph{Right:} the color-magnitude diagram, with the full sample in grey and the 1{,}559 flagged spectra colored by $w_i^{\rm object}$.}
     \label{fig:full_rvs_outliers}
+    }   
 \end{figure}
 
-Using the same object-level statistic and threshold as before ($w_i^{\rm object} < 0.5$, with $w_i^{\rm object}$ the 1\% quantile over pixels), the fit flags $1{,}543$ spectra, or $0.16\%$ of the sample. Their distribution is shown in Figure~\ref{fig:full_rvs_outliers}. The bulk of the population sits near $w_i^{\rm object} \approx 0.9$ with a long tail toward zero, and the flagged spectra are concentrated toward the hot, luminous end of the color-magnitude diagram: of the 77 spectra scoring below $0.05$, 69 lie blueward of BP$-$RP $=1.5$ and 72 are brighter than $M_G = 0$. 
+Using the same median object-level statistic and threshold as before ($w_i^{\rm object} < 0.5$, with $w_i^{\rm object}$ the 1\% quantile over pixels), the model flags $1{,}559$ spectra, or $0.16\%$ of the sample. Their distribution is shown in Figure~\ref{fig:full_rvs_outliers}. The bulk of the population sits near $w_i^{\rm object} \approx 0.9$ with a long tail toward zero, and the flagged spectra are concentrated toward the hot, luminous end of the color-magnitude diagram: of the 77 spectra scoring below $0.05$, 69 lie blueward of BP$-$RP $=1.5$ and 72 are brighter than $M_G = 0$. 
 
-
-With the $1{,}543$ flagged spectra we took the spectrum residuals from the converged model, and performed a non-linear dimensionality reduction \citep[t-SNE][]{maaten2008} and clustering \citep[HDBSCAN][]{campello2013} to group outliers by their residuals. While we avoid interpreting each of the 21 groups (or the 151 spectra that remain unassigned), it is worth commenting on the most frequent outlier types identified. The most anomalous group are blue supergiants (e.g., Figure X), and the largest groups are hot-stars with broad line profiles, where line asymmetry or emission in the Ca II triplet is the dominant residual feature. Other dominate groups include cool stars with chomospheric activity, stars with significant interstellar absorption, Mira variables, and Long Period Variables. In the supplementary materials we provide a HDF5 file of Gaia DR3 spectra, associated metadata, best-fitting model spectra, and robust weights for all $999{,}645$ stars.}
+We visually inspected all $1{,}559$ spectra flagged as outliers and grouped them by similarity in their spectrum residuals. While we avoid interpreting every flagged outlier (or groups of outliers), it is worth commenting on the most frequent outlier types identified. The most anomalous group (lowest object score) are blue supergiants, and the largest group includes hot-stars with broad line profiles, where line asymmetry or emission in the Ca II triplet is the dominant residual feature. Other dominate groups include: cool stars with chomospheric activity; stars with significant interstellar absorption; Mira variables; Long Period Variables; or stars rich in neutron-capture abundances. A gallery of these examples are shown in the Appendix (Figures~\ref{fig:X} to \ref{fig:Y}), and in the supplementary materials we provide a catalog of all $999{,}645$ Gaia DR3 spectra, their associated metadata, best-fitting model spectra, and robust weights. This catalog can be used to readily identify outliers in the Gaia RVS sample, and to construct matched-filter searches for specific classes of outliers.}
 
 
 \section{Discussion} \label{sec:discussion}
@@ -723,7 +726,8 @@ In many applications, little further tuning should be required for RHMF to provi
 
 An installable version of the Robusta-HMF code in python is available at \url{https://github.com/TomHilder/robusta-hmf}, along with all of the code used to make the figures in this paper.
 
-\begin{acknowledgments}
+\begin{acknowledgments}  
+  \added{The authors warmly thank the anonymous referee, who provided a very timely and thorough review, which improved the clarity of the paper and helped demonstrate both the robustness and utility of the method.}
   The authors thank the Stars group at MPIA, the Astronomical Data group at the Flatiron Institute, and the Inference group at Monash University, for valuable discussions.
   TH is supported by an Australian Government Research Training Program (RTP) Scholarship.
   The Flatiron Institute is a division of the Simons Foundation.
@@ -957,28 +961,34 @@ The locations were also chosen randomly, except that overlap with pre-existing p
 They were however, allowed to overlap with the column outliers, and to be placed in outlier spectra.
 Missing values were set to \texttt{NaN}, and the corresponding data weights were set to zero.
 
-\added{\begin{figure}
+\begin{figure}
+    \added{
     \centering
     \includegraphics[width=\textwidth]{figs/toy_dataset_diversity.pdf}
     \caption{Representative spectra from the toy dataset illustrating dataset diversity. Top row: normal spectra (with only Gaussian noise), showing the range of underlying spectral shapes. Middle row: individual outlier types—spectrum-level (high-frequency sinusoid), pixel-level (scattered spikes), and column-level (same wavelength affected consistently). Bottom row: absorption-line outliers with extra spectral features, missing data segments (visible as gaps in the spectrum), and mixed outlier types. Outlier regions are highlighted with low-alpha colored shading; solid colored ticks mark individual anomalies.}
     \label{fig:toy_dataset_diversity}
-\end{figure}}
+    }
+\end{figure}
 
 \added{Figures~\ref{fig:eigenspectra_vs_q} and \ref{fig:eigenspectra_vs_k} show how the recovered RHMF eigenspectra vary across the $(K, Q)$ hyperparameter grid of Section~\ref{sec:toy}, with every model expressed in the canonical frame of Figure~\ref{fig:eigenspectra}. The basis is essentially unchanged from $Q=2$ to $Q=10$ at the true rank; only for very aggressive downweighting ($Q \lesssim 1$) does the weakest component (the absorption-line template) degrade, as genuine line pixels begin to be treated as outliers. Varying $K$ at fixed $Q=5$, components enter in order of their data-power contribution: $K=3$ recovers the three strongest components, $K=4$ adds the quadratic continuum mode, and $K=5$ adds the line template. For over-parameterized models ($K = 6, 7$) the leading components are unchanged and the extra components absorb noise, with the line template mixing among the near-degenerate trailing components. This illustrates, at the level of the basis vectors themselves, the hyperparameter insensitivity discussed in Section~\ref{sec:toy}: results are stable provided $K$ is at least the true rank and $Q$ is not extreme.}
 
-\added{\begin{figure}
+\begin{figure}
+    \added{
     \centering
     \includegraphics[width=\textwidth]{figs/toy_eigenspectra_vs_q.pdf}
     \caption{RHMF eigenspectra as a function of the robust scale $Q$ at the true rank $K=5$, in the canonical frame of Figure~\ref{fig:eigenspectra}. The recovered basis is essentially invariant for $Q \geq 2$; at $Q \lesssim 1$ the aggressive downweighting begins to erode the weakest component (K5, the absorption-line template).}
     \label{fig:eigenspectra_vs_q}
-\end{figure}}
+    }
+\end{figure}
 
-\added{\begin{figure}
+\begin{figure}
+    \added{
     \centering
     \includegraphics[width=0.9\textwidth]{figs/toy_eigenspectra_vs_k.pdf}
     \caption{RHMF eigenspectra as a function of the rank $K$ at the CV-optimal robust scale $Q=5$. Greyed panels indicate components that do not exist for that model. Components enter in order of their data-power contribution as $K$ increases; for $K$ above the true rank the leading components are unchanged and the extra components absorb noise.}
     \label{fig:eigenspectra_vs_k}
-\end{figure}}
+    }
+\end{figure}
 
 \raggedright\footnotesize
 \bibliographystyle{aasjournal}
