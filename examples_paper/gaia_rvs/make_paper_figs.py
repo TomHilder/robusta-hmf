@@ -17,13 +17,13 @@ Output goes to the in-repo paper figures directory, NOT the stale external path.
 
 import argparse
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 import gaia_config as cfg
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.colors import LogNorm, to_rgba
-from matplotlib.patches import Patch
+from matplotlib.colors import LogNorm
 from analysis_funcs import (
     LINE_SET_VARIANTS,
     _make_residual_figure,
@@ -32,7 +32,7 @@ from analysis_funcs import (
     load_cached_inferred_state,
     load_outlier_data,
 )
-from rvs_plot_utils import load_linelists
+from rvs_plot_utils import add_line_markers, load_linelists
 
 from robusta_hmf import Robusta
 
@@ -111,6 +111,7 @@ def _save_spectrum_fig(
     decorate=None,
     line_kwargs=None,
     show_lines=True,
+    zoom_line=None,
 ):
     """Build the 3-panel residual figure (strong-lines variant) and save to paper/figs.
 
@@ -120,7 +121,8 @@ def _save_spectrum_fig(
 
     *line_kwargs* overrides the strong-lines marker set; *show_lines=False*
     drops the markers entirely, for figures where the residual is the subject
-    and the line grid is only clutter.
+    and the line grid is only clutter. *zoom_line* adds a narrow zoom column on
+    that wavelength beside the three panels.
     """
     residual = flux - reconstruction
     lines = None
@@ -133,22 +135,29 @@ def _save_spectrum_fig(
     # _make_residual_figure pops label_fontsize from the dict.
     _, strong_kwargs = LINE_SET_VARIANTS[0]
     strong_kwargs = strong_kwargs if line_kwargs is None else line_kwargs
-    fig = _make_residual_figure(
-        λ_grid,
-        flux,
-        reconstruction,
-        residual,
-        robust_weights,
-        source_id,
-        i_bin,
-        idx,
-        per_object_weight,
-        best_K,
-        best_Q,
-        lines,
-        dict(strong_kwargs),
-        suptitle_kwargs=suptitle_kwargs,
-    )
+    if zoom_line is not None:
+        fig = _zoom_column_figure(
+            λ_grid, flux, reconstruction, residual, robust_weights,
+            lines, dict(strong_kwargs), suptitle_kwargs=suptitle_kwargs,
+            zoom_line=zoom_line,
+        )
+    else:
+        fig = _make_residual_figure(
+            λ_grid,
+            flux,
+            reconstruction,
+            residual,
+            robust_weights,
+            source_id,
+            i_bin,
+            idx,
+            per_object_weight,
+            best_K,
+            best_Q,
+            lines,
+            dict(strong_kwargs),
+            suptitle_kwargs=suptitle_kwargs,
+        )
     if decorate is not None:
         decorate(fig)
     PAPER_FIGS.mkdir(parents=True, exist_ok=True)
@@ -708,6 +717,7 @@ def plot_named_sources(specs):
             decorate=spec.get("decorate"),
             line_kwargs=spec.get("line_kwargs"),
             show_lines=spec.get("show_lines", True),
+            zoom_line=spec.get("zoom_line"),
         )
 
 
@@ -743,8 +753,8 @@ def fig_named_stars():
 NCAP_SPECIES = ("Ce II", "Nd II", "Zr I")
 
 
-def _relegend(fig, extra_handles=()):
-    """Redraw the top-panel legend in two columns, optionally with extra entries.
+def _relegend(fig, loc="best"):
+    """Redraw the top-panel legend in two columns.
 
     ``_make_residual_figure`` gives every figure a one-column Data/Model legend.
     Two columns keeps it wide and short rather than tall and narrow, which is
@@ -752,12 +762,10 @@ def _relegend(fig, extra_handles=()):
     """
     ax = fig.axes[0]
     handles, labels = ax.get_legend_handles_labels()
-    handles = list(handles) + list(extra_handles)
-    labels = list(labels) + [h.get_label() for h in extra_handles]
     # "best", as everywhere else in the paper: a fixed corner collides with the
     # data on at least one of these (the Mira's red-edge spike runs through the
     # lower right), and the style file draws no frame to hide it behind.
-    ax.legend(handles=handles, labels=labels, ncol=2, loc="best")
+    ax.legend(handles=handles, labels=labels, ncol=2, loc=loc)
 
 
 # The windows themselves are drawn by ``add_line_markers`` in the ordinary way
@@ -774,38 +782,111 @@ def _ncap_line_kwargs():
         show_dib=False,
         species_filter=list(NCAP_SPECIES),
         line_width_nm=HALF_CORE,
+        # A window this narrow needs more than the 0.3 the wide strong-line
+        # bands are drawn at to register as a marked region at all.
+        alpha=0.45,
     )
 
 
-def _ncap_legend(fig, species=NCAP_SPECIES, alpha=0.30):
-    """Name the three neutron-capture species in the legend, with line counts.
+# In the shared scheme the three sit within a few degrees of hue of each other
+# (turquoise, light sea green, medium sea green), which is unreadable when the
+# windows are 0.074 nm wide and scattered across 23 nm. Purple, orange and blue
+# instead -- distinguishable, and none of them is the green of the model trace.
+NCAP_COLOURS = {"Ce II": "#7b3294", "Nd II": "#e66101", "Zr I": "#0571b0"}
 
-    The markers carry their own labels, but only the legend says how many lines
-    of each species the window contains, and it is the one place the reader can
-    tie a colour to a species without reading the tick labels.
+
+# The one line that survives the control test in sprocess_line_residuals, and
+# the reason this star is in the figure set at all.
+CE_LINE = 853.276
+
+# Half-width of the zoom column, in nm: 0.5 A, a little wider than the 0.037 nm
+# window the Ce II index integrates over, so the core sits inside the panel with
+# a few pixels of continuum either side.
+ZOOM_HALF = 0.05
+
+
+def _zoom_column_figure(
+    λ_grid, flux, reconstruction, residual, robust_weights, lines, line_kwargs,
+    suptitle_kwargs=None, zoom_line=CE_LINE, zoom_half=ZOOM_HALF,
+):
+    """The standard three panels, with a narrow zoom column beside them.
+
+    The right column is the same three quantities over a 1 A window on
+    *zoom_line*, at one fifth the width. Its y-limits are taken from the panel
+    to its left, so it is a magnification in wavelength only and the two columns
+    can be read against each other; the y tick labels are therefore redundant
+    and are dropped, which is most of what makes a column this narrow legible.
     """
-    from rvs_plot_utils import SPECIES_COLORS, load_linelists
+    fig, axes = plt.subplots(
+        3, 2, figsize=(14, 8), dpi=150, sharex="col",
+        gridspec_kw={"height_ratios": [3, 2, 1], "width_ratios": [5, 1], "wspace": 0.04},
+    )
+    left, right = axes[:, 0], axes[:, 1]
+    _make_residual_figure(
+        λ_grid, flux, reconstruction, residual, robust_weights, None,
+        None, None, None, None, None,
+        lines, dict(line_kwargs), axes=left,
+    )
 
-    lines = load_linelists().abundance
-    # The wavelength grid the flux was drawn on, not the axis limits: the panels
-    # are set to a round 846-870 nm, which runs past both ends of the clipped
-    # grid. add_line_markers filters on the same range, so counting on it here
-    # keeps the legend and the drawn windows in step -- Zr I 869.65 falls off
-    # the red end of the grid and appears in neither.
-    λ_grid = np.asarray(fig.axes[0].lines[0].get_xdata(), float)
-    lo, hi = float(λ_grid.min()), float(λ_grid.max())
-    handles, drawn = [], []
-    for sp in species:
-        n = int(((lines["species"] == sp) & lines["lambda_vac_nm"].between(lo, hi)).sum())
-        if not n:
-            continue
-        handles.append(
-            Patch(facecolor=to_rgba(SPECIES_COLORS.get(sp, "#CCCCCC"), alpha), lw=0,
-                  label=f"{sp} ({n})")
-        )
-        drawn.append(f"{sp}: {n}")
-    print("  element windows -- " + ", ".join(drawn))
-    _relegend(fig, handles)
+    lo, hi = zoom_line - zoom_half, zoom_line + zoom_half
+    traces = [
+        [(flux, dict(c="k", lw=2.8)),
+         (reconstruction, dict(c="tab:green", lw=2.2, ls=(0, (5, 1))))],
+        [(residual, dict(c="k", lw=2.8))],
+        [(robust_weights, dict(c="k", lw=2.8))],
+    ]
+    for i, (ax, row) in enumerate(zip(right, traces)):
+        for y, style in row:
+            ax.plot(λ_grid, y, **style)
+        ax.set_xlim(lo, hi)
+        # After the left column is drawn, so the zoom inherits its scaling.
+        ax.set_ylim(left[i].get_ylim())
+        ax.tick_params(labelleft=False)
+        # Absolute wavelength underneath, offsets on the labels: the ticks have
+        # to line up with the line list, but 853.23 nm does not fit here.
+        ax.set_xticks([zoom_line - 0.04, zoom_line, zoom_line + 0.04])
+        ax.set_xticklabels(["$-0.4$", "$0$", "$+0.4$"], fontsize=11)
+        if lines is not None:
+            try:
+                add_line_markers(
+                    ax=ax, lines=lines, show_labels=False, wl_range=(lo, hi),
+                    **{k: v for k, v in line_kwargs.items() if k != "label_fontsize"},
+                )
+            except Exception as e:  # noqa: BLE001  # decoration only
+                print(f"Warning: could not add line markers to the zoom column: {e}")
+
+    right[0].set_title(f"Ce II {zoom_line} nm", fontsize=13, pad=8)
+    right[-1].set_xlabel(r"$\Delta\lambda$ [\AA]")
+
+    if suptitle_kwargs is not None:
+        fig.suptitle(**suptitle_kwargs)
+    fig.align_ylabels(left)
+    plt.tight_layout()
+    return fig
+
+
+@contextmanager
+def _ncap_palette():
+    """Recolour the three neutron-capture species for the duration of a draw.
+
+    ``add_line_markers`` reads its colours out of the module-level
+    ``SPECIES_COLORS``, so this is the only way in without either a new
+    parameter on a shared utility or recolouring the patches after the fact.
+    Scoped and restored, because that dict is what every other figure in the
+    paper draws its markers with.
+    """
+    from rvs_plot_utils import SPECIES_COLORS
+
+    was = {sp: SPECIES_COLORS.get(sp) for sp in NCAP_COLOURS}
+    SPECIES_COLORS.update(NCAP_COLOURS)
+    try:
+        yield
+    finally:
+        for sp, colour in was.items():
+            if colour is None:
+                SPECIES_COLORS.pop(sp, None)
+            else:
+                SPECIES_COLORS[sp] = colour
 
 
 # One exemplar per outlier group named in Section 5's taxonomy paragraph, in
@@ -848,7 +929,7 @@ TAXONOMY_EXAMPLES = [
         filename="full_rvs_tax_ncap.pdf",
         reason="Neutron-Capture Rich",
         line_kwargs=_ncap_line_kwargs(),
-        decorate=_ncap_legend,
+        zoom_line=CE_LINE,
     ),
 ]
 
@@ -877,7 +958,10 @@ def fig_outlier_taxonomy():
         )
         for spec in TAXONOMY_EXAMPLES
     ]
-    plot_named_sources(specs)
+    # Only the neutron-capture figure draws markers at all, so the recoloured
+    # palette cannot reach anything else in this pass.
+    with _ncap_palette():
+        plot_named_sources(specs)
 
 
 FIGURES = {
