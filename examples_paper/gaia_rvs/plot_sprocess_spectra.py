@@ -104,20 +104,26 @@ def compute_z(λ_grid, residual, every, cn_edges):
     return ce, (ce - np.median(ctrl, axis=1)) / scatter, scatter
 
 
-def _mark_lines(ax, lines, alpha=0.16):
-    """Shade every measured s-process line, with Ce II 853.276 picked out."""
+def _mark_lines(ax, lines, focus=CE_LINE, alpha=0.16):
+    """Shade every measured line, with the one being measured picked out."""
     for _, r in lines.iterrows():
         λ0, sp = float(r["lambda_vac_nm"]), r["species"]
-        is_ce = abs(λ0 - CE_LINE) < 1e-6
+        is_focus = abs(λ0 - focus) < 1e-6
         ax.axvspan(
             λ0 - HALF_CORE, λ0 + HALF_CORE,
             color=SPECIES_COLOUR.get(sp, "grey"),
-            alpha=0.32 if is_ce else alpha, lw=0, zorder=0,
+            alpha=0.32 if is_focus else alpha, lw=0, zorder=0,
         )
 
 
-def plot_star(λ_grid, Y, ivar, recon, residual, row, lines, scatter, out):
-    """The four-panel figure for one star."""
+def plot_star(λ_grid, Y, ivar, recon, residual, row, lines, scatter, out,
+              line=CE_LINE, line_label="Ce II", index_col="ce853_index", z_col="ce853_z"):
+    """The four-panel figure for one star.
+
+    *line* is the wavelength the zoom panels centre on and the one the index in
+    the subtitle refers to, so the same figure serves any line the index
+    machinery can measure, not only Ce II.
+    """
     fig, axes = plt.subplots(
         2, 2, figsize=FIGSIZE, dpi=DPI,
         gridspec_kw={"width_ratios": [2.2, 1.0], "hspace": 0.28, "wspace": 0.24},
@@ -129,7 +135,7 @@ def plot_star(λ_grid, Y, ivar, recon, residual, row, lines, scatter, out):
 
     # -- full window, flux and model
     ax = axes[0, 0]
-    _mark_lines(ax, lines)
+    _mark_lines(ax, lines, focus=line)
     ax.plot(λ_grid, flux, c="k", lw=0.8, zorder=3, label="Data")
     ax.plot(λ_grid, recon, c="tab:red", lw=0.9, ls=(0, (5, 1)), zorder=4, label="Model")
     ax.set_ylabel("Flux")
@@ -138,7 +144,7 @@ def plot_star(λ_grid, Y, ivar, recon, residual, row, lines, scatter, out):
 
     # -- full window, residual
     ax = axes[1, 0]
-    _mark_lines(ax, lines)
+    _mark_lines(ax, lines, focus=line)
     ax.fill_between(λ_grid, -sigma, sigma, color="tab:blue", alpha=0.2, lw=0,
                     label=r"$\pm 1\sigma$ (catalogue)")
     ax.axhspan(-scatter, scatter, color="grey", alpha=0.22, lw=0,
@@ -151,12 +157,12 @@ def plot_star(λ_grid, Y, ivar, recon, residual, row, lines, scatter, out):
     ax.set_xlim(λ_grid[0], λ_grid[-1])
 
     # -- zoom, flux and model
-    m = np.abs(λ_grid - CE_LINE) <= ZOOM_HALF
+    m = np.abs(λ_grid - line) <= ZOOM_HALF
     ax = axes[0, 1]
     ax.axvspan(-HALF_CORE, HALF_CORE, color="tab:purple", alpha=0.22, lw=0)
-    ax.plot(λ_grid[m] - CE_LINE, flux[m], c="k", lw=1.3, zorder=3)
-    ax.plot(λ_grid[m] - CE_LINE, recon[m], c="tab:red", lw=1.3, ls=(0, (5, 1)), zorder=4)
-    ax.set_title(f"Ce II {CE_LINE} nm", fontsize=10)
+    ax.plot(λ_grid[m] - line, flux[m], c="k", lw=1.3, zorder=3)
+    ax.plot(λ_grid[m] - line, recon[m], c="tab:red", lw=1.3, ls=(0, (5, 1)), zorder=4)
+    ax.set_title(f"{line_label} {line} nm", fontsize=10)
     ax.set_ylabel("Flux")
     ax.set_xlim(-ZOOM_HALF, ZOOM_HALF)
 
@@ -166,11 +172,11 @@ def plot_star(λ_grid, Y, ivar, recon, residual, row, lines, scatter, out):
     for s in (-1, 1):
         ax.axvspan(s * SIDE_INNER, s * min(SIDE_OUTER, ZOOM_HALF), color="tab:olive",
                    alpha=0.16, lw=0, label="sideband" if s == 1 else None)
-    ax.fill_between(λ_grid[m] - CE_LINE, -sigma[m], sigma[m], color="tab:blue", alpha=0.2, lw=0)
+    ax.fill_between(λ_grid[m] - line, -sigma[m], sigma[m], color="tab:blue", alpha=0.2, lw=0)
     ax.axhspan(-scatter, scatter, color="grey", alpha=0.22, lw=0)
-    ax.plot(λ_grid[m] - CE_LINE, np.where(good, residual, np.nan)[m], c="k", lw=1.3, zorder=3)
+    ax.plot(λ_grid[m] - line, np.where(good, residual, np.nan)[m], c="k", lw=1.3, zorder=3)
     ax.axhline(0, c="k", lw=0.6, alpha=0.5)
-    ax.set_xlabel(r"$\lambda - 853.276$ [nm]")
+    ax.set_xlabel(rf"$\lambda - {line}$ [nm]")
     ax.set_ylabel("Residual")
     ax.legend(fontsize=7, loc="lower right", framealpha=0.9)
     ax.set_xlim(-ZOOM_HALF, ZOOM_HALF)
@@ -178,7 +184,7 @@ def plot_star(λ_grid, Y, ivar, recon, residual, row, lines, scatter, out):
     pop = row["population"] or "uncatalogued"
     title = (
         f"Gaia DR3 {int(row['source_id'])}   [{pop}]\n"
-        f"Ce II index {row['ce853_index']:+.4f} ({row['ce853_z']:+.2f}$\\,\\sigma$ vs control)   "
+        f"{line_label} index {row[index_col]:+.4f} ({row[z_col]:+.2f}$\\,\\sigma$ vs control)   "
         f"outlier score {row['score']:.3f}   "
         f"BP$-$RP {row['bp_rp']:.2f}   $M_G$ {row['abs_mag_G']:.2f}"
     )
