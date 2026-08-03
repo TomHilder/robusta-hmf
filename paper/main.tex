@@ -1,5 +1,5 @@
 \PassOptionsToPackage{dvipsnames}{xcolor}
-\documentclass[onecolumn,floatfix]{aastex631}
+\documentclass[onecolumn,floatfix,linenumbers]{aastex631}
 \usepackage{amsmath}
 \usepackage{amsfonts}
 \usepackage{graphicx}
@@ -714,7 +714,7 @@ We recommend the following workflow as a practical default, that may be useful i
 This is computationally inexpensive and is often adequate even when computed from a representative subsample.
 (2) In the absence of strong prior information, one may wish to adopt a soft initial outlier threshold in the range $Q\sim 3$--$5$ (recall that $Q$ is roughly the scale at which departures from the model start looking like outliers, in units of standard deviations).
 This default should provide a reasonable first balance between robustness and false-positive outlier identification.
-(3) Choose the rank ($K$) using the held-out KL-divergence score of Eq.~\eqref{eq:score}, evaluated on a modest grid of $(Q, K)$ values (and potentially update $Q$), rather than selecting $K$ only after fitting as one might for PCA.
+(3) Choose the rank ($K$) using the held-out KL-divergence score of Eq.~\eqref{eq:score} \added{and some measure of the goodness-of-fit like $\chi_\textrm{red}^2$}, evaluated on a modest grid of $(Q, K)$ values (and potentially update $Q$), rather than selecting $K$ only after fitting as one might for PCA.
 (4) Inspect the residuals ${\bf Y} - {\bf A} {\bf G}$ in conjunction with the validation score.
 A well-described inlier population should leave residuals that are largely unstructured across objects.
 In contrast, coherent residual structure shared across many objects may indicate the presence of additional shared structure not represented by the current model.
