@@ -429,13 +429,19 @@ def fig_full_rvs_cv():
 
 
 def _load_full_rvs_weights():
-    """Per-spectrum scores and HR positions, dropping sources with no astrometry."""
+    """Per-spectrum scores and HR positions for every fitted spectrum.
+
+    *finite* flags the ones that can be placed on the HR diagram. It is a mask
+    rather than a filter because the two are not interchangeable: the final fit
+    runs on all 999,645 spectra, including the 5,735 the metadata cuts would
+    drop, and every one of them has a score. Only the HR panels need the cut.
+    """
     d = np.load(FULL_RVS_WEIGHTS)
     score, bp_rp, abs_mag_G = d["score"], d["bp_rp"], d["abs_mag_G"]
     finite = np.isfinite(bp_rp) & np.isfinite(abs_mag_G)
     return (
-        score[finite], bp_rp[finite], abs_mag_G[finite],
-        int(d["best_K"]), float(d["best_Q"]), float(d["threshold"]), len(score),
+        score, bp_rp, abs_mag_G, finite,
+        int(d["best_K"]), float(d["best_Q"]), float(d["threshold"]),
     )
 
 
@@ -445,8 +451,12 @@ def fig_full_rvs_outliers():
     The outlier population of the full sample: the distribution of the
     object-level weight, and where the flagged spectra sit on the HR diagram.
     """
-    score, bp_rp, abs_mag_G, K, Q, threshold, n_total = _load_full_rvs_weights()
+    score, bp_rp, abs_mag_G, finite, K, Q, threshold = _load_full_rvs_weights()
+    # The histogram and the count are over every fitted spectrum; only the HR
+    # panel is restricted to the ones with a colour and a parallax.
     mask = score < threshold
+    n_total = len(score)
+    hr = mask & finite
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5.5), dpi=100)
 
@@ -463,10 +473,11 @@ def fig_full_rvs_outliers():
     )
 
     axes[1].scatter(
-        bp_rp, abs_mag_G, s=0.5, alpha=0.1, c="grey", zorder=0, marker=".", rasterized=True
+        bp_rp[finite], abs_mag_G[finite], s=0.5, alpha=0.1, c="grey", zorder=0,
+        marker=".", rasterized=True,
     )
     sc = axes[1].scatter(
-        bp_rp[mask], abs_mag_G[mask], c=score[mask], cmap="viridis_r",
+        bp_rp[hr], abs_mag_G[hr], c=score[hr], cmap="viridis_r",
         s=7, alpha=0.85, marker="o", linewidths=0, zorder=5, rasterized=True,
     )
     fig.colorbar(sc, ax=axes[1], label=r"$w_i^{\rm object}$ (Lower is More Anomalous)")
@@ -496,7 +507,10 @@ def fig_full_rvs_hr_weights():
     spectra a scatter plot answers neither question, since it shows only
     whichever points happen to be drawn last.
     """
-    score, bp_rp, abs_mag_G, K, Q, threshold, _ = _load_full_rvs_weights()
+    score, bp_rp, abs_mag_G, finite, K, Q, threshold = _load_full_rvs_weights()
+    # Every panel here is binned in colour-magnitude space, so a spectrum
+    # without a position on the diagram has nowhere to go.
+    score, bp_rp, abs_mag_G = score[finite], bp_rp[finite], abs_mag_G[finite]
     extent = (HR_XLIM[0], HR_XLIM[1], min(HR_YLIM), max(HR_YLIM))
     common = dict(gridsize=200, mincnt=5, extent=extent)
 
