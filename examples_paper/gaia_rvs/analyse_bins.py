@@ -76,7 +76,7 @@ BEST_MODEL_METRIC = "std_z"
 #   lambda w: -np.sum(w < 0.3)                      # negated so lower = more outlier-y
 #   lambda w: 1 - np.mean(w < 0.5)                  # 1 - fraction below threshold
 #
-OUTLIER_SCORE_FUNC = lambda w: np.percentile(w, 1)  # None = default (median)
+OUTLIER_SCORE_FUNC = lambda w: np.percentile(w, 1, axis=1)  # None = default (median)
 
 # Directories
 RESULTS_DIR = Path("./gaia_rvs_results")

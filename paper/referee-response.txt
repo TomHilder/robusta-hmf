@@ -179,7 +179,25 @@ construction of the inverse-variance weights used in the fits.
 > 9. "Applying the RHMF to the entire main sequence stellar spectra is highly
 recommended."
 
-TBC 
+We have applied RHMF to the entire Gaia/RVS data set (not just the main-sequence).
+
+We have kept the existing experiments in color-magnitude bin because we wanted
+those to demonstrate that RHMF could be an effective model even when restricting 
+to local color-magnitude bins, and even without rigorous cross-valdiation.
+For this reason we have added a new section where RHMF is applied to the
+whole 999,645 Gaia/RVS spectra, including where we perform cross-validation
+to determine a suitable K and Q.
+
+This was a useful exercise, as it highlighted a subtlety in *only* using KL
+divergence as a measure: the lowest KL divergence was at K=2 and Q=2, but
+that model is unsuitable: it had reduced \chi^2 of ~12 on the held-out set.
+
+We have: added a subsection to the results; added text in the discussion;
+updated the abstract; and added figures to the Appendix. We have also chosen
+to release a catalog of residual spectra (and robust weights) so that users
+can construct their own matched-filters to look for outliers of particular
+types.
+
 
 > 10. "Line 490-491: ... it is worth discussing the roles that robust weights
 and coefficients play for identifying outliers."
@@ -203,8 +221,7 @@ caveat that this is verified within the regimes we tested.
 > analysis to obtain the possible best Q and K values for the Gaia stellar
 > spectra."
 
-TBC 
-
+We have now done this on the full Gaia/RVS sample.
 
 > "Figure 3. X-axis label: mean -> median?"
 
@@ -214,7 +231,7 @@ the caption of Figure 3 have all been updated, and the figure regenerated.
 
 > "Figure 6. X-axis label: Median Per-Spectrum Weight?"
 
-TBC 
+Corrected.
 
 > "Line 216: It's -> it is; Line 570: wasn't -> was not; Line 593: That's ->
 That is; Line 595: You're -> you are"

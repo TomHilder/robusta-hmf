@@ -5,8 +5,10 @@ referee-requested full-dataset + CV analysis.
 Two sample choices (--sample):
     ms   (default) union of all 14 main-sequence bins from gaia_config.py,
          deduplicated -- the paper's main-sequence selection, unbinned.
-    all  every spectrum in the matched RVS catalogue (MatchedData), i.e. the
-         whole sample with no colour-magnitude selection at all.
+    all  every spectrum in the RVS file (999645), i.e. the whole sample with
+         no colour-magnitude selection at all -- not even the finite-photometry
+         and positive-parallax cuts MatchedData applies by default, which only
+         exist so a star can be placed on the HR diagram for the binning.
 
 Everything else (edge clipping, train/test split seed, NaN handling, model
 settings) mirrors train_bins.py exactly. State files use the per-bin naming
@@ -33,6 +35,7 @@ import argparse
 from pathlib import Path
 
 import gaia_config as cfg
+import jax
 import numpy as np
 from analysis_funcs import (
     build_bins_from_config,
@@ -59,9 +62,32 @@ TRAIN_FRAC = cfg.TRAIN_FRAC
 RESULTS_DIR = Path("./gaia_rvs_results")
 
 # Bin tag used in state filenames: converged_state_R{K}_Q{Q}_bin_{tag}.npz
-SAMPLE_TAGS = {"ms": "full_ms", "all": "full_rvs"}
+SAMPLE_TAGS = {"ms": "full_ms", "all": "full_rvs", "all_filtered": "full_rvs"}
+
+# Numeric precision. The per-bin analysis in the paper ran on CPU, where float32
+# matmuls are exact; on Ampere and later GPUs jax defaults to TF32, which keeps
+# only ~10 mantissa bits. The ALS steps build normal equations by summing over
+# every spectrum, so at ~5e5 rows that is not enough precision and the loss can
+# fail to decrease monotonically.
+#   tf32  jax default on GPU -- fastest, least accurate
+#   fp32  float32 storage, full-precision float32 matmuls (no memory cost)
+#   fp64  float64 throughout -- most accurate, 2x memory, and much slower on
+#         cards without fast fp64 (e.g. 1:32 on an A6000 vs 1:2 on an A100/H100)
+PRECISIONS = ("tf32", "fp32", "fp64")
+DEFAULT_PRECISION = "fp64"
 
 # ============================================================================ #
+
+
+def configure_precision(precision):
+    """Apply a precision setting. Must run before any JAX array is created."""
+    if precision == "fp64":
+        jax.config.update("jax_enable_x64", True)
+    elif precision == "fp32":
+        jax.config.update("jax_default_matmul_precision", "highest")
+    elif precision != "tf32":
+        raise ValueError(f"Unknown precision: {precision!r} (use one of {PRECISIONS})")
+    return np.float64 if precision == "fp64" else np.float32
 
 
 def build_sample(sample="ms"):
@@ -69,7 +95,17 @@ def build_sample(sample="ms"):
 
     "ms":  union of all main-sequence bins, deduplicated (bins overlap since
            widths exceed spacing), idx/ids kept aligned.
-    "all": every spectrum in the matched RVS catalogue.
+    "all": every spectrum in the RVS file, with the HR-diagram metadata
+           filters off (see the module docstring). 999,645 spectra.
+
+    "all_filtered": the same, with the two metadata filters left on, which is
+           993,910 spectra. This is what "all" meant before the filters were
+           turned off, and it is the sample the saved full-RVS fit
+           (``full_rvs_final_weights.npz`` and its converged state, both 993,910
+           rows) was actually made on. Anything reading those files back has to
+           rebuild the sample this way or the rows do not line up; the assertion
+           in ``plot_final_outlier_spectra.load_outlier_inputs`` catches it.
+           Retire this once the final fit is redone on the full 999,645.
     """
     if sample == "ms":
         data, bins, _, _ = build_bins_from_config()
@@ -77,16 +113,17 @@ def build_sample(sample="ms"):
         all_ids = np.concatenate([b.ids for b in bins])
         _, first = np.unique(all_idx, return_index=True)
         return data, all_idx[first], all_ids[first], SAMPLE_TAGS["ms"]
-    elif sample == "all":
+    elif sample in ("all", "all_filtered"):
         from collect import MatchedData
 
-        data = MatchedData()
+        on = sample == "all_filtered"
+        data = MatchedData(filter_nans=on, filter_neg_parallax=on)
         idx = np.arange(len(data.spectra_indices))
-        return data, idx, data["source_id"], SAMPLE_TAGS["all"]
-    raise ValueError(f"Unknown sample: {sample!r} (use 'ms' or 'all')")
+        return data, idx, data["source_id"], SAMPLE_TAGS[sample]
+    raise ValueError(f"Unknown sample: {sample!r} (use 'ms', 'all' or 'all_filtered')")
 
 
-def load_full_ms_training_data(data, idx, train_frac=TRAIN_FRAC):
+def load_full_ms_training_data(data, idx, train_frac=TRAIN_FRAC, dtype=np.float32):
     """Training Y, W for the full-MS sample, mirroring train_bins.train_bin."""
     train_idx, _ = get_test_train_split_idx(len(idx), train_frac=train_frac)
     train_flux, train_u_flux = clip_edge_pix(*data.get_flux_batch(idx[train_idx]))
@@ -98,18 +135,25 @@ def load_full_ms_training_data(data, idx, train_frac=TRAIN_FRAC):
     W[~spec_nans_mask] = np.nan
     Y = np.nan_to_num(Y)
     W = np.nan_to_num(W)
-    return Y, W
+    # The HDF5 flux is float32, and jax preserves input dtypes -- without this
+    # cast, jax_enable_x64 silently has no effect and the fit stays in float32.
+    return Y.astype(dtype, copy=False), W.astype(dtype, copy=False)
 
 
 def main(ranks, q_vals, shard, n_shards, sample="ms", max_iter=MAX_ITER,
-         results_dir=RESULTS_DIR):
+         results_dir=RESULTS_DIR, precision=DEFAULT_PRECISION):
+    dtype = configure_precision(precision)
+    print(f"Precision: {precision} (dtype {np.dtype(dtype).name}, "
+          f"device {jax.devices()[0].device_kind})")
+
     print(f"Building sample '{sample}'...")
     data, idx, ids, tag = build_sample(sample)
     print(f"Sample '{tag}': {len(idx)} unique spectra")
 
     print("Loading training spectra...")
-    Y, W = load_full_ms_training_data(data, idx)
-    print(f"Training data: {Y.shape[0]} spectra x {Y.shape[1]} pixels")
+    Y, W = load_full_ms_training_data(data, idx, dtype=dtype)
+    print(f"Training data: {Y.shape[0]} spectra x {Y.shape[1]} pixels, "
+          f"{Y.dtype} ({(Y.nbytes + W.nbytes) / 2**30:.1f} GiB for Y+W)")
 
     # Grid, sharded round-robin so shards are balanced across ranks.
     Q_grid, Rank_grid = np.meshgrid(q_vals, ranks)
@@ -156,10 +200,16 @@ if __name__ == "__main__":
     parser.add_argument("--shard", type=int, default=0, help="This process's shard index")
     parser.add_argument("--n-shards", type=int, default=1, help="Total number of shards")
     parser.add_argument("--max-iter", type=int, default=MAX_ITER)
+    parser.add_argument("--precision", choices=PRECISIONS, default=DEFAULT_PRECISION,
+                        help="Numeric precision (default: %(default)s). tf32 is jax's "
+                             "GPU default and is too coarse for normal equations over "
+                             "~5e5 spectra; fp32 forces exact float32 matmuls at no "
+                             "memory cost; fp64 doubles memory and is slow without "
+                             "fast fp64 hardware.")
     args = parser.parse_args()
 
     if not (0 <= args.shard < args.n_shards):
         raise SystemExit(f"--shard must be in [0, {args.n_shards})")
 
     main(args.ranks, args.q_vals, args.shard, args.n_shards, sample=args.sample,
-         max_iter=args.max_iter)
+         max_iter=args.max_iter, precision=args.precision)
