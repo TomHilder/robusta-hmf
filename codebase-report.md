@@ -60,8 +60,7 @@ src/robusta_hmf/
 ├── als.py               # WeightedAStep, WeightedGStep (ALS solvers)
 ├── likelihoods.py       # Likelihood, GaussianLikelihood, StudentTLikelihood, CauchyLikelihood
 ├── rotations.py         # Rotation, Identity, FastAffine, SlowAffine
-├── regularisers.py      # Placeholder (unimplemented)
-├── init.py              # Initialization strategies (SVD, random)
+├── initialisation.py    # Initialization strategies (SVD, random, custom)
 └── py.typed             # PEP 561 marker
 ```
 

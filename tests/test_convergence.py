@@ -3,7 +3,7 @@
 import jax
 import jax.numpy as jnp
 import pytest
-from robusta_hmf.convergence import ConvergenceTester, max_frac_mat
+from robusta_hmf.convergence import ConvergenceTester, max_frac_mat, rel_frac_loss
 from robusta_hmf.state import RHMFState
 
 jax.config.update("jax_enable_x64", True)
@@ -83,4 +83,24 @@ def test_conv_tester_G_max_frac(shape, tol):
     assert not conv.is_converged(old_state, new_state, None, None)
 
 
-# TODO: Add tests for rel_frac_loss option!
+@pytest.mark.parametrize("tol", [1e-2, 1e-4, 1e-6])
+def test_rel_frac_loss_func(tol):
+    loss = 123.4
+    assert rel_frac_loss(loss, loss * (1 + 0.1 * tol), tol)
+    assert not rel_frac_loss(loss, loss * (1 + 10 * tol), tol)
+    # Direction-agnostic: increases count the same as decreases
+    assert rel_frac_loss(loss, loss * (1 - 0.1 * tol), tol)
+
+
+def test_conv_tester_rel_frac_loss():
+    conv = ConvergenceTester(strategy="rel_frac_loss", tol=1e-4)
+    state = RHMFState(A=jnp.zeros((2, 2)), G=jnp.zeros((2, 2)))
+    assert conv.is_converged(state, state, 100.0, 100.0 * (1 - 1e-6))
+    assert not conv.is_converged(state, state, 100.0, 50.0)
+
+
+def test_conv_tester_none_never_converges():
+    conv = ConvergenceTester(strategy="none")
+    state = RHMFState(A=jnp.zeros((2, 2)), G=jnp.zeros((2, 2)))
+    # Even bitwise-identical states and losses do not converge
+    assert not conv.is_converged(state, state, 1.0, 1.0)
