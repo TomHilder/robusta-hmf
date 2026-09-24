@@ -33,12 +33,7 @@ The library is presented in a paper with two example applications:
 
 Commit frequently to checkpoint progress — after completing any meaningful step, not just at the end of a task. Use small, incremental commits. If you notice changes are getting large (many files or hundreds of lines), stop and commit what you have before continuing.
 
-Commits must be authored as Tom Hilder, not as Claude:
-```
-git commit --author="Tom Hilder <tom.hilder.dlhp@gmail.com>"
-```
-
-Do not include `Co-Authored-By: Claude` in commit messages.
+Do not author or co-author commits as Claude: use the user's own git identity, and do not include `Co-Authored-By: Claude` in commit messages.
 
 Never chain `git add` and `git commit` with `&&`. Run them as separate sequential tool calls. Chained commands don't match the individual permission patterns in `.claude/settings.json` and will prompt the user for approval every time.
 
