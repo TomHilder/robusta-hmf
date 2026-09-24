@@ -459,7 +459,7 @@ class ShardedFrame(OptFrame):
                 Wt = likelihood.weights_total(y, w, a, G)  # (chunk, n_pix)
                 WY = Wt * y
                 # A step: row-local normal equations against the fixed G.
-                a_new = solve_normal_equations(*normal_equations(Wt, WY, G), ridge)
+                a_new = solve_normal_equations(*normal_equations(Wt, WY, G), ridge, n_obs=n_pix)
                 if skip_G:
                     return carry, a_new
                 # G step, accumulated: the same kernel with the roles of the
@@ -528,7 +528,9 @@ class ShardedFrame(OptFrame):
                 state = RHMFState(A=pass_one(Y, W, A, G), G=G, it=0)
             else:
                 MG, bG, A_new = pass_one(Y, W, A, G)
-                state = RHMFState(A=A_new, G=solve_normal_equations(MG, bG, ridge), it=0)
+                state = RHMFState(
+                    A=A_new, G=solve_normal_equations(MG, bG, ridge, n_obs=plan.n_rows), it=0
+                )
                 if rotate:
                     # Rotation is driven by G (replicated, (M, K)); the only
                     # sharded work is A @ R_inv, which is row-local.
@@ -614,7 +616,9 @@ class ShardedFrame(OptFrame):
                 y, w = xs
                 y = y.astype(cdtype)
                 w = w.astype(cdtype)
-                return None, solve_normal_equations(*normal_equations(w, w * y, G), ridge)
+                return None, solve_normal_equations(
+                    *normal_equations(w, w * y, G), ridge, n_obs=n_pix
+                )
 
             _, A = jax.lax.scan(
                 body, None, (Y_l.reshape(nc, chunk, n_pix), W_l.reshape(nc, chunk, n_pix))

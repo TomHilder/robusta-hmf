@@ -116,9 +116,10 @@ initialises so multi-device tests run on forced host CPU devices.
 - `test_rotations.py`, `test_hmf.py`, `test_convergence.py`, `test_initialisation.py`,
   `test_likelihoods.py`, `test_state.py`
 
-Two tests in `test_als.py` fail on jax 0.8 and pass on 0.4.28: `jnp.linalg.solve` changed
-behaviour for genuinely singular systems (`K > min(N, M)`), which those cases construct
-deliberately. Pre-existing, unrelated to the sharded work.
+`test_als.py` deliberately includes shapes with `K > min(N, M)`, where the normal equations
+are singular by construction. `solve_normal_equations` returns the minimum-norm solution there
+(it is told the fixed factor's row count via `n_obs`), rather than relying on
+`jnp.linalg.solve`, whose output for singular systems differs across jax versions.
 
 ---
 

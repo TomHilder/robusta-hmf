@@ -174,3 +174,20 @@ def test_ridge_makes_empty_rows_zero_too(ridge):
     A_new = WeightedAStep(ridge=ridge)(Y, W, state).A
     assert jnp.all(jnp.isfinite(A_new))
     assert jnp.allclose(A_new[2], 0.0)
+
+
+@pytest.mark.parametrize("shape", [(6, 5, 7), (5, 6, 7), (4, 3, 6)])
+def test_rank_deficient_steps_give_min_norm_solution(shape):
+    """With K > rows of the fixed factor, each step matches lstsq on the whitened problem."""
+    N, M, K = shape
+    Y, W, state = get_init_problem(0, N, M, K)
+    A_new = WeightedAStep()(Y, W, state).A
+    G_new = WeightedGStep()(Y, W, state).G
+    sw = jnp.sqrt(W)
+    for i in range(N):
+        a_ref = jnp.linalg.lstsq(sw[i, :, None] * state.G, sw[i] * Y[i])[0]
+        assert jnp.allclose(A_new[i], a_ref, atol=1e-10)
+    for j in range(M):
+        g_ref = jnp.linalg.lstsq(sw[:, j, None] * state.A, sw[:, j] * Y[:, j])[0]
+        assert jnp.allclose(G_new[j], g_ref, atol=1e-10)
+    assert jnp.all(jnp.isfinite(A_new)) and jnp.all(jnp.isfinite(G_new))

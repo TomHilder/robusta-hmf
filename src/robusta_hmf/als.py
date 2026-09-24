@@ -47,7 +47,9 @@ def normal_equations(W: Array, WY: Array, F: Array) -> tuple[Array, Array]:
     return M, b
 
 
-def solve_normal_equations(M: Array, b: Array, ridge: float | None = None) -> Array:
+def solve_normal_equations(
+    M: Array, b: Array, ridge: float | None = None, n_obs: int | None = None
+) -> Array:
     """Batched solve of the ALS normal equations, tolerant of empty rows.
 
     Parameters
@@ -58,6 +60,11 @@ def solve_normal_equations(M: Array, b: Array, ridge: float | None = None) -> Ar
         Batched right-hand sides.
     ridge : float | None, default=None
         Optional ridge added to the diagonal before solving.
+    n_obs : int | None, default=None
+        Number of rows in the fixed factor ``F`` that built ``M`` (pixels in the
+        A step, rows in the G step). ``M`` has rank at most ``n_obs``, so when
+        ``n_obs < K`` and there is no ridge every system is singular by
+        construction and the minimum-norm solution is returned instead.
 
     Returns
     -------
@@ -78,10 +85,20 @@ def solve_normal_equations(M: Array, b: Array, ridge: float | None = None) -> Ar
     With a ridge the matrix is never exactly zero and the guard never fires.
     That is correct rather than a gap -- ``ridge * I`` is already non-singular,
     and with ``b == 0`` it gives the same zero solution.
+
+    With ``K > n_obs`` (more components than the fixed factor has rows) the
+    weighted least-squares problem is underdetermined and ``solve`` is not
+    defined; what it returns varies across jax versions. This path instead
+    returns the minimum-norm solution, matching ``lstsq`` on the whitened
+    problem. ``b`` lies in the range of ``M``, so the pseudo-inverse solution
+    satisfies the normal equations exactly. The choice is made from static
+    shapes, so the full-rank case pays nothing for it.
     """
     eye = jnp.eye(M.shape[-1], dtype=M.dtype)
     if ridge is not None:
         M = M + ridge * eye
+    elif n_obs is not None and n_obs < M.shape[-1]:
+        return _min_norm_solve(M, b)
     empty = jnp.all(M == 0, axis=(-2, -1))
     M = jnp.where(empty[..., None, None], eye, M)
     b = jnp.where(empty[..., None], jnp.zeros_like(b), b)
@@ -90,13 +107,28 @@ def solve_normal_equations(M: Array, b: Array, ridge: float | None = None) -> Ar
     return jnp.linalg.solve(M, b[..., None])[..., 0]
 
 
+def _min_norm_solve(M: Array, b: Array) -> Array:
+    """Minimum-norm solution of batched symmetric PSD systems, via ``eigh``.
+
+    Eigenvalues below ``K * eps`` times the largest are treated as zero, the
+    same cutoff ``lstsq`` uses. An all-zero ``M`` has no eigenvalue above the
+    cutoff and gives a zero solution, so the empty-row guard is not needed here.
+    """
+    evals, evecs = jnp.linalg.eigh(M)
+    cutoff = M.shape[-1] * jnp.finfo(M.dtype).eps * jnp.max(evals, axis=-1, keepdims=True)
+    keep = evals > cutoff
+    inv = jnp.where(keep, 1 / jnp.where(keep, evals, 1), 0)
+    coef = jnp.einsum("...kj,...k->...j", evecs, b)
+    return jnp.einsum("...kj,...j->...k", evecs, inv * coef)
+
+
 class WeightedAStep(eqx.Module):
     ridge: float | None = eqx.field(static=True, default=None)
 
     def __call__(self, Y: Array, W: Array, state: RHMFState) -> RHMFState:
         G = state.G
         M, b = normal_equations(W, W * Y, G)
-        A_new = solve_normal_equations(M, b, self.ridge)  # [N, K]
+        A_new = solve_normal_equations(M, b, self.ridge, n_obs=G.shape[0])  # [N, K]
         return update_state(state, A=A_new)
 
 
@@ -106,5 +138,5 @@ class WeightedGStep(eqx.Module):
     def __call__(self, Y: Array, W: Array, state: RHMFState) -> RHMFState:
         A = state.A
         M, b = normal_equations(W.T, (W * Y).T, A)
-        G_new = solve_normal_equations(M, b, self.ridge)  # [D, K]
+        G_new = solve_normal_equations(M, b, self.ridge, n_obs=A.shape[0])  # [D, K]
         return update_state(state, G=G_new)
