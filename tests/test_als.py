@@ -76,3 +76,32 @@ def test_step_solution(stepper, shape, tol=1e-8):
     G_conds = G_normal_cond and G_KKT_cond and G_orth_cond
     # One of these should pass depending if it was A or G step
     assert A_conds or G_conds
+
+
+# ----------------------------
+# Verify ridge solutions
+# ----------------------------
+@pytest.mark.parametrize("ridge", [1e-3, 0.1, 10.0])
+def test_a_step_ridge_solution(ridge, tol=1e-8):
+    N, M, K = 6, 5, 3
+    Y, W, state = get_init_problem(0, N, M, K)
+    new_state = WeightedAStep(ridge=ridge)(Y, W, state)
+    A, G = new_state.A, new_state.G
+    # Each row satisfies (G^T W_i G + ridge I) a_i = G^T W_i y_i
+    for i in range(N):
+        lhs = (G.T * W[i]) @ G + ridge * jnp.eye(K)
+        rhs = (G.T * W[i]) @ Y[i]
+        assert norm(lhs @ A[i] - rhs) / norm(rhs) < tol
+
+
+@pytest.mark.parametrize("ridge", [1e-3, 0.1, 10.0])
+def test_g_step_ridge_solution(ridge, tol=1e-8):
+    N, M, K = 6, 5, 3
+    Y, W, state = get_init_problem(0, N, M, K)
+    new_state = WeightedGStep(ridge=ridge)(Y, W, state)
+    A, G = new_state.A, new_state.G
+    # Each column satisfies (A^T W_j A + ridge I) g_j = A^T W_j y_j
+    for j in range(M):
+        lhs = (A.T * W[:, j]) @ A + ridge * jnp.eye(K)
+        rhs = (A.T * W[:, j]) @ Y[:, j]
+        assert norm(lhs @ G[j] - rhs) / norm(rhs) < tol

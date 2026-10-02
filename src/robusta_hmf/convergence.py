@@ -3,13 +3,10 @@
 from dataclasses import dataclass, field
 from typing import Literal, get_args
 
-import jax
 import jax.numpy as jnp
 from jaxtyping import Array
 
 from .state import RHMFState
-
-jax.config.update("jax_enable_x64", True)
 
 ConvStrategy = Literal["max_frac_G", "max_frac_A", "rel_frac_loss", "none"]
 

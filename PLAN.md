@@ -26,14 +26,12 @@ retire this file.
   the prefactor (match Eq. 170) or use $(\nu+1)/2$ — and apply it consistently across
   `StudentTLikelihood.loss` and `CauchyLikelihood.loss`.
 - **Docs** — user-facing documentation (README, usage/API docs, docstrings).
-- **Better tests** — expand coverage beyond the current ALS/rotation unit tests
-  (`test_hmf.py` is currently commented out); add end-to-end and edge-case tests.
 - **Type-checking everywhere** — comprehensive type annotations + a type checker run
   across the codebase (the package already ships a `py.typed` marker).
 - **Code clean-up** — refactors and dead-code removal.
 
 **Possible extensions** (ideas, not commitments)
-- Regularisation (the `regularisers.py` placeholder is currently unimplemented).
+- Regularisation (no implementation yet; the empty `regularisers.py` placeholder was removed 2026-07-30).
 - Non-pixel bases.
 - Others TBD.
 
@@ -45,3 +43,4 @@ Append-only. Add an entry when you do something notable.
 |------|-------|
 | 2026-08-02 | Packed the final full-RVS fit (K=16, Q=7.5) into a single HDF5 file — flux, ivar, model flux, per-pixel robust weights and the whole metadata CSV, in catalogue row order (`export_model_hdf5.py`, `gaia_rvs_results/full_rvs_K16_Q7.50_model.hdf5`, 36 GiB). Added `make_paper_figs.py outlier_taxonomy`: one paper-style exemplar per outlier group named in Section 5, titled "Gaia DR3 <id>: <group>", with Ce/Nd/Zr abundance windows on the neutron-capture example. |
 | 2026-06-27 | Slimmed the project-management scaffolding. The previous PLAN.md (full task/decision/log history through Task 17) is preserved in git history. Reduced PLAN.md to status + outstanding-work; trimmed CLAUDE.md project-management ceremony; removed equinox-report.md (also in history). |
+| 2026-07-30 | Expanded the test suite (`test-suite` branch): integration tests for the public Robusta API (ground-truth recovery, robust downweighting, infer, missing data, serialization, warnings/errors), resurrected `test_hmf.py`, ridge normal-equation and npz round-trip tests. Suite is 207 tests, ~16 s. Fixed a bug where `Robusta.fit(method="sgd")` crashed (`step_sgd` did not accept `skip_G`). Closes the "Better tests" outstanding item. |

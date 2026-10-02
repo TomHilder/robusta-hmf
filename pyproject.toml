@@ -38,6 +38,9 @@ source = "vcs"
 [tool.ruff]
 line-length = 99 # Sorry PEP8 I'm a rebel
 
+[tool.coverage.run]
+omit = ["*/_version.py"]
+
 [dependency-groups]
 dev = ["mypy>=1.18.0", "pytest>=8.4.0", "pytest-cov>=7.0.0"]
 examples = [
