@@ -10,7 +10,12 @@ authors = [
 requires-python = ">=3.10"
 dependencies = [
     "equinox>=0.13.0",
-    "jax>=0.6.0",
+    # 0.4.28 is the floor because that is what the GPU deployments actually run
+    # (see examples_paper/gaia_rvs). robusta_hmf.sharded shims the shard_map
+    # move (jax.experimental.shard_map -> jax.shard_map, and the check_rep ->
+    # check_vma rename in 0.8) so both sides of those changes work.
+    "jax>=0.4.28",
+    "numpy>=1.24",
     "optax>=0.2.0",
     "pandas>=2.3.3",
 ]

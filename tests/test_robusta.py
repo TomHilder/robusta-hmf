@@ -212,6 +212,30 @@ def test_fully_masked_column_with_ridge(low_rank_problem):
     assert np.allclose(np.asarray(state.G)[5], 0.0)
 
 
+def test_fit_and_infer_survive_dead_row_and_column(low_rank_problem):
+    """A wholly-masked row and column must not NaN the batched solve (no ridge)."""
+    Y = jnp.array(low_rank_problem["Y"])
+    W = low_rank_problem["W"].copy()
+    W[4, :] = 0.0  # a spectrum that is NaN throughout, after masking
+    W[:, 5] = 0.0  # a pixel masked in every spectrum
+    W = jnp.array(W)
+
+    model = Robusta(rank=RANK, robust=False, conv_tol=1e-10)
+    state, loss_history = model.fit(Y, W, max_iter=200)
+    assert np.all(np.isfinite(np.asarray(state.A)))
+    assert np.all(np.isfinite(np.asarray(state.G)))
+    assert np.all(np.isfinite(np.asarray(loss_history)))
+    # The uninformed row and column carry no information, so they solve to zero.
+    assert np.allclose(np.asarray(state.A)[4], 0.0)
+    assert np.allclose(np.asarray(state.G)[5], 0.0)
+
+    # infer() on a held-out set containing an all-masked spectrum
+    infer_state, infer_loss = model.infer(Y, W, state=state, max_iter=50, conv_tol=1e-10)
+    assert np.all(np.isfinite(np.asarray(infer_state.A)))
+    assert np.all(np.isfinite(np.asarray(infer_loss)))
+    assert np.allclose(np.asarray(infer_state.A)[4], 0.0)
+
+
 # ----------------------------
 # Shape extremes
 # ----------------------------

@@ -1,5 +1,12 @@
 # conftest.py
 
+import os
+
+# Must be set before jax initialises its CPU backend, so that tests/test_sharded.py
+# can build a 4-device mesh without any real accelerator. Harmless elsewhere: the
+# extra devices are only used by meshes that ask for them by name.
+os.environ.setdefault("XLA_FLAGS", "--xla_force_host_platform_device_count=4")
+
 import jax
 import numpy as np
 import pytest
