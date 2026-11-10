@@ -93,6 +93,7 @@ from .als import normal_equations, solve_normal_equations
 from .frame import OptFrame
 from .initialisation import Initialiser, InitStrategy
 from .metrics import ZMoments
+from .precision import nonfinite_loss_message
 from .state import RHMFState
 
 ROW_AXIS = "rows"
@@ -317,8 +318,11 @@ class ShardedFrame(OptFrame):
         On-device dtype for ``Y`` and ``W``. Measurements are usually float32
         to begin with, and all arithmetic still happens in ``compute_dtype``.
     compute_dtype : dtype | None, default=None
-        Dtype of the arithmetic and of ``A``/``G``. Defaults to float64 when
-        ``jax_enable_x64`` is set, float32 otherwise.
+        Dtype of the arithmetic and of ``A``/``G``. When None, it comes from
+        the ``dtype`` of the :class:`~robusta_hmf.Robusta` model the frame is
+        bound to (float64 by default). Setting it here is the same explicit
+        choice as passing ``dtype`` to ``Robusta``; setting both to different
+        values is an error.
     verbose : bool, default=True
         Print the sharding and memory summary when the data is placed.
 
@@ -341,13 +345,21 @@ class ShardedFrame(OptFrame):
     verbose: bool = True
 
     mesh: Mesh = field(init=False, repr=False, default=None)
+    _compute_dtype_explicit: bool = field(init=False, repr=False, default=False)
 
     def __post_init__(self):
         self.mesh = build_mesh(self.devices)
         self.store_dtype = np.dtype(self.store_dtype)
+        self._compute_dtype_explicit = self.compute_dtype is not None
         if self.compute_dtype is None:
+            # Unbound frames still need a concrete dtype; Robusta's bind()
+            # replaces this with the model's dtype.
             self.compute_dtype = np.float64 if jax.config.jax_enable_x64 else np.float32
         self.compute_dtype = np.dtype(self.compute_dtype)
+
+    def requested_dtype(self):
+        """The ``compute_dtype`` the user set on this frame, or None."""
+        return self.compute_dtype if self._compute_dtype_explicit else None
 
     @property
     def n_devices(self) -> int:
@@ -591,7 +603,9 @@ class ShardedFrame(OptFrame):
                 prev_loss = loss
                 print(f"iter {state.it:03d} | loss {loss:.4f}", flush=True)
                 if not np.isfinite(float(loss)):
-                    raise FloatingPointError(f"Loss is not finite at iteration {i}: {loss}")
+                    raise FloatingPointError(
+                        nonfinite_loss_message(i, loss, self.compute_dtype)
+                    )
 
         state = RHMFState(A=A[: plan.n_rows], G=G, it=it0 + len(loss_history))
         return state, jnp.array(loss_history)

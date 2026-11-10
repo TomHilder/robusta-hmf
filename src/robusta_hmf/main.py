@@ -4,6 +4,8 @@ import warnings
 from copy import deepcopy
 from dataclasses import dataclass
 
+import jax.numpy as jnp
+import numpy as np
 from jaxtyping import Array
 
 from .convergence import ConvergenceTester
@@ -11,6 +13,7 @@ from .frame import OptFrame
 from .hmf import HMF, OptMethod
 from .initialisation import Initialiser
 from .metrics import ZMoments
+from .precision import DEFAULT_DTYPE, check_precision, resolve_dtype
 from .rotations import RotationMethod
 from .state import RHMFState
 
@@ -27,6 +30,7 @@ class Robusta:
 
     rank: int
     method: OptMethod
+    dtype: np.dtype
 
     _hmf: HMF
     _initialiser: Initialiser
@@ -57,6 +61,8 @@ class Robusta:
         als_ridge: float | None = None,
         learning_rate: float = 1e-3,
         rotation: RotationMethod = "fast",
+        # Precision
+        dtype: str | np.dtype | None = None,
         **rotation_kwargs,
     ):
         """
@@ -96,11 +102,22 @@ class Robusta:
             Learning rate for SGD (only used if method="sgd")
         rotation : RotationMethod, default="fast"
             Rotation method to use
+        dtype : {"float64", "float32"} or dtype, default="float64"
+            Precision of the fit. ``Y``, ``W``, ``A`` and ``G`` are cast to it.
+            float64 needs JAX's float64 support, enabled with
+            ``jax.config.update("jax_enable_x64", True)`` before any JAX array
+            is created; without it, fitting raises
+            :class:`~robusta_hmf.precision.PrecisionError` rather than silently
+            running in float32. float32 is faster, especially on GPUs, but can
+            diverge when rows or columns of ``W`` have fewer non-zero weights
+            than ``rank``, so it has to be requested explicitly. When None, a
+            ``compute_dtype`` set on ``override_frame`` is used, else float64.
         **rotation_kwargs
             Additional arguments for rotation method
         """
         self.rank = rank
         self.method = method
+        self.dtype = self._resolve_model_dtype(dtype, override_frame)
 
         # Build HMF
         self._hmf = HMF(
@@ -134,13 +151,30 @@ class Robusta:
         # scheduling parameters; bind() wires it to this model so the two never
         # hold duplicate copies of the configuration.
         if override_frame is None:
-            self._frame = OptFrame(method=self._hmf, conv_tester=self._conv_tester)
+            self._frame = OptFrame(
+                method=self._hmf, conv_tester=self._conv_tester, compute_dtype=self.dtype
+            )
         else:
-            self._frame = override_frame.bind(self._hmf, self._conv_tester)
+            self._frame = override_frame.bind(self._hmf, self._conv_tester, self.dtype)
 
         # Initialize internal state
         self._state = None
         self._loss_history = None
+
+    @staticmethod
+    def _resolve_model_dtype(dtype, override_frame: OptFrame | None) -> np.dtype:
+        """The model's dtype, reconciled with any ``compute_dtype`` on the frame."""
+        frame_dtype = None if override_frame is None else override_frame.requested_dtype()
+        frame_dtype = None if frame_dtype is None else resolve_dtype(frame_dtype)
+        if dtype is None:
+            return frame_dtype if frame_dtype is not None else DEFAULT_DTYPE
+        dtype = resolve_dtype(dtype)
+        if frame_dtype is not None and frame_dtype != dtype:
+            raise ValueError(
+                f"Robusta(dtype={dtype.name!r}) conflicts with the frame's "
+                f"compute_dtype={frame_dtype.name!r}; set only one of them."
+            )
+        return dtype
 
     def set_state(self, state: RHMFState) -> "Robusta":
         """
@@ -201,6 +235,8 @@ class Robusta:
         loss_history : Array
             Loss values over iterations
         """
+        check_precision(self.dtype, self.rank)
+
         # Let the frame place the data first: the initialiser and the loop both
         # consume whatever it hands back.
         Y, W = self._frame.prepare(Y, W)
@@ -330,6 +366,8 @@ class Robusta:
             raise ValueError(
                 "No trained state available. Either provide state or call fit() first."
             )
+        check_precision(self.dtype, self.rank)
+        G_fixed = jnp.asarray(G_fixed, self.dtype)
 
         # Place the held-out data the same way the frame places training data.
         Y_infer, W_infer = self._frame.prepare(Y_infer, W_infer)
@@ -345,7 +383,7 @@ class Robusta:
 
         # Run one-sided optimization through this model's frame
         conv_tester = ConvergenceTester(strategy=conv_strategy, tol=conv_tol)
-        frame = self._frame.bind(self._hmf, conv_tester)
+        frame = self._frame.bind(self._hmf, conv_tester, self.dtype)
         final_state, loss_history = frame.run(
             Y=Y_infer,
             W=W_infer,
@@ -395,8 +433,9 @@ class Robusta:
         state = state if state is not None else self._state
         if state is None:
             raise ValueError("No trained state available. Call fit() first.")
+        check_precision(self.dtype, self.rank)
         Y, W = self._frame.prepare(Y, W)
-        return self._frame.z_moments(Y, W, state)
+        return self._frame.z_moments(Y, W, self._frame.cast_state(state))
 
     def basis_vectors(self, state: RHMFState | None = None) -> Array:
         """
