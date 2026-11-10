@@ -213,7 +213,8 @@ def load_bin_results(i_bin, ranks, q_vals, results_dir):
         state = load_state_from_npz(state_file)
         states.append(state)
 
-        rhmf = Robusta(rank=rank, robust_scale=Q)
+        # Infer and score in the dtype the state was loaded in.
+        rhmf = Robusta(rank=rank, robust_scale=Q, dtype=state.G.dtype)
         rhmf._state = state
         rhmf_objs.append(rhmf)
 

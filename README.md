@@ -30,6 +30,9 @@ Given a data matrix `Y` of shape `(N, M)` and a matching matrix of inverse-varia
 weights `W`, fit a rank-`K` factorisation `Y ≈ A @ G.T`:
 
 ```python
+import jax
+jax.config.update("jax_enable_x64", True)  # robusta-hmf fits in float64 by default
+
 from robusta_hmf import Robusta
 
 # rank-5 robust fit; robust_scale controls how aggressively outliers are downweighted
@@ -44,6 +47,19 @@ reconstruction = model.synthesize()   # A @ G.T, shape (N, M)
 Missing or masked data is handled by setting the corresponding entries of `W` to `0`.
 See `examples_paper/` for complete, worked pipelines (synthetic validation in `toy/` and
 Gaia RVS spectra in `gaia_rvs/`).
+
+### Precision
+
+Fits run in float64 by default. JAX only provides float64 once
+`jax.config.update("jax_enable_x64", True)` has been called, before any JAX array is
+created. Without it, `fit()`, `infer()` and `score()` raise `PrecisionError` instead of
+silently computing in float32.
+
+float32 is supported as an explicit choice, `Robusta(..., dtype="float32")`, and is much
+faster on GPUs. It is also less forgiving: rows or columns of `W` with fewer non-zero
+weights than the rank leave the ALS solves under-determined, and in float32 that can
+make the fit diverge. If the loss ever goes non-finite, the fit stops with a
+`FloatingPointError` that names the likely cause.
 
 ### Model selection
 
@@ -83,7 +99,8 @@ state, loss_history = model.fit(Y, W)   # plain numpy arrays; never fully copied
 
 Everything else — `infer`, `synthesize`, `score`, `coefficients`, `residuals` — works
 unchanged, and the results match the ordinary path to round-off. `Y` and `W` are stored on
-device in float32 by default while all arithmetic stays in float64, halving resident memory.
+device in float32 by default while all arithmetic happens in the model's `dtype` (float64
+unless you opt in to float32), halving resident memory.
 
 To fit several models to one sample (say a `(K, Q)` grid) without re-transferring the data,
 place it once and reuse the handle:

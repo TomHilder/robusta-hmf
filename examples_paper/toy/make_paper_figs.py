@@ -34,10 +34,14 @@ from numpy.random import default_rng
 from r_pca import RobustPCA
 from run_toy_gen_and_fits import M_PIXELS, N_SPECTRA, N_TRAIN, Q_VALS, RANKS
 from sklearn.metrics import f1_score
+import jax
 from tqdm import tqdm
 
 from robusta_hmf import Robusta
 from robusta_hmf.state import RHMFState, load_state_from_npz
+
+# The published toy results are float64 fits (Robusta's default dtype).
+jax.config.update("jax_enable_x64", True)
 
 plt.style.use("mpl_drip.custom")
 

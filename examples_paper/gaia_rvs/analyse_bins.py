@@ -27,6 +27,10 @@ from analysis_funcs import (
     save_bin_results,
 )
 
+# The per-bin fits and analysis were run with JAX's float64 support on, so saved
+# states load back in the dtype they were fitted in.
+jax.config.update("jax_enable_x64", True)
+
 plt.style.use("mpl_drip.custom")
 
 # ============================================================================ #
