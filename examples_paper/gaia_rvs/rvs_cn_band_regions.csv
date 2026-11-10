@@ -1,0 +1,5 @@
+lambda_vac_nm_start,lambda_vac_nm_end,species,notes
+846.7,848.7,CN,"CN red system (A-X), prominent in cool giants"
+850.2,852.2,CN,CN band
+859.2,862.2,CN,CN band - GSP-Spec uses CN EW at 862.4 nm
+865.2,868.2,CN,CN band

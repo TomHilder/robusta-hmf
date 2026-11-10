@@ -1,0 +1,81 @@
+lambda_vac_nm,species,category,notes
+846.991,H I,strong_feature,Paschen 16 (Pa16) - emission in Be stars
+847.075,Fe I,abundance_line,log(gf)=-2.07
+848.39,Fe I,abundance_line,log(gf)=-1.64
+848.416,Mg I,strong_feature,Strong in cool stars
+849.320,Fe I,abundance_line,log(gf)=-2.06
+849.471,H I,strong_feature,Paschen 15 (Pa15)
+850.035,Ca II,strong_feature,"CaT 8498 - strongest line, emission cores indicate chromospheric activity"
+850.201,Fe I,strong_feature,Blend region
+850.455,Si I,abundance_line,log(gf)=-1.44
+851.645,Ti I,abundance_line,log(gf)=-1.69
+851.761,Zr I,abundance_line,log(gf)=-0.91
+851.80,Fe I,strong_feature,Clean line
+851.80,Fe I,abundance_line,log(gf)=-2.07
+852.036,Ca I,abundance_line,log(gf)=-0.44
+852.379,H I,strong_feature,Paschen 14 (Pa14)
+852.640,Ti I,abundance_line,log(gf)=-1.5
+852.881,Fe I,abundance_line,log(gf)=-0.81
+853.276,Ce II,abundance_line,log(gf)=-0.13
+853.372,Zr I,abundance_line,log(gf)=-1.33
+853.641,Fe I,abundance_line,log(gf)=-0.92
+853.823,Si I,abundance_line,log(gf)=-1.3
+854.444,Ca II,strong_feature,CaT 8542
+854.706,Ca I,abundance_line,log(gf)=-0.48
+855.261,Si I,abundance_line,log(gf)=-1.17
+855.512,Ca I,abundance_line,log(gf)=0.01
+855.827,H I,strong_feature,Paschen 13 (Pa13)
+855.933,Nd II,abundance_line,log(gf)=-0.53
+856.302,Cr I,abundance_line,log(gf)=-0.37
+856.648,Cr I,abundance_line,log(gf)=-0.27
+856.924,Ce II,abundance_line,log(gf)=-0.02
+857.11,Ti I,abundance_line,log(gf)=-1.8
+857.718,Ca I,abundance_line,log(gf)=-0.58
+858.151,Ce II,abundance_line,log(gf)=-0.21
+858.494,Fe I,abundance_line,log(gf)=-2.13
+858.629,Ti I,abundance_line,log(gf)=-1.4
+858.741,Fe I,strong_feature,Strong
+859.827,Si I,abundance_line,log(gf)=-1.05
+859.999,H I,strong_feature,Paschen 12 (Pa12)
+860.12,Fe I,strong_feature,Strong
+860.12,Fe I,abundance_line,log(gf)=-0.96
+860.369,Ca I,abundance_line,log(gf)=-0.36
+860.791,Si I,abundance_line,log(gf)=-1.75
+860.945,Fe I,abundance_line,log(gf)=-1.23
+861.345,Fe I,abundance_line,log(gf)=-1.9
+861.640,Ni I,abundance_line,log(gf)=-0.07
+861.773,Nd II,abundance_line,log(gf)=-0.66
+862.528,Ni I,abundance_line,log(gf)=-0.42
+862.596,Fe I,abundance_line,log(gf)=-0.97
+862.6,DIB,interstellar,"DIB λ8620 - interstellar, NOT stellar. GSP-Spec measures this."
+863.161,N I,strong_feature,N multiplet
+863.399,Si I,abundance_line,log(gf)=-0.38
+863.524,N I,strong_feature,N multiplet
+864.245,Zr I,abundance_line,log(gf)=-0.99
+864.481,Ca I,abundance_line,log(gf)=0.51
+864.885,Ti I,abundance_line,log(gf)=-1.09
+865.210,H I,strong_feature,Paschen 11 (Pa11)
+865.424,Ca I,abundance_line,log(gf)=-1.31
+865.687,Ni I,abundance_line,log(gf)=-0.68
+865.961,Ti I,abundance_line,log(gf)=-1.11
+866.167,Cr I,abundance_line,log(gf)=-0.87
+866.452,Ca II,strong_feature,CaT 8662
+866.586,Cr I,abundance_line,log(gf)=-0.62
+867.046,Ce II,abundance_line,log(gf)=0.15
+867.537,Ti I,abundance_line,log(gf)=-1.37
+867.715,Fe I,strong_feature,Strong
+867.715,Fe I,abundance_line,log(gf)=-1.79
+868.167,Si I,abundance_line,log(gf)=-1.1
+868.184,N I,strong_feature,N triplet
+868.266,N I,strong_feature,N triplet
+868.371,Ni I,abundance_line,log(gf)=-0.72
+868.58,N I,strong_feature,N triplet
+868.587,Ti I,abundance_line,log(gf)=-1.82
+868.861,Si I,abundance_line,log(gf)=-1.56
+869.098,Fe I,strong_feature,Strong
+869.098,Fe I,abundance_line,log(gf)=-1.21
+869.284,Nd II,abundance_line,log(gf)=-0.17
+869.65,Zr I,abundance_line,log(gf)=-0.52
+869.791,S I,abundance_line,log(gf)=0.048
+869.871,S I,abundance_line,log(gf)=-0.49
+869.940,S I,abundance_line,log(gf)=-0.64

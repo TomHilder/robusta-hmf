@@ -53,9 +53,15 @@ class HMF(eqx.Module):
             custom_opt: Custom optimizer for SGD (only used if method="sgd")
             **rotation_kwargs: Additional arguments for rotation method
         """
-        # Configure likelihood based on robust flag
+        # Configure likelihood based on robust flag.
+        # Coerce to Python floats: `likelihood` is a static field, and callers
+        # commonly pass numpy scalars (e.g. from a meshgrid'd (K, Q) parameter
+        # sweep). Equinox treats any numpy scalar as an array and warns loudly
+        # about static arrays. It is harmless here -- a 0-d numpy scalar hashes
+        # and compares like a float, so it keys the jit cache correctly -- but
+        # the warning would mask a real one.
         if robust:
-            self.likelihood = StudentTLikelihood(nu=robust_nu, scale=robust_scale)
+            self.likelihood = StudentTLikelihood(nu=float(robust_nu), scale=float(robust_scale))
         else:
             self.likelihood = GaussianLikelihood()
 

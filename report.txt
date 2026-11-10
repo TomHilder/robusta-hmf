@@ -1,0 +1,59 @@
+This is the referee report for the paper - "Robust Heteroskedastic Matrix Factorization: A Generalization of PCA that Flags Outliers and Handles Missing Data" by Thomas Hilder, David Hogg, Andrew Casey, and Hans-Walter Rix. The development of the new technique and its scientific applications can potentially play a crucial role in extracting information from large astronomical datasets. The paper is well-written. However, there are some parts of the analysis which can be better clarified, added, and improved. The authors would need to address these concerns before the paper is recommended for publication.
+
+Major comments:
+
+The major missing component in this paper is the demonstration of the eigenspectra, the explained variances, and the distributions of coefficients from the RHMF technique. These are key information that the readers would expect to see for using PCA type techniques. In addition, one can interpret the hidden patterns in the dataset via the eigenspectra. The authors can compare the eigenspectra from RHMF and from classical PCA and demonstrate how the RHMF can capture the underlying data patterns without the effect of outliers.
+
+In Section 3, it will be informative to show the examples of eigenspectra as a function of Rank K and Robust scale Q for the toy dataset as well as the Gaia dataset and the comparison with the eigenspectra from PCA and RPCA [and EMPCA as mentioned below]. This will allow readers to understand how the developed new method can better learn the underlying spectral patterns.
+
+In addition, to identify outliers, the new method utilizes the robust weights. However, a discussion and comparison with results from classical PCA methods are required. For example, one can use the coefficient values and the distributions from the classical PCA method to identify outliers. Can one also use the coefficient values from RHMF to identify outliers? What are the main differences for identifying outliers using robust weights and coefficients? Do they complement each other or robust weights are a better indicator? Adding more discussions will further help the readers understand this technique and its scientific applications.
+
+In the following, comments in each section are listed below:
+
+Section 1. Introduction
+
+1. The 1st paragraph of the introduction focuses on stellar spectra. However, this technique in principle can be applied to any type of source. The reviewer would recommend that the authors broaden the scope of the introduction in the 1st paragraph.
+
+2. There are several key early references about PCA applications on astronomical spectroscopic datasets which are not mentioned in the introduction, such as
+Connolly et al. (1995),[https://ui.adsabs.harvard.edu/abs/1995AJ....110.1071C/abstract]
+Connolly and Szalay (1999) [https://ui.adsabs.harvard.edu/abs/1999AJ....117.2052C/abstract],
+Yip et al. (2004) https://ui.adsabs.harvard.edu/abs/2004AJ....128.2603Y/abstract
+There are also references about handling missing dataset and weighing schemes for the PCA components such as Budavari et al. (2009) [https://ui.adsabs.harvard.edu/abs/2009MNRAS.394.1496B/abstract], Delchambre 2014 [https://academic.oup.com/mnras/article/446/4/3545/2891891] and Bailey (2012) [https://arxiv.org/abs/1208.4122].
+The reviewer thinks that these references should be included and discussed especially for the PCA applications that aim to address some of the key questions in this work. For example, some of the above mentioned references addressed Line 91 "Unfortunately, none of these methods handle the common issues of missing data .... Uncertainties access the data"
+
+Section 2. Method
+3. Line 168: This model assumes that the outliers in the data are rarer. But, it is unclear what kind of spectra would be considered as outliers. For example, if there are 4 types of stellar spectra with distinct absorption line patterns and they have similar numbers. How would the model handle this kind of situation? For another example, if the numbers of the 4 types of stars are 100,100,50,and 10. Would the model consider the type of stars with 10 spectra outliers? This links to point 8. How would the model behave if the input data does not have assumed properties?
+This would need to be discussed more in the discussion section.
+
+4. For the initialization, the model uses the first K eigenspectra from PCA. When using PCA, the mean spectrum needs to be subtracted from the dataset. Is the same operation needed for this RHMF method? This is worth mentioning in the paper. It seems that there is no mean subtraction mentioned in the paper.
+
+Section 3. Experiments
+5. Line 368 and Figure 1. Here the authors compare the RHMF results with the results from PCA and robust PCA. As far as the reviewer knows, the PCA and robust PCA methods do not consider weights in the dataset. However, there are PCA techniques that include weights and missing data, such as https://github.com/sbailey/empca. It is fairer to compare the results from the techniques that also consider uncertainty and missing data. The comparison will further highlight the power of the RHMF technique.
+
+6. For the toy dataset, it seems to the reviewer that the data fluctuation is mild. The reviewer would recommend that the authors add a wide range of slopes which can mimic more astronomical objects, such as quasar spectra for example to demonstrate that such features can also be captured by the RHMF method.
+
+7. Figure 4: the best models with lower KL values have K>=5 and Q=5, while the best models for the highest F1 scores (per-pixel identification) have K>=5 and Q=4 and Q=3 for the per-object identification. What causes the differences of the best combinations of K and Q values? It is worth discussing.
+
+8. Line 445: Some details of the Gaia RVS data properties are needed. For example, are the spectra continuum normalized? What is the wavelength coverage?
+
+9. Line 454: The reviewer understands that performing the RHMF on the subsamples with similar properties will allow the RHMF to learn similar spectral structure. But, in many astronomical applications, especially for dimensional reduction analysis, one would apply the technique to the entire dataset and the diversity of the data properties (as well as the outliers) can be captured by the coefficient distributions. The reviewer would think that the results of applying the method to subsamples do not fully demonstrate the potential and the limitations of this method. Applying the RHMF to the entire main sequence stellar spectra is highly recommended.
+
+10. Line 490-491: This connects to my main comment. Including higher K components will capture the possible outlier structure, but one can identify those outliers from the corresponding coefficients of the higher K components. Therefore, it is worth discussing the roles that robust weights and coefficients play for identifying outliers.
+
+11. Line 459: For the application of Gaia spectra, while the authors mentioned that outlier identification is relatively insensitive to the choice of Q and K based on the top example, it is unclear that the data properties of real stars are similar to the properties of the toy dataset. If they have different properties, does the statement still hold?
+
+12. Given that the workflow recommended by the authors includes the evaluation of (Q, K) grid, the reviewer suggests that the authors perform the cross-validation analysis to obtain the possible best Q and K values for the Gaia stellar spectra for the consistency of the demonstration and the consistency of the workflow.
+
+Minor comments:
+
+Figure 3. X-axis label: mean -> median?
+Figure 6. X-axis label: Median Per-Spectrum Weight?
+
+Line 216: It's -> it is
+Line 570: wasn't -> was not
+Line 593: That's -> That is
+Line 595: You're -> you are
+
+Appendix B.
+The reviewer recommends that the authors show a representative set of toy model spectra to demonstrate the diversity of the dataset. This will allow readers to better understand the properties of the dataset that the RHMF handled.
+

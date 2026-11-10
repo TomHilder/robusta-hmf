@@ -1,0 +1,22 @@
+lambda_vac_nm,species,feature_type,notes
+850.035,Ca II,absorption,"CaT 8498 - strongest line, emission cores indicate chromospheric activity"
+854.444,Ca II,absorption,CaT 8542
+866.452,Ca II,absorption,CaT 8662
+846.991,H I,absorption/emission,Paschen 16 (Pa16) - emission in Be stars
+849.471,H I,absorption/emission,Paschen 15 (Pa15)
+852.379,H I,absorption/emission,Paschen 14 (Pa14)
+855.827,H I,absorption/emission,Paschen 13 (Pa13)
+859.999,H I,absorption/emission,Paschen 12 (Pa12)
+865.210,H I,absorption/emission,Paschen 11 (Pa11)
+848.416,Mg I,absorption,Strong in cool stars
+850.201,Fe I,absorption,Blend region
+851.80,Fe I,absorption,Clean line
+858.741,Fe I,absorption,Strong
+860.12,Fe I,absorption,Strong
+867.715,Fe I,absorption,Strong
+869.098,Fe I,absorption,Strong
+863.161,N I,absorption,N multiplet
+863.524,N I,absorption,N multiplet
+868.184,N I,absorption,N triplet
+868.266,N I,absorption,N triplet
+868.58,N I,absorption,N triplet
