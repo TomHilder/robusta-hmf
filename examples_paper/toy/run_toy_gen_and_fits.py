@@ -14,10 +14,14 @@ from gen_data import (
 )
 from matplotlib.colors import ListedColormap
 from numpy.random import default_rng
+import jax
 from tqdm import tqdm
 
 from robusta_hmf import Robusta
 from robusta_hmf.state import RHMFState
+
+# The published toy results are float64 fits (Robusta's default dtype).
+jax.config.update("jax_enable_x64", True)
 
 
 def save_state_to_npz(state: RHMFState, filepath: Path):

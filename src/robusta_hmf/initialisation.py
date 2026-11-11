@@ -1,6 +1,6 @@
 # initialisation.py
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, TypeAlias, get_args
 
 import jax
@@ -53,16 +53,32 @@ def custom_init(A: Array, G: Array, N: int, M: int, K: int) -> tuple[Array]:
 
 @dataclass(frozen=True)
 class Initialiser:
-    N: int
-    M: int
-    K: int
-    strategy: InitStrategy
+    """Seeds ``(A, G)`` before the optimisation loop starts.
+
+    ``N``, ``M`` and ``K`` may be left unset, in which case :meth:`Robusta.fit`
+    fills them in from the data. That is what lets a user hand ``Robusta`` a
+    bare ``override_initialiser`` without having to know the shapes up front.
+    """
+
+    N: int | None = None
+    M: int | None = None
+    K: int | None = None
+    strategy: InitStrategy = "svd"
 
     def __post_init__(self):
         if self.strategy not in get_args(InitStrategy):
             raise ValueError(
                 f"Invalid strategy: {self.strategy}. Must be one of {get_args(InitStrategy)}."
             )
+
+    def with_dims(self, N: int, M: int, K: int) -> "Initialiser":
+        """Fill in whichever of ``N``, ``M``, ``K`` are unset. Explicit values win."""
+        missing = {
+            name: value
+            for name, value in (("N", N), ("M", M), ("K", K))
+            if getattr(self, name) is None
+        }
+        return replace(self, **missing) if missing else self
 
     def execute(
         self,

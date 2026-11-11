@@ -260,6 +260,7 @@ def fit_one(rank, q, train, args, dtype, devices):
         model = Robusta(
             rank=rank,
             robust_scale=q,
+            dtype=dtype,
             conv_strategy="max_frac_G",
             conv_tol=args.conv_tol,
             init_strategy="svd",

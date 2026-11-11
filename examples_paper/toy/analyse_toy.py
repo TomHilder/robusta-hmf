@@ -11,10 +11,14 @@ from r_pca import RobustPCA
 
 # Get the rank and Q vals from other script
 from run_toy_gen_and_fits import M_PIXELS, N_SPECTRA, N_TRAIN, Q_VALS, RANKS
+import jax
 from tqdm import tqdm
 
 from robusta_hmf import Robusta
 from robusta_hmf.state import RHMFState, load_state_from_npz
+
+# The published toy results are float64 fits (Robusta's default dtype).
+jax.config.update("jax_enable_x64", True)
 
 rng = default_rng(99202012345)
 plt.style.use("mpl_drip.custom")

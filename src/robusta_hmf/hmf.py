@@ -135,6 +135,7 @@ class HMF(eqx.Module):
         W_data: Array,
         state: RHMFState,
         rotate: bool = True,
+        skip_G: bool = False,
     ) -> tuple[RHMFState, float]:
         """Perform one SGD optimization step. Not intended to be called by user."""
 
@@ -149,8 +150,12 @@ class HMF(eqx.Module):
         updates, opt_state = self.opt.update(grads, state.opt_state, params)
         A_new, G_new = optax.apply_updates(params, updates)
 
+        # Hold the basis fixed if requested (e.g. inference with a trained G)
+        if skip_G:
+            G_new = state.G
+
         # Apply updates and optionally rotate which also re-initialises optimiser state
-        if rotate:
+        if rotate and not skip_G:
             state = update_state(state, A=A_new, G=G_new)
             state = self.rotation(state)  # rotates A/G
             state = refresh_opt_state(state, self.opt)  # refresh

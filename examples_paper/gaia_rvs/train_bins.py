@@ -8,6 +8,7 @@ Bin geometry and data processing parameters are imported from gaia_config.py.
 from pathlib import Path
 
 import gaia_config as cfg
+import jax
 import numpy as np
 from analysis_funcs import (
     build_bins_from_config,
@@ -18,6 +19,10 @@ from analysis_funcs import (
 from tqdm import tqdm
 
 from robusta_hmf import Robusta, save_state_to_npz
+
+# The published per-bin fits were run with JAX's float64 support on, each in the
+# dtype of its input spectra (passed as dtype= below).
+jax.config.update("jax_enable_x64", True)
 
 # ============================================================================ #
 # CONFIGURATION - Modify these to control what gets trained
@@ -97,6 +102,8 @@ def train_bin(data, bin_data, i_bin, ranks, q_vals, max_iter, train_frac, result
         model = Robusta(
             rank=rank,
             robust_scale=Q,
+            # The published per-bin fits ran in the dtype of the input spectra.
+            dtype=Y.dtype,
             conv_strategy="max_frac_G",
             conv_tol=1e-4,
             init_strategy="svd",

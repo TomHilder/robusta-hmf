@@ -30,6 +30,9 @@ Given a data matrix `Y` of shape `(N, M)` and a matching matrix of inverse-varia
 weights `W`, fit a rank-`K` factorisation `Y ≈ A @ G.T`:
 
 ```python
+import jax
+jax.config.update("jax_enable_x64", True)  # robusta-hmf fits in float64 by default
+
 from robusta_hmf import Robusta
 
 # rank-5 robust fit; robust_scale controls how aggressively outliers are downweighted
@@ -44,6 +47,71 @@ reconstruction = model.synthesize()   # A @ G.T, shape (N, M)
 Missing or masked data is handled by setting the corresponding entries of `W` to `0`.
 See `examples_paper/` for complete, worked pipelines (synthetic validation in `toy/` and
 Gaia RVS spectra in `gaia_rvs/`).
+
+### Precision
+
+Fits run in float64 by default. JAX only provides float64 once
+`jax.config.update("jax_enable_x64", True)` has been called, before any JAX array is
+created. Without it, `fit()`, `infer()` and `score()` raise `PrecisionError` instead of
+silently computing in float32.
+
+float32 is supported as an explicit choice, `Robusta(..., dtype="float32")`, and is much
+faster on GPUs. It is also less forgiving: rows or columns of `W` with fewer non-zero
+weights than the rank leave the ALS solves under-determined, and in float32 that can
+make the fit diverge. If the loss ever goes non-finite, the fit stops with a
+`FloatingPointError` that names the likely cause.
+
+### Model selection
+
+`score()` returns the held-out statistics used in the paper. The headline number is the KL
+divergence of the standardised residuals from `N(0, 1)` (Eq. 20) — zero is perfect, lower is
+better — which is what to minimise over a `(K, Q)` grid:
+
+```python
+infer_state, _ = model.infer(Y_test, W_test, state=state)
+scores = model.score(Y_test, W_test, state=infer_state)
+
+scores.kl        # KL divergence from N(0, 1); the model-selection criterion
+scores.std_z     # sigma_z, target 1
+scores.chi2_red  # reduced chi-squared, target 1
+```
+
+### Fitting data larger than one GPU
+
+Each ALS step over the whole `(N, M)` matrix materialises about five full-size
+intermediates on top of `Y` and `W`. For 496,955 × 2321 spectra in float64 that is ~43 GiB
+of scratch, which will not fit in a 48 GiB card.
+
+**Chunking the row axis is what fixes this**, and it needs no second device — peak scratch
+drops to ~0.4 GiB, set by `row_block` rather than by `N`. Sharding across devices is a
+speed knob layered on top. Both come from swapping in one frame:
+
+```python
+from robusta_hmf import Robusta, ShardedFrame
+
+model = Robusta(
+    rank=10,
+    robust_scale=5.0,
+    override_frame=ShardedFrame(row_block=4096),  # devices default to all visible
+)
+state, loss_history = model.fit(Y, W)   # plain numpy arrays; never fully copied to host
+```
+
+Everything else — `infer`, `synthesize`, `score`, `coefficients`, `residuals` — works
+unchanged, and the results match the ordinary path to round-off. `Y` and `W` are stored on
+device in float32 by default while all arithmetic happens in the model's `dtype` (float64
+unless you opt in to float32), halving resident memory.
+
+To fit several models to one sample (say a `(K, Q)` grid) without re-transferring the data,
+place it once and reuse the handle:
+
+```python
+frame = ShardedFrame(row_block=4096)
+data, _ = frame.prepare(Y, W)          # one transfer to device
+for rank in ranks:
+    model = Robusta(rank=rank, override_frame=frame)   # bind() copies, so reuse is safe
+    state, _ = model.fit(data)
+```
 
 ## Citation
 
