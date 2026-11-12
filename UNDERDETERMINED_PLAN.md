@@ -118,6 +118,24 @@ editing `A` or `G` directly during the loop.
 worded "…have fewer than K non-zero weights; the ridge determines their factors". Nothing is
 excluded and no NaN is returned, because the ridge is the user's chosen prior.
 
+**A ridge too small to do anything.** A ridge can only determine an under-covered factor if
+it is resolvable next to its least-squares system at the working precision. Call it
+*negligible* for a system when
+
+`ridge ≤ 10·ε·d`,
+
+where:
+- `d` is the largest diagonal entry of that system;
+- `ε` is the machine epsilon of the model's dtype.
+
+The diagonals are cheap: `W_eff @ G²` for the rows of `A`, and `W_effᵀ @ A²` for the rows of `G`. Both are `O(NMK)`.
+
+The check runs only over systems with coverage `< K`. Where coverage is ≥ K the ridge is not needed, and a negligible ridge is harmless. It is evaluated on device every iteration as a single boolean and read at each convergence check. If it is ever true, issue one `UnderdeterminedWarning` per fit, for example:
+
+`"als_ridge=1e-06 is below float32 resolution for 352 under-covered columns (largest diagonal 1.4e+04, so the ridge must exceed ~1.6e-02 to have any effect); it is not determining their factors. Increase als_ridge, use float64, or set als_ridge=None to exclude them instead."`
+
+The #10 setup triggers it in float32: at the first iteration the under-covered columns have `d` up to 1.4e4, so `10·ε·d ≈ 1.6e-2 ≫ 1e-6`. In float64 it does not trigger: `≈ 3e-11 ≪ 1e-6`. That matches what happened: the same ridge failed in float32 and worked in float64.
+
 **`infer`:**
 - Columns excluded in the training state (`state.col_excluded`) stay excluded.
 - New rows with coverage `< K` against the active columns are excluded, with the same warning.
@@ -237,6 +255,10 @@ verified by deliberately breaking each mechanism once (mutation check) before me
 
 ### 2.4 Ridge
 - Coverage < K with `als_ridge` set: one `UnderdeterminedWarning`; nothing excluded; no NaN; result equals the current ridge result.
+- Negligible ridge: the scaled-down #10 data in float32 with `als_ridge=1e-6` gives the negligible-ridge warning, including the threshold it computed.
+- The same setup in float64 does not give it, and neither does float32 with a ridge above the threshold.
+- A negligible ridge with full coverage everywhere gives no warning: it is only checked where it matters.
+- The threshold as a pure function: `ridge` just below and just above `10·ε·d`, in both dtypes.
 
 ### 2.5 Returned state and round trip
 - The masks are on the state; `synthesize()`, `residuals()`, `coefficients()` and `basis_vectors()` are NaN exactly on the excluded rows and columns.
@@ -323,7 +345,6 @@ One commit per step, each with its tests, and the full suite passing after every
 
 ## 5. Out of scope
 
-- A warning when `als_ridge` is negligible at the working precision (raised in the PR discussion, not decided).
 - Changing `als_ridge` to be relative to the scale of each least-squares system.
 - Changing the `ZMoments.n` convention.
 - The `infer()` crash on SGD-fitted models.
