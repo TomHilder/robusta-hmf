@@ -96,6 +96,7 @@ from .initialisation import Initialiser, InitStrategy
 from .metrics import ZMoments
 from .precision import nonfinite_loss_message
 from .state import RHMFState
+from .validation import BadEntries, check_same_shape
 
 ROW_AXIS = "rows"
 
@@ -215,12 +216,18 @@ def build_mesh(devices: Sequence | None = None) -> Mesh:
     return Mesh(np.asarray(devices), (ROW_AXIS,))
 
 
-def shard_rows(x: np.ndarray, plan: RowPlan, mesh: Mesh, dtype) -> Array:
+def shard_rows(
+    x: np.ndarray, plan: RowPlan, mesh: Mesh, dtype, zero_where_nonfinite: tuple = ()
+) -> Array:
     """Place ``x`` on the mesh, split along rows and zero-padded to ``plan``.
 
     Built with ``make_array_from_callback`` so only one device's shard is
     materialised at a time; ``jnp.asarray`` followed by ``device_put`` would
     stage a full second copy of an 8.6 GiB array on the host.
+
+    ``zero_where_nonfinite`` lists arrays shaped like ``x`` (``x`` itself
+    included, if wanted): each shard of ``x`` is set to 0 wherever any of
+    them is non-finite after casting to ``dtype``.
     """
     sharding = NamedSharding(mesh, P(ROW_AXIS, None))
     shape = (plan.n_padded, *x.shape[1:])
@@ -231,7 +238,13 @@ def shard_rows(x: np.ndarray, plan: RowPlan, mesh: Mesh, dtype) -> Array:
         out = np.zeros((stop - start, *x.shape[1:]), dtype=dtype)
         real = min(stop, x.shape[0])
         if real > start:
-            out[: real - start] = x[start:real]
+            # Values too large for dtype become inf; they were already counted
+            # and reported by shard_data, so numpy's overflow warning is noise.
+            with np.errstate(over="ignore"):
+                out[: real - start] = x[start:real]
+                for other in zero_where_nonfinite:
+                    bad = ~np.isfinite(np.asarray(other[start:real], dtype=dtype))
+                    out[: real - start][bad] = 0
         return out
 
     return jax.make_array_from_callback(shape, sharding, callback)
@@ -274,18 +287,33 @@ class ShardedData:
         return (self.n_rows, self.n_pixels)
 
 
-def shard_data(Y, W, mesh: Mesh, row_block: int, dtype=np.float32) -> ShardedData:
-    """Place ``Y`` and ``W`` (numpy, ``(N, M)``) on ``mesh``, split along rows."""
+def shard_data(
+    Y, W, mesh: Mesh, row_block: int, dtype=np.float32, nan_error: bool = False
+) -> ShardedData:
+    """Validate ``Y`` and ``W`` (numpy, ``(N, M)``) and place them on ``mesh``, split along rows.
+
+    Entries where ``Y`` or ``W`` is non-finite in ``dtype`` are stored as
+    ``Y = W = 0`` (missing), with one
+    :class:`~robusta_hmf.warnings.DataWarning`; with ``nan_error=True`` they
+    raise ``ValueError`` instead. Negative weights raise ``ValueError``. The
+    checks run block by block on the host before anything is transferred, and
+    never copy the full matrices.
+    """
     if W is None:
         raise ValueError("W must be provided alongside Y (or pass a prepared ShardedData)")
-    if W.shape != Y.shape:
-        raise ValueError(f"Y and W must have the same shape, got {Y.shape} and {W.shape}")
-    if Y.ndim != 2:
-        raise ValueError(f"Y must be 2-D, got shape {Y.shape}")
+    check_same_shape(Y, W)
+    bad = BadEntries()
+    with np.errstate(over="ignore"):  # overflow to inf is what we are counting
+        for start in range(0, Y.shape[0], row_block):
+            stop = start + row_block
+            y = np.asarray(Y[start:stop], dtype=dtype)
+            bad.add_block(y, np.asarray(W[start:stop], dtype=dtype), start)
+    bad.resolve(nan_error)
+    mask_with = (Y, W) if bad.n_nonfinite else ()
     plan = plan_rows(Y.shape[0], mesh.size, row_block)
     return ShardedData(
-        Y=shard_rows(Y, plan, mesh, dtype),
-        W=shard_rows(W, plan, mesh, dtype),
+        Y=shard_rows(Y, plan, mesh, dtype, mask_with),
+        W=shard_rows(W, plan, mesh, dtype, mask_with),
         plan=plan,
         mesh=mesh,
         n_pixels=Y.shape[1],
@@ -381,16 +409,23 @@ class ShardedFrame(OptFrame):
 
     # -- data placement ------------------------------------------------------ #
 
-    def prepare(self, Y, W=None) -> tuple[ShardedData, None]:
-        """Place ``(Y, W)`` on the mesh, or pass through an existing handle.
+    def prepare(self, Y, W=None, nan_error: bool = False) -> tuple[ShardedData, None]:
+        """Validate and place ``(Y, W)`` on the mesh, or pass through an existing handle.
 
         Returns ``(data, None)``: the weights live inside the
-        :class:`ShardedData`, so there is no second array to carry.
+        :class:`ShardedData`, so there is no second array to carry. See
+        :func:`shard_data` for the checks and ``nan_error``; a handle has
+        already been through them.
         """
         if isinstance(Y, ShardedData):
             return Y, None
         data = shard_data(
-            np.asarray(Y), np.asarray(W), self.mesh, self.row_block, self.store_dtype
+            np.asarray(Y),
+            None if W is None else np.asarray(W),
+            self.mesh,
+            self.row_block,
+            self.store_dtype,
+            nan_error=nan_error,
         )
         if self.verbose:
             self._print_layout(data)

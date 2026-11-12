@@ -370,7 +370,7 @@ def test_plain_initialiser_is_rerouted_through_the_gram_path(problem):
 
 def test_rank_above_min_dimension_is_rejected(problem):
     model = sharded_model(1, 64, rank=99, robust=False)
-    with pytest.raises(ValueError, match="exceeds"):
+    with pytest.raises(ValueError, match="rank=99 is larger than the number of rows"):
         model.fit(problem["Y"][:10], problem["W"][:10], max_iter=1)
 
 

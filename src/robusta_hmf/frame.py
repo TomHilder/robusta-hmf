@@ -16,6 +16,7 @@ from .initialisation import Initialiser, InitStrategy
 from .metrics import ZMoments, z_moments
 from .precision import nonfinite_loss_message
 from .state import RHMFState, update_state
+from .validation import sanitise
 
 
 @dataclass
@@ -52,17 +53,25 @@ class OptFrame:
 
     # -- hooks that a scheduling subclass overrides -------------------------- #
 
-    def prepare(self, Y: Array, W: Array) -> tuple[Any, Any]:
-        """Place ``(Y, W)`` however this frame wants them for the loop.
+    def prepare(self, Y: Array, W: Array, nan_error: bool = False) -> tuple[Any, Any]:
+        """Validate ``(Y, W)`` and place them however this frame wants them for the loop.
 
-        The base frame converts them to JAX arrays in ``compute_dtype``. The
-        return value is fed to both the initialiser and :meth:`run`, so a frame
-        needing a resident device layout builds it once here rather than per
-        grid point.
+        The base frame converts them to JAX arrays in ``compute_dtype``, then
+        treats entries where either is non-finite as missing (``Y = W = 0``,
+        with a :class:`~robusta_hmf.warnings.DataWarning`), or raises
+        ``ValueError`` for them if ``nan_error`` is set. Negative weights raise
+        ``ValueError``. The return value is fed to both the initialiser and
+        :meth:`run`, so a frame needing a resident device layout builds it
+        once here rather than per grid point.
         """
         if W is None:
             raise ValueError("W (the inverse-variance weights) is required.")
-        return jnp.asarray(Y, self.compute_dtype), jnp.asarray(W, self.compute_dtype)
+        # Values too large for compute_dtype become inf here; sanitise() counts
+        # and reports them, so numpy's overflow warning would only duplicate it.
+        with np.errstate(over="ignore"):
+            Y = jnp.asarray(Y, self.compute_dtype)
+            W = jnp.asarray(W, self.compute_dtype)
+        return sanitise(Y, W, nan_error)
 
     def requested_dtype(self):
         """The ``compute_dtype`` the user set on this frame, or None."""

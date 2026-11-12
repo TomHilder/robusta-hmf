@@ -68,5 +68,6 @@ def nonfinite_loss_message(iteration: int, loss, dtype) -> str:
     return (
         f"Loss is not finite at iteration {iteration}: {loss}. {hint} Other common "
         "causes: rows or columns of W with fewer non-zero weights than the rank "
-        "(an under-determined ALS solve), or non-finite values in Y where W > 0."
+        "(an under-determined ALS solve), or values in Y or W large enough to overflow "
+        f"{dtype_name}."
     )

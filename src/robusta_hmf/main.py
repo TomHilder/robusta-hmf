@@ -17,6 +17,7 @@ from .metrics import ZMoments
 from .precision import DEFAULT_DTYPE, check_precision, resolve_dtype
 from .rotations import RotationMethod
 from .state import RHMFState
+from .validation import check_rank
 
 
 @dataclass
@@ -65,6 +66,8 @@ class Robusta:
         rotation: RotationMethod = "fast",
         # Precision
         dtype: str | np.dtype | None = None,
+        # Data checks
+        nan_error: bool = False,
         **rotation_kwargs,
     ):
         """
@@ -114,11 +117,18 @@ class Robusta:
             diverge when rows or columns of ``W`` have fewer non-zero weights
             than ``rank``, so it has to be requested explicitly. When None, a
             ``compute_dtype`` set on ``override_frame`` is used, else float64.
+        nan_error : bool, default=False
+            What :meth:`fit`, :meth:`infer` and :meth:`score` do with entries
+            where ``Y`` or ``W`` is NaN or infinite. With False they are
+            treated as missing (``Y = W = 0`` there) and one
+            :class:`~robusta_hmf.warnings.DataWarning` is issued; with True
+            they raise ``ValueError``. Negative weights always raise.
         **rotation_kwargs
             Additional arguments for rotation method
         """
         self.rank = rank
         self.method = method
+        self.nan_error = nan_error
         self.dtype = self._resolve_model_dtype(dtype, override_frame)
 
         # Build HMF
@@ -244,10 +254,11 @@ class Robusta:
         in :attr:`fit_info`.
         """
         check_precision(self.dtype, self.rank)
+        check_rank(self.rank, *_data_shape(Y))
 
         # Let the frame place the data first: the initialiser and the loop both
         # consume whatever it hands back.
-        Y, W = self._frame.prepare(Y, W)
+        Y, W = self._frame.prepare(Y, W, nan_error=self.nan_error)
         N, M = Y.shape
 
         # Give warning if rotation cadence is not 1 for ALS
@@ -378,8 +389,10 @@ class Robusta:
         check_precision(self.dtype, self.rank)
         G_fixed = jnp.asarray(G_fixed, self.dtype)
 
+        check_rank(self.rank, *_data_shape(Y_infer), allow_few_rows=True)
+
         # Place the held-out data the same way the frame places training data.
-        Y_infer, W_infer = self._frame.prepare(Y_infer, W_infer)
+        Y_infer, W_infer = self._frame.prepare(Y_infer, W_infer, nan_error=self.nan_error)
 
         # Get an initial guess for the coefficients using the data weights
         ridge = self._hmf.a_step.ridge if self.method == "als" else None
@@ -443,7 +456,7 @@ class Robusta:
         if state is None:
             raise ValueError("No trained state available. Call fit() first.")
         check_precision(self.dtype, self.rank)
-        Y, W = self._frame.prepare(Y, W)
+        Y, W = self._frame.prepare(Y, W, nan_error=self.nan_error)
         return self._frame.z_moments(Y, W, self._frame.cast_state(state))
 
     def basis_vectors(self, state: RHMFState | None = None) -> Array:
@@ -576,3 +589,11 @@ class Robusta:
     def fit_info(self) -> FitInfo | None:
         """Diagnostics of the last :meth:`fit` (not updated by :meth:`infer`)."""
         return self._fit_info
+
+
+def _data_shape(Y) -> tuple[int, int]:
+    """``(rows, columns)`` of an array or of a frame's prepared data handle."""
+    shape = Y.shape if hasattr(Y, "shape") else np.shape(Y)
+    if len(shape) != 2:
+        raise ValueError(f"Y must be 2-D, got shape {tuple(shape)}")
+    return int(shape[0]), int(shape[1])

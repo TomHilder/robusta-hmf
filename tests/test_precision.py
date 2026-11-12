@@ -149,9 +149,7 @@ def test_sharded_frame_compute_dtype_counts_as_the_explicit_choice():
 
 def test_conflicting_model_and_frame_dtypes_are_rejected():
     with pytest.raises(ValueError, match="conflicts with the frame's compute_dtype"):
-        Robusta(
-            rank=3, dtype="float64", override_frame=one_device_frame(compute_dtype=np.float32)
-        )
+        Robusta(rank=3, dtype="float64", override_frame=one_device_frame(compute_dtype=np.float32))
 
 
 def test_matching_model_and_frame_dtypes_are_accepted():
@@ -171,9 +169,11 @@ def test_sharded_float32_opt_in_runs_with_x64_off(problem, x64_disabled):
 # ---------------------------------------------------------------------------- #
 
 
-def nan_problem(problem):
+def nan_problem(problem, dtype="float64"):
+    # A finite value whose squared residual overflows the dtype, so the loss
+    # goes non-finite inside the loop. (NaN inputs no longer reach the loop.)
     Y = problem["Y"].copy()
-    Y[5, 7] = np.nan  # a non-finite value where W > 0
+    Y[5, 7] = 1e30 if dtype == "float32" else 1e200
     return Y, problem["W"]
 
 
@@ -193,15 +193,18 @@ def test_dense_nonfinite_loss_is_caught_before_the_first_convergence_check(probl
 
 
 def test_float32_nonfinite_loss_suggests_float64(problem):
-    Y, W = nan_problem(problem)
+    Y, W = nan_problem(problem, "float32")
     with pytest.raises(FloatingPointError, match="try float64 first"):
         Robusta(rank=3, dtype="float32", init_strategy="random").fit(Y, W, **FIT_KW)
 
 
 def test_sharded_fit_raises_on_a_nonfinite_loss_with_the_same_diagnosis(problem):
     Y, W = nan_problem(problem)
-    model = Robusta(rank=3, init_strategy="random", override_frame=one_device_frame())
-    with pytest.raises(FloatingPointError, match="non-finite values in Y where W > 0"):
+    # Stored in float64: a float32 store would turn the value into inf, which
+    # is then treated as missing rather than reaching the loop.
+    frame = one_device_frame(store_dtype=np.float64)
+    model = Robusta(rank=3, init_strategy="random", override_frame=frame)
+    with pytest.raises(FloatingPointError, match="large enough to overflow"):
         model.fit(Y, W, **FIT_KW)
 
 
