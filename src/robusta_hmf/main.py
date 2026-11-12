@@ -9,6 +9,7 @@ import numpy as np
 from jaxtyping import Array
 
 from .convergence import ConvergenceTester
+from .fit_info import FitInfo
 from .frame import OptFrame
 from .hmf import HMF, OptMethod
 from .initialisation import Initialiser
@@ -40,6 +41,7 @@ class Robusta:
     # Internal state from last fit
     _state: RHMFState | None = None
     _loss_history: Array | None = None
+    _fit_info: FitInfo | None = None
 
     def __init__(
         self,
@@ -160,6 +162,7 @@ class Robusta:
         # Initialize internal state
         self._state = None
         self._loss_history = None
+        self._fit_info = None
 
     @staticmethod
     def _resolve_model_dtype(dtype, override_frame: OptFrame | None) -> np.dtype:
@@ -234,6 +237,11 @@ class Robusta:
             Final optimization state
         loss_history : Array
             Loss values over iterations
+
+        Notes
+        -----
+        Diagnostics of the run (convergence, exclusions, loss rises) are kept
+        in :attr:`fit_info`.
         """
         check_precision(self.dtype, self.rank)
 
@@ -274,7 +282,7 @@ class Robusta:
             print("done.", flush=True)
 
         # Run optimization
-        final_state, loss_history = self._frame.run(
+        final_state, loss_history, fit_info = self._frame.run(
             Y=Y,
             W=W,
             init_state=init_state,
@@ -286,6 +294,7 @@ class Robusta:
         # Store internally
         self._state = final_state
         self._loss_history = loss_history
+        self._fit_info = fit_info
 
         return final_state, loss_history
 
@@ -384,7 +393,7 @@ class Robusta:
         # Run one-sided optimization through this model's frame
         conv_tester = ConvergenceTester(strategy=conv_strategy, tol=conv_tol)
         frame = self._frame.bind(self._hmf, conv_tester, self.dtype)
-        final_state, loss_history = frame.run(
+        final_state, loss_history, _ = frame.run(
             Y=Y_infer,
             W=W_infer,
             init_state=RHMFState(
@@ -562,3 +571,8 @@ class Robusta:
     def loss_history(self) -> Array | None:
         """Loss history from last fit."""
         return self._loss_history
+
+    @property
+    def fit_info(self) -> FitInfo | None:
+        """Diagnostics of the last :meth:`fit` (not updated by :meth:`infer`)."""
+        return self._fit_info

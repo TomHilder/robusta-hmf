@@ -90,7 +90,8 @@ from jax.sharding import PartitionSpec as P
 from jaxtyping import Array
 
 from .als import normal_equations, solve_normal_equations
-from .frame import OptFrame
+from .fit_info import FitInfo
+from .frame import OptFrame, make_fit_info
 from .initialisation import Initialiser, InitStrategy
 from .metrics import ZMoments
 from .precision import nonfinite_loss_message
@@ -563,13 +564,14 @@ class ShardedFrame(OptFrame):
         conv_check_cadence: int = 10,
         max_iter: int = 1000,
         skip_G: bool = False,
-    ) -> tuple[RHMFState, Array]:
+    ) -> tuple[RHMFState, Array, FitInfo]:
         """Run the ALS loop over sharded, chunked rows.
 
         Mirrors :meth:`robusta_hmf.frame.OptFrame.run`. ``Y`` may be a
         :class:`ShardedData` from :meth:`prepare`, in which case ``W`` is
         ignored. The returned ``state.A`` has exactly ``n_rows`` rows: the
-        padding used on device is stripped.
+        padding used on device is stripped. Also returns a
+        :class:`~robusta_hmf.fit_info.FitInfo`, as the dense loop does.
         """
         self._check_method()
         data, _ = self.prepare(Y, W)
@@ -586,6 +588,7 @@ class ShardedFrame(OptFrame):
         it0 = int(init_state.it)
         prev_state = RHMFState(A=A[: plan.n_rows], G=G, it=it0)
         prev_loss = jnp.inf
+        converged = False
 
         for i in range(max_iter):
             rot = i % rotation_cadence == 0 and i != 0
@@ -598,6 +601,7 @@ class ShardedFrame(OptFrame):
                 state = RHMFState(A=A[: plan.n_rows], G=G, it=it0 + i + 1)
                 if self.conv_tester.is_converged(prev_state, state, prev_loss, loss):
                     print(f"Converged at iteration {i}")
+                    converged = True
                     break
                 prev_state = state
                 prev_loss = loss
@@ -608,7 +612,7 @@ class ShardedFrame(OptFrame):
                     )
 
         state = RHMFState(A=A[: plan.n_rows], G=G, it=it0 + len(loss_history))
-        return state, jnp.array(loss_history)
+        return state, jnp.array(loss_history), make_fit_info(converged, loss_history)
 
     # -- held-out inference and scoring -------------------------------------- #
 

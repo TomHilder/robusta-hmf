@@ -10,6 +10,7 @@ from jaxtyping import Array
 
 from .als import WeightedAStep
 from .convergence import ConvergenceTester
+from .fit_info import FitInfo
 from .hmf import HMF
 from .initialisation import Initialiser, InitStrategy
 from .metrics import ZMoments, z_moments
@@ -111,7 +112,12 @@ class OptFrame:
         conv_check_cadence: int,
         max_iter: int,
         skip_G: bool = False,
-    ):
+    ) -> tuple[RHMFState, Array, FitInfo]:
+        """Iterate ``step`` until converged or ``max_iter``.
+
+        Returns the final state, the loss at every iteration, and a
+        :class:`~robusta_hmf.fit_info.FitInfo` describing the run.
+        """
         # Get the step function from the method
         step_fn = self.method.get_stepper()
 
@@ -126,6 +132,7 @@ class OptFrame:
         state = self.cast_state(init_state)
         prev_state = deepcopy(state)
         prev_loss = jnp.inf
+        converged = False
 
         # Training loop
         for i in range(max_iter):
@@ -138,6 +145,7 @@ class OptFrame:
             if i % conv_check_cadence == 0 and i != 0:
                 if self.conv_tester.is_converged(prev_state, state, prev_loss, loss):
                     print(f"Converged at iteration {i}")
+                    converged = True
                     break
                 prev_state = deepcopy(state)
                 prev_loss = loss
@@ -150,4 +158,14 @@ class OptFrame:
             raise FloatingPointError(
                 nonfinite_loss_message(last, loss_history[-1], self.compute_dtype)
             )
-        return state, jnp.array(loss_history)
+        return state, jnp.array(loss_history), make_fit_info(converged, loss_history)
+
+
+def make_fit_info(converged: bool, loss_history: list) -> FitInfo:
+    """The :class:`FitInfo` for a loop that ran ``len(loss_history)`` iterations."""
+    return FitInfo(
+        converged=converged,
+        stop_reason="converged" if converged else "max_iter",
+        n_iter=len(loss_history),
+        final_loss=float(loss_history[-1]) if loss_history else float("nan"),
+    )
