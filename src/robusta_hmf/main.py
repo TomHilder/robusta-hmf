@@ -2,13 +2,15 @@
 
 import warnings
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from functools import partial
 
 import jax.numpy as jnp
 import numpy as np
 from jaxtyping import Array
 
 from .convergence import ConvergenceTester
+from .coverage import cascade, exclusion_message, indices_by_axis, ridge_message, under_covered
 from .fit_info import FitInfo
 from .frame import OptFrame
 from .hmf import HMF, OptMethod
@@ -16,8 +18,9 @@ from .initialisation import Initialiser
 from .metrics import ZMoments
 from .precision import DEFAULT_DTYPE, check_precision, resolve_dtype
 from .rotations import RotationMethod
-from .state import RHMFState
+from .state import RHMFState, check_state_finite, with_exclusions
 from .validation import check_rank
+from .warnings import UnderdeterminedWarning
 
 
 @dataclass
@@ -291,6 +294,11 @@ class Robusta:
                 opt=self._hmf.opt if self.method == "sgd" else None,
             )
             print("done.", flush=True)
+        else:
+            check_state_finite(init_state)
+
+        # Rows and columns the data cannot determine are excluded up front.
+        init_state, exclusions = self._exclude_under_covered(Y, W, init_state)
 
         # Run optimization
         final_state, loss_history, fit_info = self._frame.run(
@@ -305,9 +313,57 @@ class Robusta:
         # Store internally
         self._state = final_state
         self._loss_history = loss_history
-        self._fit_info = fit_info
+        self._fit_info = replace(fit_info, exclusions=exclusions + fit_info.exclusions)
 
         return final_state, loss_history
+
+    @property
+    def _ridge(self) -> float | None:
+        return self._hmf.a_step.ridge if self.method == "als" else None
+
+    def _exclude_under_covered(self, Y, W, state: RHMFState, *, infer: bool = False):
+        """Mark rows (and, when fitting, columns) whose coverage is below the rank.
+
+        Starts from the masks already on ``state``. Without a ridge the
+        exclusions cascade to a fixed point and are recorded on the returned
+        state; with a ridge nothing is excluded, but under-covered rows and
+        columns are still reported. Returns ``(state, events)``.
+        """
+        K = self.rank
+        N, M = _data_shape(Y)
+        row0 = _active(state.row_excluded, N)
+        col0 = _active(state.col_excluded, M)
+        coverage = partial(self._frame.coverage, Y, W)
+
+        if self._ridge is not None:
+            rows, cols = under_covered(coverage, K, row0, col0 if not infer else np.ones(M, bool))
+            if infer:
+                cols = cols[:0]
+            if rows.size or cols.size:
+                warnings.warn(
+                    ridge_message(K, rows, cols, self._ridge), UnderdeterminedWarning, stacklevel=3
+                )
+            return state, ()
+
+        row_active, col_active, events = cascade(coverage, K, row0, col0, update_cols=not infer)
+        if not events:
+            return state, ()
+        if not infer and (row_active.sum() < K or col_active.sum() < K):
+            raise ValueError(
+                f"After excluding rows and columns with fewer than {K} non-zero weights, "
+                f"{row_active.sum()} rows and {col_active.sum()} columns remain, fewer than "
+                f"rank={K}: there is nothing left to fit. Check W, or lower the rank."
+            )
+        rows, cols = indices_by_axis(events)
+        warnings.warn(
+            exclusion_message(K, rows, cols, infer=infer), UnderdeterminedWarning, stacklevel=3
+        )
+        state = with_exclusions(
+            state,
+            ~row_active if not row_active.all() else None,
+            ~col_active if not col_active.all() else None,
+        )
+        return state, tuple(events)
 
     def synthesize(
         self,
@@ -378,25 +434,36 @@ class Robusta:
         loss_history : Array
             Loss values over iterations.
         """
-        try:
-            G_fixed = state.G if state is not None else self.G
-        except AttributeError:
-            G_fixed = None
-        if G_fixed is None:
+        state = state if state is not None else self._state
+        if state is None:
             raise ValueError(
                 "No trained state available. Either provide state or call fit() first."
             )
         check_precision(self.dtype, self.rank)
-        G_fixed = jnp.asarray(G_fixed, self.dtype)
+        check_state_finite(state)
+        # Columns excluded in training have NaN rows of G; they stay excluded.
+        col_excluded = state.col_excluded
+        G_fixed = jnp.asarray(state.G, self.dtype)
+        if col_excluded is not None:
+            G_fixed = jnp.where(col_excluded[:, None], jnp.zeros((), self.dtype), G_fixed)
 
         check_rank(self.rank, *_data_shape(Y_infer), allow_few_rows=True)
 
         # Place the held-out data the same way the frame places training data.
         Y_infer, W_infer = self._frame.prepare(Y_infer, W_infer, nan_error=self.nan_error)
 
+        # New rows with fewer than K non-zero weights in the active columns are excluded.
+        n_rows = _data_shape(Y_infer)[0]
+        masks = RHMFState(
+            A=jnp.zeros((n_rows, self.rank), self.dtype), G=G_fixed, col_excluded=col_excluded
+        )
+        masks, _ = self._exclude_under_covered(Y_infer, W_infer, masks, infer=True)
+
         # Get an initial guess for the coefficients using the data weights
-        ridge = self._hmf.a_step.ridge if self.method == "als" else None
-        A_init = self._frame.initial_coefficients(Y_infer, W_infer, G_fixed, ridge)
+        ridge = self._ridge
+        A_init = self._frame.initial_coefficients(
+            Y_infer, W_infer, G_fixed, ridge, row_excluded=masks.row_excluded
+        )
 
         # We can't use conv_strategy of max_frac_G here because G is fixed
         if conv_strategy == "max_frac_G":
@@ -413,6 +480,8 @@ class Robusta:
                 A=A_init,
                 G=G_fixed,
                 it=0,
+                row_excluded=masks.row_excluded,
+                col_excluded=col_excluded,
             ),
             rotation_cadence=1,  # No rotation since G is fixed so this is a dummy value
             conv_check_cadence=conv_check_cadence,
@@ -597,3 +666,8 @@ def _data_shape(Y) -> tuple[int, int]:
     if len(shape) != 2:
         raise ValueError(f"Y must be 2-D, got shape {tuple(shape)}")
     return int(shape[0]), int(shape[1])
+
+
+def _active(excluded, n: int) -> np.ndarray:
+    """Host bool mask of active entries from an optional exclusion mask."""
+    return np.ones(n, bool) if excluded is None else ~np.asarray(excluded, bool)

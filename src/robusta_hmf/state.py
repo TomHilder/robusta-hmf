@@ -60,6 +60,45 @@ def with_exclusions(
     )
 
 
+def has_exclusions(state: RHMFState) -> bool:
+    """Whether ``state`` carries an exclusion mask."""
+    return state.row_excluded is not None or state.col_excluded is not None
+
+
+def fill_excluded(state: RHMFState, value) -> RHMFState:
+    """``state`` with its excluded rows of ``A`` and ``G`` set to ``value``."""
+    A, G = state.A, state.G
+    if state.row_excluded is not None:
+        A = jax.numpy.where(state.row_excluded[:, None], jax.numpy.asarray(value, A.dtype), A)
+    if state.col_excluded is not None:
+        G = jax.numpy.where(state.col_excluded[:, None], jax.numpy.asarray(value, G.dtype), G)
+    return update_state(state, A=A, G=G)
+
+
+def mask_weights(W: Array, row_excluded: Array | None, col_excluded: Array | None) -> Array:
+    """``W`` with excluded rows and columns set to zero weight."""
+    if row_excluded is not None:
+        W = jax.numpy.where(row_excluded[:, None], jax.numpy.zeros((), W.dtype), W)
+    if col_excluded is not None:
+        W = jax.numpy.where(col_excluded[None, :], jax.numpy.zeros((), W.dtype), W)
+    return W
+
+
+def check_state_finite(state: RHMFState) -> None:
+    """Raise ``ValueError`` if ``A`` or ``G`` is non-finite outside the exclusion masks."""
+    for name, X, mask in (("A", state.A, state.row_excluded), ("G", state.G, state.col_excluded)):
+        bad = ~np.isfinite(np.asarray(X)).all(axis=1)
+        if mask is not None:
+            bad &= ~np.asarray(mask)
+        if bad.any():
+            raise ValueError(
+                f"state contains non-finite values outside its exclusion masks "
+                f"({bad.sum()} rows of {name}, first {int(np.flatnonzero(bad)[0])}). Excluded "
+                "rows are NaN by design, but only where state.row_excluded / "
+                "state.col_excluded mark them."
+            )
+
+
 def refresh_opt_state(state: RHMFState, opt: optax.GradientTransformation) -> RHMFState:
     opt_state = opt.init((state.A, state.G))
     state = eqx.tree_at(lambda s: s.opt_state, state, opt_state)

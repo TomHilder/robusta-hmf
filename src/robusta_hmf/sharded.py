@@ -95,7 +95,7 @@ from .frame import OptFrame, make_fit_info
 from .initialisation import Initialiser, InitStrategy
 from .metrics import ZMoments
 from .precision import nonfinite_loss_message
-from .state import RHMFState
+from .state import RHMFState, fill_excluded, has_exclusions
 from .validation import BadEntries, check_same_shape
 
 ROW_AXIS = "rows"
@@ -250,6 +250,11 @@ def shard_rows(
     return jax.make_array_from_callback(shape, sharding, callback)
 
 
+def _mask_chunk(w, row_active, col_active):
+    """Zero the weights of inactive rows and columns in one chunk."""
+    return jnp.where(row_active[:, None] & col_active[None, :], w, jnp.zeros((), w.dtype))
+
+
 @dataclass(frozen=True)
 class ShardedData:
     """``Y`` and ``W`` resident on a mesh, plus the plan describing their layout.
@@ -318,6 +323,17 @@ def shard_data(
         mesh=mesh,
         n_pixels=Y.shape[1],
     )
+
+
+def _active(excluded, n: int) -> np.ndarray:
+    """Host bool mask of active entries from an optional exclusion mask."""
+    return np.ones(n, bool) if excluded is None else ~np.asarray(excluded, bool)
+
+
+@jax.jit
+def _coverage_counts(W, row_active, col_active):
+    nz = W > 0
+    return jnp.sum(nz & col_active[None, :], axis=1), jnp.sum(nz & row_active[:, None], axis=0)
 
 
 # ---------------------------------------------------------------------------- #
@@ -482,7 +498,7 @@ class ShardedFrame(OptFrame):
 
     # -- one fused ALS pass over the rows ------------------------------------ #
 
-    def _make_pass_one(self, plan: RowPlan, skip_G: bool):
+    def _make_pass_one(self, plan: RowPlan, skip_G: bool, masked: bool = False):
         """A step, plus G-step accumulation, in a single sweep over the rows.
 
         One pass suffices because the G step needs the *new* A: within a chunk
@@ -494,15 +510,17 @@ class ShardedFrame(OptFrame):
         chunk, cdtype = plan.chunk, self.compute_dtype
         likelihood, ridge = self.method.likelihood, self._ridge
 
-        def local(Y_l, W_l, A_l, G):
+        def local(Y_l, W_l, A_l, G, RA_l=None, CA=None):
             n_local, n_pix = Y_l.shape
             K = G.shape[1]
             nc = n_local // chunk
 
             def body(carry, xs):
-                y, w, a = xs
+                y, w, a, *ra = xs
                 y = y.astype(cdtype)
                 w = w.astype(cdtype)
+                if masked:
+                    w = _mask_chunk(w, ra[0], CA)
                 # Total weights = data weights * robust IRLS downweighting.
                 Wt = likelihood.weights_total(y, w, a, G)  # (chunk, n_pix)
                 WY = Wt * y
@@ -521,6 +539,8 @@ class ShardedFrame(OptFrame):
                 W_l.reshape(nc, chunk, n_pix),
                 A_l.reshape(nc, chunk, K),
             )
+            if masked:
+                blocks += (RA_l.reshape(nc, chunk),)
             if skip_G:
                 init = None
             else:
@@ -536,46 +556,52 @@ class ShardedFrame(OptFrame):
             return jax.lax.psum(MG, ROW_AXIS), jax.lax.psum(bG, ROW_AXIS), A_new
 
         in_specs = (P(ROW_AXIS, None), P(ROW_AXIS, None), P(ROW_AXIS, None), P())
+        if masked:
+            in_specs += (P(ROW_AXIS), P())
         out_specs = P(ROW_AXIS, None) if skip_G else (P(), P(), P(ROW_AXIS, None))
         return _shmap(local, self.mesh, in_specs, out_specs)
 
-    def _make_pass_two(self, plan: RowPlan):
+    def _make_pass_two(self, plan: RowPlan, masked: bool = False):
         """Chunked, summed loss at the post-rotation ``(A, G)``."""
         chunk, cdtype = plan.chunk, self.compute_dtype
         likelihood = self.method.likelihood
 
-        def local(Y_l, W_l, A_l, G):
+        def local(Y_l, W_l, A_l, G, RA_l=None, CA=None):
             n_local, n_pix = Y_l.shape
             nc = n_local // chunk
 
             def body(total, xs):
-                y, w, a = xs
-                return total + likelihood.loss(y.astype(cdtype), w.astype(cdtype), a, G), None
+                y, w, a, *ra = xs
+                w = w.astype(cdtype)
+                if masked:
+                    w = _mask_chunk(w, ra[0], CA)
+                return total + likelihood.loss(y.astype(cdtype), w, a, G), None
 
-            total, _ = jax.lax.scan(
-                body,
-                jnp.zeros((), cdtype),
-                (
-                    Y_l.reshape(nc, chunk, n_pix),
-                    W_l.reshape(nc, chunk, n_pix),
-                    A_l.reshape(nc, chunk, G.shape[1]),
-                ),
+            blocks = (
+                Y_l.reshape(nc, chunk, n_pix),
+                W_l.reshape(nc, chunk, n_pix),
+                A_l.reshape(nc, chunk, G.shape[1]),
             )
+            if masked:
+                blocks += (RA_l.reshape(nc, chunk),)
+            total, _ = jax.lax.scan(body, jnp.zeros((), cdtype), blocks)
             return jax.lax.psum(total, ROW_AXIS)
 
         in_specs = (P(ROW_AXIS, None), P(ROW_AXIS, None), P(ROW_AXIS, None), P())
+        if masked:
+            in_specs += (P(ROW_AXIS), P())
         return _shmap(local, self.mesh, in_specs, P())
 
-    def _make_step(self, plan: RowPlan, skip_G: bool):
-        pass_one = self._make_pass_one(plan, skip_G)
-        pass_two = self._make_pass_two(plan)
+    def _make_step(self, plan: RowPlan, skip_G: bool, masked: bool = False):
+        pass_one = self._make_pass_one(plan, skip_G, masked)
+        pass_two = self._make_pass_two(plan, masked)
         ridge, rotation = self._ridge, self.method.rotation
 
-        def step(Y, W, A, G, rotate):
+        def step(Y, W, A, G, rotate, *masks):
             if skip_G:
-                state = RHMFState(A=pass_one(Y, W, A, G), G=G, it=0)
+                state = RHMFState(A=pass_one(Y, W, A, G, *masks), G=G, it=0)
             else:
-                MG, bG, A_new = pass_one(Y, W, A, G)
+                MG, bG, A_new = pass_one(Y, W, A, G, *masks)
                 state = RHMFState(
                     A=A_new, G=solve_normal_equations(MG, bG, ridge, n_obs=plan.n_rows), it=0
                 )
@@ -583,7 +609,7 @@ class ShardedFrame(OptFrame):
                     # Rotation is driven by G (replicated, (M, K)); the only
                     # sharded work is A @ R_inv, which is row-local.
                     state = rotation(state)
-            loss = pass_two(Y, W, state.A, state.G)
+            loss = pass_two(Y, W, state.A, state.G, *masks)
             return state.A, state.G, loss
 
         return jax.jit(step, static_argnums=(4,))
@@ -615,9 +641,17 @@ class ShardedFrame(OptFrame):
         if self.method.opt_method == "als":
             rotation_cadence = 1
 
+        masked = has_exclusions(init_state)
         A = self._pad_A(init_state.A, plan)
         G = jnp.asarray(init_state.G, self.compute_dtype)
-        step = self._make_step(plan, skip_G)
+        masks = ()
+        if masked:
+            # Excluded rows start (and stay) at zero; this also clears the NaN
+            # a state returned by an earlier fit carries there.
+            masks = self._active_masks(init_state, data)
+            A = jnp.where(masks[0][:, None], A, jnp.zeros((), A.dtype))
+            G = jnp.where(masks[1][:, None], G, jnp.zeros((), G.dtype))
+        step = self._make_step(plan, skip_G, masked)
 
         loss_history = []
         it0 = int(init_state.it)
@@ -627,7 +661,7 @@ class ShardedFrame(OptFrame):
 
         for i in range(max_iter):
             rot = i % rotation_cadence == 0 and i != 0
-            A, G, loss = step(data.Y, data.W, A, G, rot)
+            A, G, loss = step(data.Y, data.W, A, G, rot, *masks)
             loss_history.append(loss)
             if i % conv_check_cadence == 0 and i != 0:
                 # Compare on the unpadded A: the zero padding rows would
@@ -642,45 +676,81 @@ class ShardedFrame(OptFrame):
                 prev_loss = loss
                 print(f"iter {state.it:03d} | loss {loss:.4f}", flush=True)
                 if not np.isfinite(float(loss)):
-                    raise FloatingPointError(
-                        nonfinite_loss_message(i, loss, self.compute_dtype)
-                    )
+                    raise FloatingPointError(nonfinite_loss_message(i, loss, self.compute_dtype))
 
-        state = RHMFState(A=A[: plan.n_rows], G=G, it=it0 + len(loss_history))
+        state = RHMFState(
+            A=A[: plan.n_rows],
+            G=G,
+            it=it0 + len(loss_history),
+            row_excluded=init_state.row_excluded,
+            col_excluded=init_state.col_excluded,
+        )
+        if masked:
+            state = fill_excluded(state, jnp.nan)
         return state, jnp.array(loss_history), make_fit_info(converged, loss_history)
+
+    def _active_masks(self, state: RHMFState, data: "ShardedData") -> tuple[Array, Array]:
+        """``(row_active, col_active)`` on the mesh: rows padded and sharded, columns replicated."""
+        rows = _active(state.row_excluded, data.n_rows)
+        cols = _active(state.col_excluded, data.n_pixels)
+        row_active = shard_rows(rows, data.plan, self.mesh, bool)
+        return row_active, jax.device_put(jnp.asarray(cols), NamedSharding(self.mesh, P()))
+
+    def coverage(self, Y, W, row_active, col_active) -> tuple[np.ndarray, np.ndarray]:
+        """Non-zero weights per row among active columns, and per column among active rows.
+
+        Padding rows have no weight, and are dropped from the row counts.
+        """
+        data, _ = self.prepare(Y, W)
+        state = RHMFState(
+            A=np.zeros((0, 0)),
+            G=np.zeros((0, 0)),
+            row_excluded=~np.asarray(row_active, bool),
+            col_excluded=~np.asarray(col_active, bool),
+        )
+        ra, ca = self._active_masks(state, data)
+        row_cov, col_cov = _coverage_counts(data.W, ra, ca)
+        return np.asarray(row_cov)[: data.n_rows], np.asarray(col_cov)
 
     # -- held-out inference and scoring -------------------------------------- #
 
-    def initial_coefficients(self, Y, W, G: Array, ridge: float | None) -> Array:
+    def initial_coefficients(
+        self, Y, W, G: Array, ridge: float | None, row_excluded=None
+    ) -> Array:
         """One weighted A step against a fixed basis, chunked over the rows.
 
-        Uses the data weights alone, matching the dense path's initial guess.
+        Uses the data weights alone, matching the dense path's initial guess;
+        rows marked in ``row_excluded`` get zero weight and solve to zero.
         Returns the padded ``A`` so :meth:`run` can consume it without a
         host round trip.
         """
         data, _ = self.prepare(Y, W)
         chunk, cdtype = data.plan.chunk, self.compute_dtype
+        row_active = shard_rows(_active(row_excluded, data.n_rows), data.plan, self.mesh, bool)
 
-        def local(Y_l, W_l, G):
+        def local(Y_l, W_l, RA_l, G):
             n_local, n_pix = Y_l.shape
             nc = n_local // chunk
 
             def body(_, xs):
-                y, w = xs
+                y, w, ra = xs
                 y = y.astype(cdtype)
-                w = w.astype(cdtype)
+                w = jnp.where(ra[:, None], w.astype(cdtype), jnp.zeros((), cdtype))
                 return None, solve_normal_equations(
                     *normal_equations(w, w * y, G), ridge, n_obs=n_pix
                 )
 
-            _, A = jax.lax.scan(
-                body, None, (Y_l.reshape(nc, chunk, n_pix), W_l.reshape(nc, chunk, n_pix))
+            blocks = (
+                Y_l.reshape(nc, chunk, n_pix),
+                W_l.reshape(nc, chunk, n_pix),
+                RA_l.reshape(nc, chunk),
             )
+            _, A = jax.lax.scan(body, None, blocks)
             return A.reshape(n_local, G.shape[1])
 
-        in_specs = (P(ROW_AXIS, None), P(ROW_AXIS, None), P())
+        in_specs = (P(ROW_AXIS, None), P(ROW_AXIS, None), P(ROW_AXIS), P())
         f = _shmap(local, self.mesh, in_specs, P(ROW_AXIS, None))
-        return jax.jit(f)(data.Y, data.W, jnp.asarray(G, cdtype))
+        return jax.jit(f)(data.Y, data.W, row_active, jnp.asarray(G, cdtype))
 
     def _make_moments(self, plan: RowPlan):
         """Chunked sums of z, z^2 and chi^2 over the held-out residuals."""

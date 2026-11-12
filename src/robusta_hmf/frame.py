@@ -15,7 +15,7 @@ from .hmf import HMF
 from .initialisation import Initialiser, InitStrategy
 from .metrics import ZMoments, z_moments
 from .precision import nonfinite_loss_message
-from .state import RHMFState, update_state
+from .state import RHMFState, fill_excluded, has_exclusions, mask_weights, update_state
 from .validation import sanitise
 
 
@@ -101,10 +101,24 @@ class OptFrame:
         """
         return initialiser
 
-    def initial_coefficients(self, Y: Array, W: Array, G: Array, ridge: float | None) -> Array:
-        """One weighted A step against a fixed basis, seeding :meth:`Robusta.infer`."""
+    def initial_coefficients(
+        self, Y: Array, W: Array, G: Array, ridge: float | None, row_excluded=None
+    ) -> Array:
+        """One weighted A step against a fixed basis, seeding :meth:`Robusta.infer`.
+
+        Rows marked in ``row_excluded`` get zero weight, so they solve to zero
+        rather than to an arbitrary point of a singular system.
+        """
         A_dummy = jnp.zeros((Y.shape[0], G.shape[1]), dtype=G.dtype)
+        W = mask_weights(W, row_excluded, None)
         return WeightedAStep(ridge=ridge)(Y, W, RHMFState(A=A_dummy, G=G, it=0)).A
+
+    def coverage(self, Y, W, row_active, col_active) -> tuple[np.ndarray, np.ndarray]:
+        """Non-zero weights per row among active columns, and per column among active rows."""
+        nz = W > 0
+        row_cov = jnp.sum(nz & jnp.asarray(col_active)[None, :], axis=1)
+        col_cov = jnp.sum(nz & jnp.asarray(row_active)[:, None], axis=0)
+        return np.asarray(row_cov), np.asarray(col_cov)
 
     def z_moments(self, Y: Array, W: Array, state: RHMFState) -> ZMoments:
         """Held-out moments for ``state`` on ``(Y, W)``."""
@@ -126,6 +140,10 @@ class OptFrame:
 
         Returns the final state, the loss at every iteration, and a
         :class:`~robusta_hmf.fit_info.FitInfo` describing the run.
+
+        Rows and columns marked in ``init_state.row_excluded`` /
+        ``col_excluded`` get zero weight throughout, so their factors solve to
+        zero and they leave the loss; they are returned as NaN, with the masks.
         """
         # Get the step function from the method
         step_fn = self.method.get_stepper()
@@ -139,6 +157,10 @@ class OptFrame:
 
         # Initialise states and loss
         state = self.cast_state(init_state)
+        masked = has_exclusions(state)
+        if masked:
+            W = mask_weights(W, state.row_excluded, state.col_excluded)
+            state = fill_excluded(state, 0.0)
         prev_state = deepcopy(state)
         prev_loss = jnp.inf
         converged = False
@@ -167,6 +189,8 @@ class OptFrame:
             raise FloatingPointError(
                 nonfinite_loss_message(last, loss_history[-1], self.compute_dtype)
             )
+        if masked:
+            state = fill_excluded(state, jnp.nan)
         return state, jnp.array(loss_history), make_fit_info(converged, loss_history)
 
 

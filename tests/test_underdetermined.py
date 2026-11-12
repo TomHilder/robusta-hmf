@@ -184,6 +184,7 @@ def test_infer_does_not_touch_fit_info(problem):
 # Input validation (non-finite entries, negative weights, rank vs shape)
 # ----------------------------
 
+
 def _frame(sharded):
     return (
         ShardedFrame(row_block=16, devices=jax.devices("cpu")[:1], verbose=False)
@@ -247,7 +248,7 @@ def test_nan_where_weight_is_zero_gives_finite_fit(problem, sharded):
     Y[:, 7] = np.nan
     Y[5, 9] = np.nan
     W[5, 9] = 0.0
-    with pytest.warns(DataWarning):
+    with pytest.warns(DataWarning), pytest.warns(UnderdeterminedWarning, match="row 2; column 7"):
         state, loss = _model(sharded).fit(Y, W, max_iter=15)
     assert np.all(np.isfinite(np.asarray(loss)))
     rows = np.ones(Y.shape[0], bool)
@@ -361,3 +362,268 @@ def test_infer_allows_fewer_rows_than_rank(problem, sharded):
 def test_dense_shape_mismatch_raises(problem):
     with pytest.raises(ValueError, match="same shape"):
         _model().fit(problem["Y"], problem["W"][:, :-1], max_iter=2)
+
+
+# ----------------------------
+# Static coverage, the cascade, and what is returned
+# ----------------------------
+def _underdetermined(record):
+    return [str(w.message) for w in record if issubclass(w.category, UnderdeterminedWarning)]
+
+
+def _dead_row_and_col(problem, row=4, col=5):
+    W = problem["W"].copy()
+    W[row, :] = 0.0
+    W[:, col] = 0.0
+    return problem["Y"], W
+
+
+def _cascade_weights(N=40, M=20):
+    """K=3: column 0 has 2 weights; dropping it leaves row 1 with 2 (cols 1, 2);
+    dropping row 1 leaves column 1 with 2 (rows 3, 4)."""
+    W = np.ones((N, M))
+    W[:, 0] = 0.0
+    W[[1, 2], 0] = 1.0
+    W[1, :] = 0.0
+    W[1, [0, 1, 2]] = 1.0
+    W[:, 1] = 0.0
+    W[[1, 3, 4], 1] = 1.0
+    return W
+
+
+@pytest.mark.parametrize("sharded", [False, True])
+def test_empty_row_and_column_are_excluded(problem, sharded):
+    Y, W = _dead_row_and_col(problem)
+    model = _model(sharded)
+    with pytest.warns(UnderdeterminedWarning) as record:
+        state, loss = model.fit(Y, W, max_iter=15)
+    msgs = _underdetermined(record)
+    assert len(msgs) == 1
+    assert "1 row and 1 column" in msgs[0] and "rows 4" not in msgs[0]
+    assert "row 4; column 5" in msgs[0]
+    A, G = np.asarray(state.A), np.asarray(state.G)
+    assert np.isnan(A[4]).all() and np.isnan(G[5]).all()
+    assert np.isfinite(np.delete(A, 4, 0)).all() and np.isfinite(np.delete(G, 5, 0)).all()
+    assert np.flatnonzero(np.asarray(state.row_excluded)).tolist() == [4]
+    assert np.flatnonzero(np.asarray(state.col_excluded)).tolist() == [5]
+    assert np.isfinite(np.asarray(loss)).all()
+    events = model.fit_info.exclusions
+    assert [(e.axis, e.cause, e.indices.tolist(), e.iteration) for e in events] == [
+        ("row", "empty", [4], -1),
+        ("col", "empty", [5], -1),
+    ]
+
+
+def test_low_coverage_column_is_excluded(problem):
+    W = problem["W"].copy()
+    W[:, 9] = 0.0
+    W[[0, 7], 9] = 1.0  # coverage 2 < K = 3
+    model = _model()
+    with pytest.warns(UnderdeterminedWarning):
+        state, _ = model.fit(problem["Y"], W, max_iter=15)
+    [event] = model.fit_info.exclusions
+    assert (event.axis, event.cause, event.indices.tolist()) == ("col", "low_coverage", [9])
+    assert np.isnan(np.asarray(state.G)[9]).all()
+    assert state.row_excluded is None
+
+
+def test_coverage_exactly_rank_is_kept(problem):
+    W = problem["W"].copy()
+    W[:, 9] = 0.0
+    W[[0, 7, 11], 9] = 1.0  # coverage 3 == K
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UnderdeterminedWarning)
+        state, _ = _model().fit(problem["Y"], W, max_iter=15)
+    assert state.col_excluded is None and state.row_excluded is None
+    assert np.isfinite(np.asarray(state.G)).all()
+
+
+@pytest.mark.parametrize("sharded", [False, True])
+def test_cascade(sharded):
+    rng = np.random.default_rng(3)
+    W = _cascade_weights()
+    Y = rng.normal(size=W.shape)
+    model = _model(sharded)
+    with pytest.warns(UnderdeterminedWarning) as record:
+        state, _ = model.fit(Y, W, max_iter=5)
+    assert len(_underdetermined(record)) == 1
+    events = [(e.axis, e.cause, e.indices.tolist()) for e in model.fit_info.exclusions]
+    assert events == [
+        ("col", "low_coverage", [0]),
+        ("row", "cascade", [1]),
+        ("col", "cascade", [1]),
+    ]
+    assert np.flatnonzero(np.asarray(state.row_excluded)).tolist() == [1]
+    assert np.flatnonzero(np.asarray(state.col_excluded)).tolist() == [0, 1]
+
+
+def test_cascade_that_removes_everything_raises():
+    rng = np.random.default_rng(0)
+    W = np.zeros((10, 10))
+    for i in range(10):  # every row and column has exactly 2 weights
+        W[i, [i, (i + 1) % 10]] = 1.0
+    with pytest.raises(ValueError, match="nothing left to fit"):
+        _model().fit(rng.normal(size=W.shape), W, max_iter=5)
+
+
+@pytest.mark.parametrize("sharded", [False, True])
+def test_exclusion_equals_removing_by_hand(problem, sharded):
+    """Excluding rows and columns is the same as fitting without them."""
+    W = _cascade_weights(N=60, M=30) * problem["W"]
+    Y = problem["Y"]
+    kw = {"conv_strategy": "max_frac_G", "conv_tol": 1e-14}
+    with pytest.warns(UnderdeterminedWarning):
+        state, loss = _model(sharded, **kw).fit(Y, W, max_iter=2000)
+    rows = ~np.asarray(state.row_excluded)
+    cols = ~np.asarray(state.col_excluded)
+    ref, ref_loss = _model(sharded, **kw).fit(Y[rows][:, cols], W[rows][:, cols], max_iter=2000)
+    model_fit = np.asarray(state.A)[rows] @ np.asarray(state.G)[cols].T
+    model_ref = np.asarray(ref.A) @ np.asarray(ref.G).T
+    np.testing.assert_allclose(model_fit, model_ref, rtol=0, atol=1e-8)
+    # The loss counts only the entries left in the fit.
+    np.testing.assert_allclose(float(loss[-1]), float(ref_loss[-1]), rtol=1e-10)
+
+
+@pytest.mark.parametrize("sharded", [False, True])
+def test_masked_fit_tracks_reduced_fit_every_iteration(problem, sharded):
+    """From the same start, excluded rows and columns take no part in any step.
+
+    The final optimum alone cannot show this: an under-determined factor can
+    absorb its own few entries exactly, leaving the rest of the fit unchanged.
+    The path differs, though, from the first loss on.
+    """
+    W = _cascade_weights(N=60, M=30) * problem["W"]
+    Y = problem["Y"]
+    rng = np.random.default_rng(5)
+    A0, G0 = rng.normal(size=(60, RANK)), rng.normal(size=(30, RANK))
+    with pytest.warns(UnderdeterminedWarning):
+        state, loss = _model(sharded).fit(Y, W, max_iter=20, init_state=RHMFState(A=A0, G=G0))
+    rows = ~np.asarray(state.row_excluded)
+    cols = ~np.asarray(state.col_excluded)
+    _, ref_loss = _model(sharded).fit(
+        Y[rows][:, cols],
+        W[rows][:, cols],
+        max_iter=20,
+        init_state=RHMFState(A=A0[rows], G=G0[cols]),
+    )
+    np.testing.assert_allclose(np.asarray(loss), np.asarray(ref_loss), rtol=1e-9)
+
+
+def test_ridge_reports_but_does_not_exclude(problem):
+    Y, W = _dead_row_and_col(problem)
+    with pytest.warns(UnderdeterminedWarning, match="als_ridge=1e-06 determines") as record:
+        state, _ = _model(als_ridge=1e-6).fit(Y, W, max_iter=15)
+    assert len(_underdetermined(record)) == 1
+    assert state.row_excluded is None and state.col_excluded is None
+    assert np.isfinite(np.asarray(state.A)).all() and np.isfinite(np.asarray(state.G)).all()
+    assert np.allclose(np.asarray(state.A)[4], 0) and np.allclose(np.asarray(state.G)[5], 0)
+
+
+@pytest.mark.parametrize("sharded", [False, True])
+def test_full_coverage_has_no_masks_and_no_warning(problem, sharded):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UnderdeterminedWarning)
+        state, _ = _model(sharded).fit(problem["Y"], problem["W"], max_iter=15)
+    assert state.row_excluded is None and state.col_excluded is None
+
+
+def test_sgd_honours_static_exclusions(problem):
+    Y, W = _dead_row_and_col(problem)
+    model = Robusta(rank=RANK, method="sgd", robust=False, conv_strategy="none")
+    with pytest.warns(UnderdeterminedWarning):
+        state, loss = model.fit(Y, W, max_iter=10)
+    A, G = np.asarray(state.A), np.asarray(state.G)
+    assert np.isnan(A[4]).all() and np.isnan(G[5]).all()
+    assert np.isfinite(np.delete(A, 4, 0)).all() and np.isfinite(np.delete(G, 5, 0)).all()
+    assert np.isfinite(np.asarray(loss)).all()
+
+
+@pytest.fixture(scope="module")
+def excluded_fit(problem):
+    Y, W = _dead_row_and_col(problem)
+    model = _model()
+    with pytest.warns(UnderdeterminedWarning):
+        state, _ = model.fit(Y, W, max_iter=15)
+    return model, state, Y, W
+
+
+def test_accessors_are_nan_exactly_on_exclusions(excluded_fit):
+    model, _, Y, _ = excluded_fit
+    nan_rows = np.zeros(Y.shape, bool)
+    nan_rows[4, :] = True
+    nan_rows[:, 5] = True
+    for X in (model.synthesize(), model.residuals(Y)):
+        np.testing.assert_array_equal(np.isnan(np.asarray(X)), nan_rows)
+    assert np.isnan(np.asarray(model.coefficients())).any(axis=1).tolist() == [
+        i == 4 for i in range(Y.shape[0])
+    ]
+    assert np.isnan(np.asarray(model.basis_vectors())).any(axis=1).tolist() == [
+        i == 5 for i in range(Y.shape[1])
+    ]
+
+
+def test_masks_survive_npz_and_infer_matches(excluded_fit, tmp_path):
+    model, state, Y, W = excluded_fit
+    path = tmp_path / "s.npz"
+    save_state_to_npz(state, path)
+    loaded = load_state_from_npz(path)
+    np.testing.assert_array_equal(np.asarray(loaded.col_excluded), np.asarray(state.col_excluded))
+    with pytest.warns(UnderdeterminedWarning):
+        a, _ = model.infer(Y, W, state=state, max_iter=5)
+    with pytest.warns(UnderdeterminedWarning):
+        b, _ = model.infer(Y, W, state=loaded, max_iter=5)
+    np.testing.assert_array_equal(np.asarray(a.A), np.asarray(b.A))
+
+
+def test_fit_continues_from_returned_state(excluded_fit):
+    model, state, Y, W = excluded_fit
+    with warnings.catch_warnings():
+        # Nothing new is under-covered, so nothing new is reported.
+        warnings.simplefilter("error", UnderdeterminedWarning)
+        new_state, loss = model.fit(Y, W, max_iter=5, init_state=state)
+    np.testing.assert_array_equal(
+        np.asarray(new_state.row_excluded), np.asarray(state.row_excluded)
+    )
+    np.testing.assert_array_equal(
+        np.asarray(new_state.col_excluded), np.asarray(state.col_excluded)
+    )
+    assert np.isnan(np.asarray(new_state.G)[5]).all()
+    assert np.isfinite(np.asarray(loss)).all()
+    assert model.fit_info.exclusions == ()
+
+
+def test_infer_keeps_training_exclusions_and_excludes_new_rows(excluded_fit):
+    model, state, Y, W = excluded_fit
+    W_new = W[:10].copy()
+    W_new[2, :] = 0.0
+    W_new[2, :2] = 1.0  # coverage 2 < K
+    before = model.fit_info
+    with pytest.warns(
+        UnderdeterminedWarning, match=r"infer \(K=3\): 2 rows .*rows 2, 4"
+    ) as record:
+        inf, loss = model.infer(Y[:10], W_new, max_iter=5)
+    assert len(_underdetermined(record)) == 1
+    assert np.flatnonzero(np.asarray(inf.row_excluded)).tolist() == [2, 4]
+    np.testing.assert_array_equal(np.asarray(inf.col_excluded), np.asarray(state.col_excluded))
+    A = np.asarray(inf.A)
+    assert np.isnan(A[[2, 4]]).all() and np.isfinite(np.delete(A, [2, 4], 0)).all()
+    assert np.isnan(np.asarray(inf.G)[5]).all()
+    assert np.isfinite(np.asarray(loss)).all()
+    assert model.fit_info is before
+
+
+@pytest.mark.parametrize("where", ["fit", "infer"])
+def test_state_with_nan_outside_masks_raises(excluded_fit, where):
+    model, state, Y, W = excluded_fit
+    bad = update_state(state, A=state.A.at[0, 0].set(jnp.nan))
+    with pytest.raises(ValueError, match="outside its exclusion masks"):
+        if where == "fit":
+            model.fit(Y, W, max_iter=2, init_state=bad)
+        else:
+            model.infer(Y, W, state=bad, max_iter=2)
+    unmasked = with_exclusions(state, None, None)
+    with pytest.raises(ValueError, match="outside its exclusion masks"):
+        if where == "fit":
+            model.fit(Y, W, max_iter=2, init_state=unmasked)
+        else:
+            model.infer(Y, W, state=unmasked, max_iter=2)
