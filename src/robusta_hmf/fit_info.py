@@ -5,8 +5,6 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-import numpy as np
-
 StopReason = Literal["converged", "max_iter"]
 ExclusionAxis = Literal["row", "col"]
 ExclusionCause = Literal["empty", "low_coverage", "cascade"]
@@ -16,15 +14,14 @@ ExclusionCause = Literal["empty", "low_coverage", "cascade"]
 class ExclusionEvent:
     """Rows or columns removed from a fit because the data could not determine them.
 
+    Exclusion happens before the first iteration, from the weights.
+
     Attributes
     ----------
-    iteration : int
-        Iteration at which they were excluded; ``-1`` means before the first
-        iteration, from the input weights.
     axis : {"row", "col"}
         Whether ``indices`` are rows (of ``Y`` and ``A``) or columns (of ``Y``,
         rows of ``G``).
-    indices : numpy.ndarray
+    indices : tuple of int
         The excluded indices, sorted.
     cause : {"empty", "low_coverage", "cascade"}
         ``"empty"``: no non-zero weights. ``"low_coverage"``: fewer non-zero
@@ -32,9 +29,8 @@ class ExclusionEvent:
         rows or columns were excluded.
     """
 
-    iteration: int
     axis: ExclusionAxis
-    indices: np.ndarray
+    indices: tuple[int, ...]
     cause: ExclusionCause
 
 

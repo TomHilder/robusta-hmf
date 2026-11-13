@@ -49,8 +49,7 @@ def cascade(
         What remains.
     events : list of ExclusionEvent
         In the first round, cause ``"empty"`` (coverage 0) or
-        ``"low_coverage"``; in later rounds, ``"cascade"``. All have
-        ``iteration=-1``.
+        ``"low_coverage"``; in later rounds, ``"cascade"``.
     """
     row_active = np.array(row_active, dtype=bool)
     col_active = np.array(col_active, dtype=bool)
@@ -90,13 +89,13 @@ def _events(axis, mask, cause) -> list[ExclusionEvent]:
     idx = np.flatnonzero(mask)
     if idx.size == 0:
         return []
-    return [ExclusionEvent(iteration=-1, axis=axis, indices=idx, cause=cause)]
+    return [ExclusionEvent(axis=axis, indices=tuple(int(i) for i in idx), cause=cause)]
 
 
 def indices_by_axis(events) -> tuple[np.ndarray, np.ndarray]:
     """All row indices and all column indices named in ``events``, sorted."""
-    rows = [e.indices for e in events if e.axis == "row"]
-    cols = [e.indices for e in events if e.axis == "col"]
+    rows = [np.asarray(e.indices, int) for e in events if e.axis == "row"]
+    cols = [np.asarray(e.indices, int) for e in events if e.axis == "col"]
     return (
         np.sort(np.concatenate(rows)) if rows else np.zeros(0, int),
         np.sort(np.concatenate(cols)) if cols else np.zeros(0, int),

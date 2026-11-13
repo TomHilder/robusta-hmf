@@ -73,8 +73,13 @@ def test_fit_info_defaults_and_immutability():
     assert info.exclusions == ()
     with pytest.raises(dataclasses.FrozenInstanceError):
         info.converged = False
-    event = ExclusionEvent(iteration=-1, axis="col", indices=np.array([2, 5]), cause="empty")
-    assert event.iteration == -1 and event.axis == "col" and event.cause == "empty"
+    event = ExclusionEvent(axis="col", indices=(2, 5), cause="empty")
+    assert event.axis == "col" and event.indices == (2, 5) and event.cause == "empty"
+    # Comparable and hashable, so FitInfo is too.
+    assert event == ExclusionEvent(axis="col", indices=(2, 5), cause="empty")
+    assert len({event, ExclusionEvent(axis="col", indices=(2, 5), cause="empty")}) == 1
+    a = FitInfo(True, "converged", 3, 1.0, exclusions=(event,))
+    assert a == FitInfo(True, "converged", 3, 1.0, exclusions=(event,))
 
 
 # ----------------------------
@@ -408,10 +413,10 @@ def test_empty_row_and_column_are_excluded(problem, sharded):
     assert np.flatnonzero(np.asarray(state.col_excluded)).tolist() == [5]
     assert np.isfinite(np.asarray(loss)).all()
     events = model.fit_info.exclusions
-    assert [(e.axis, e.cause, e.indices.tolist(), e.iteration) for e in events] == [
-        ("row", "empty", [4], -1),
-        ("col", "empty", [5], -1),
-    ]
+    assert events == (
+        ExclusionEvent(axis="row", indices=(4,), cause="empty"),
+        ExclusionEvent(axis="col", indices=(5,), cause="empty"),
+    )
 
 
 def test_low_coverage_column_is_excluded(problem):
@@ -422,7 +427,7 @@ def test_low_coverage_column_is_excluded(problem):
     with pytest.warns(UnderdeterminedWarning):
         state, _ = model.fit(problem["Y"], W, max_iter=15)
     [event] = model.fit_info.exclusions
-    assert (event.axis, event.cause, event.indices.tolist()) == ("col", "low_coverage", [9])
+    assert event == ExclusionEvent(axis="col", indices=(9,), cause="low_coverage")
     assert np.isnan(np.asarray(state.G)[9]).all()
     assert state.row_excluded is None
 
@@ -447,7 +452,7 @@ def test_cascade(sharded):
     with pytest.warns(UnderdeterminedWarning) as record:
         state, _ = model.fit(Y, W, max_iter=5)
     assert len(_underdetermined(record)) == 1
-    events = [(e.axis, e.cause, e.indices.tolist()) for e in model.fit_info.exclusions]
+    events = [(e.axis, e.cause, list(e.indices)) for e in model.fit_info.exclusions]
     assert events == [
         ("col", "low_coverage", [0]),
         ("row", "cascade", [1]),
