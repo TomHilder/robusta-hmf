@@ -42,6 +42,29 @@ retire this file.
   across the codebase (the package already ships a `py.typed` marker).
 - **Code clean-up** — refactors and dead-code removal.
 
+**After PR #13 (under-determined fits), from its adversarial review**
+- Release notes for the version that ships it ("Changed"): `OptFrame` subclasses must accept
+  `prepare(Y, W, nan_error=...)` and return `(state, loss_history, fit_info)` from `run`;
+  excluded rows of `A`/`G` come back as NaN where they used to be zeros; fits that stop at
+  `max_iter` now warn; `ZMoments.as_dict()` gains three `n_excluded_*` keys.
+- One shared run loop for the dense and sharded frames (they are near-copies; every new
+  run-level behaviour is written twice).
+- Finish consolidating exclusion handling (`state.working_form` is a start; `infer` and the
+  sharded kernels still mask their own way).
+- One chunked-reduction helper in `sharded.py`, compiled once per frame: the kernels repeat
+  the same scan/psum shape six times and are re-jitted on every call (a fixed ~6–10% on short
+  4-device fits); drop the `masked` static flag at the same time.
+- Warning text and `RunMonitor` owned by `Robusta`, not the frame layer.
+- Document the frame contract (`coverage`, `max_diagonals`, `zero_model_loss`, `z_moments`,
+  `initial_coefficients`) in `OptFrame`.
+- Split `tests/test_underdetermined.py` along its section headers; shared fixtures to
+  `conftest.py`.
+- Negligible-ridge check in `infer` (only `fit` has it).
+- Excluded rows held at zero dilute the `max_frac_*` convergence test.
+- A `verbose` switch instead of `print` progress.
+- Sharded float32 store counts weights below ~1e-38 as zero (dense does not).
+- `infer()` on SGD-fitted models crashes (`opt_state=None`); predates PR #13.
+
 **Possible extensions** (ideas, not commitments)
 - Regularisation (no implementation yet; the empty `regularisers.py` placeholder was removed 2026-07-30).
 - Non-pixel bases.

@@ -74,11 +74,14 @@ only if its coverage is at least `rank`. Rows and columns with less are automati
 - Excluded rows and columns do not inform the fit. Their rows of `A` and `G` will be set
   to `NaN` in the returned fit, to signpost their exclusion. `state.row_excluded` / `state.col_excluded`
   also indicate exclusions, such that `.synthesize()` and `.residuals()` will give `NaN`
-  where the model is undefined.
+  where the model is undefined. `.robust_weights()` instead treats excluded entries like
+  missing ones (weight 1), so per-row outlier scores stay finite.
 - When exclusion occurs, an `UnderdeterminedWarning` will list them. `model.fit_info.exclusions`
   also records instances of exclusion as well as why.
 - The returned state can be saved, passed back to `fit(init_state=...)`, or used for
   `infer()` and `score()`. Exclusion will cause the following behaviour for these:
+  - `fit(init_state=...)` recomputes exclusions from the data it is given, so rows and
+    columns that are now covered come back.
   - `infer()` keeps the columns excluded in training and excludes new rows with too
     little coverage.
   - `score()` treats excluded entries as zero-weight and reports how many there were
@@ -91,7 +94,8 @@ also impacts other entries of `A` and `G`. An `UnderdeterminedWarning` will tell
 parts of the model are determined only by the ridge and not the data. If the ridge is too small
 to register at the level of precision, a warning will give the minimum usable value. For example,
 if you are working with float32 (firstly, probably don't), the ridge will need to be larger than
-that at float64.
+that at float64. With a ridge, the loss being minimised includes the ridge penalty, so the
+rising-loss check described below is not applied.
 
 As a final note for the nerds, you can easily mix this behaviour by setting entries of `Y` to zero and the corresponding entries of `W` to small numbers where you want regularisation. `W` can then be zero where you want exclusion. In this case, don't use `als_ridge`.
 
@@ -161,7 +165,8 @@ divergence of the standardised residuals from a standard Normal distribution `N(
 For this score, lower is better, and so you should choose a `rank` (K in the paper) and
 `robust_scale` (Q in the paper) that performs well in terms of this score. `score()`
 also provides some other potentially useful diagnostics although we **do not** recommend
-using them for model selection.
+using them for model selection. Excluded entries count as zero residuals in these scores, so
+compare scores across ranks only when `n_excluded_entries` is 0 (or the same) for each.
 
 ```python
 infer_state, _ = model.infer(Y_test, W_test, state=state)
@@ -210,6 +215,9 @@ for rank in ranks:
     model = Robusta(rank=rank, override_frame=frame)
     state, _ = model.fit(data)
 ```
+
+The data are checked for `NaN` and `inf` when `prepare()` places them, so pass
+`frame.prepare(Y, W, nan_error=True)` there if you want an error rather than a warning.
 
 ## Citation
 

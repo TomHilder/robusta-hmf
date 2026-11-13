@@ -13,6 +13,14 @@ iterations it no longer fired on outlier-dominated columns either, and those don
 numerically. Exclusion now happens only before the loop, from `W`. The negligible-ridge check
 runs before the loop and on the final state rather than every iteration.
 
+**Changed after the adversarial review (2026-11-13):** the rising-loss floor is a single term
+`100·ε·√(|L|·S₀)`, with `S₀` the likelihood's loss of the zero model (§1.6's `S = Σ W·Y²` let
+outliers hide instabilities and missed high-S/N round-off); the rule is not applied with
+`als_ridge` (the minimised objective includes the penalty, and rotation changes it);
+`fit(init_state=...)` recomputes exclusions from the data instead of inheriting the state's
+masks (§1.4); `ExclusionEvent` has tuple `indices` and no `iteration`; `robust_weights()`
+treats excluded entries like missing data.
+
 ## Notation
 
 The model is `Y ≈ A Gᵀ`, where:
