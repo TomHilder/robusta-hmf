@@ -10,7 +10,15 @@ import numpy as np
 from jaxtyping import Array
 
 from .convergence import ConvergenceTester
-from .coverage import cascade, exclusion_message, indices_by_axis, ridge_message, under_covered
+from .coverage import (
+    cascade,
+    exclusion_message,
+    indices_by_axis,
+    negligible_ridge,
+    negligible_ridge_message,
+    ridge_message,
+    under_covered,
+)
 from .fit_info import FitInfo
 from .frame import OptFrame
 from .hmf import HMF, OptMethod
@@ -298,7 +306,8 @@ class Robusta:
             check_state_finite(init_state)
 
         # Rows and columns the data cannot determine are excluded up front.
-        init_state, exclusions = self._exclude_under_covered(Y, W, init_state)
+        init_state, exclusions, under = self._exclude_under_covered(Y, W, init_state)
+        ridge_warned = self._check_ridge_resolution(Y, W, init_state, under)
 
         # Run optimization
         final_state, loss_history, fit_info = self._frame.run(
@@ -309,6 +318,9 @@ class Robusta:
             conv_check_cadence=conv_check_cadence,
             max_iter=max_iter,
         )
+
+        if not ridge_warned:
+            self._check_ridge_resolution(Y, W, final_state, under)
 
         # Store internally
         self._state = final_state
@@ -327,8 +339,10 @@ class Robusta:
         Starts from the masks already on ``state``. Without a ridge the
         exclusions cascade to a fixed point and are recorded on the returned
         state; with a ridge nothing is excluded, but under-covered rows and
-        columns are still reported. Returns ``(state, events)``.
+        columns are still reported. Returns ``(state, events, (rows, cols))``,
+        the last being the under-covered rows and columns when a ridge is set.
         """
+        none = (np.zeros(0, int), np.zeros(0, int))
         K = self.rank
         N, M = _data_shape(Y)
         row0 = _active(state.row_excluded, N)
@@ -343,11 +357,11 @@ class Robusta:
                 warnings.warn(
                     ridge_message(K, rows, cols, self._ridge), UnderdeterminedWarning, stacklevel=3
                 )
-            return state, ()
+            return state, (), (rows, cols)
 
         row_active, col_active, events = cascade(coverage, K, row0, col0, update_cols=not infer)
         if not events:
-            return state, ()
+            return state, (), none
         if not infer and (row_active.sum() < K or col_active.sum() < K):
             raise ValueError(
                 f"After excluding rows and columns with fewer than {K} non-zero weights, "
@@ -363,7 +377,33 @@ class Robusta:
             ~row_active if not row_active.all() else None,
             ~col_active if not col_active.all() else None,
         )
-        return state, tuple(events)
+        return state, tuple(events), none
+
+    def _check_ridge_resolution(self, Y, W, state: RHMFState, under) -> bool:
+        """Warn if ``als_ridge`` is too small to affect any under-covered system.
+
+        A ridge changes a system only if it is resolvable next to the
+        system's diagonal at the working precision: here, if
+        ``ridge > 10·ε·d`` for d its largest diagonal entry. Only systems
+        with fewer than K non-zero weights need the ridge, so only those are
+        checked. Returns whether it warned.
+        """
+        rows, cols = under
+        if self._ridge is None or not (rows.size or cols.size):
+            return False
+        dA, dG = self._frame.max_diagonals(Y, W, state)
+        eps = float(np.finfo(self.dtype).eps)
+        bad_rows = rows[negligible_ridge(self._ridge, eps, dA[rows])]
+        bad_cols = cols[negligible_ridge(self._ridge, eps, dG[cols])]
+        if not (bad_rows.size or bad_cols.size):
+            return False
+        d_max = float(max(dA[bad_rows].max(initial=0), dG[bad_cols].max(initial=0)))
+        warnings.warn(
+            negligible_ridge_message(self._ridge, self.dtype, bad_rows, bad_cols, d_max),
+            UnderdeterminedWarning,
+            stacklevel=3,
+        )
+        return True
 
     def synthesize(
         self,
@@ -457,7 +497,7 @@ class Robusta:
         masks = RHMFState(
             A=jnp.zeros((n_rows, self.rank), self.dtype), G=G_fixed, col_excluded=col_excluded
         )
-        masks, _ = self._exclude_under_covered(Y_infer, W_infer, masks, infer=True)
+        masks, _, _ = self._exclude_under_covered(Y_infer, W_infer, masks, infer=True)
 
         # Get an initial guess for the coefficients using the data weights
         ridge = self._ridge

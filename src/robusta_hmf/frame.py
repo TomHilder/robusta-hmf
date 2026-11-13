@@ -113,6 +113,19 @@ class OptFrame:
         W = mask_weights(W, row_excluded, None)
         return WeightedAStep(ridge=ridge)(Y, W, RHMFState(A=A_dummy, G=G, it=0)).A
 
+    def max_diagonals(self, Y, W, state: RHMFState) -> tuple[np.ndarray, np.ndarray]:
+        """Largest diagonal entry of each row's and each column's least-squares system.
+
+        ``max_k (W_t @ G**2)[i, k]`` for the rows of ``A`` and
+        ``max_k (W_tᵀ @ A**2)[j, k]`` for the rows of ``G``, with ``W_t`` the
+        total (data times robust) weights at ``state``.
+        """
+        state = self.cast_state(state)
+        Wt = self.method.likelihood.weights_total(Y, W, state.A, state.G)
+        dA = jnp.max(Wt @ state.G**2, axis=1)
+        dG = jnp.max(Wt.T @ state.A**2, axis=1)
+        return np.asarray(dA), np.asarray(dG)
+
     def coverage(self, Y, W, row_active, col_active) -> tuple[np.ndarray, np.ndarray]:
         """Non-zero weights per row among active columns, and per column among active rows."""
         nz = W > 0

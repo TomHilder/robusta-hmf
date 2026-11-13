@@ -627,3 +627,86 @@ def test_state_with_nan_outside_masks_raises(excluded_fit, where):
             model.fit(Y, W, max_iter=2, init_state=unmasked)
         else:
             model.infer(Y, W, state=unmasked, max_iter=2)
+
+
+# ----------------------------
+# A ridge too small to determine anything
+# ----------------------------
+def issue10_like(seed=0, N=200, M=400, K_true=4, n_sparse=40, keep_rows=3, sigma=0.01):
+    """Scaled-down issue #10: a block of columns kept by only ``keep_rows`` rows."""
+    rng = np.random.default_rng(seed)
+    A = rng.normal(size=(N, K_true))
+    G = rng.normal(size=(M, K_true))
+    Y = A @ G.T + sigma * rng.normal(size=(N, M))
+    W = np.full((N, M), 1 / sigma**2)
+    sparse = np.arange(M - n_sparse, M)
+    W[:, sparse] = 0.0
+    W[np.ix_(rng.choice(N, keep_rows, replace=False), sparse)] = 1 / sigma**2
+    Y[W == 0] = 0.0
+    return {"Y": Y, "W": W, "sparse_cols": sparse, "Y_clean": A @ G.T}
+
+
+def _negligible(record):
+    return [m for m in _underdetermined(record) if "below" in m and "resolution" in m]
+
+
+def test_negligible_ridge_threshold():
+    from robusta_hmf.coverage import negligible_ridge
+
+    for dtype in (np.float32, np.float64):
+        eps = float(np.finfo(dtype).eps)
+        d = np.array([1e4])
+        threshold = 10 * eps * d[0]
+        assert negligible_ridge(threshold * 0.99, eps, d)[0]
+        assert not negligible_ridge(threshold * 1.01, eps, d)[0]
+
+
+def test_negligible_ridge_warns_in_float32():
+    p = issue10_like()
+    model = Robusta(rank=8, robust=False, als_ridge=1e-6, dtype="float32", conv_strategy="none")
+    with pytest.warns(UnderdeterminedWarning) as record:
+        model.fit(p["Y"], p["W"], max_iter=3)
+    [msg] = _negligible(record)
+    assert "als_ridge=1e-06 is below float32 resolution for 40 columns" in msg
+    # The threshold it reports is 10·ε·d for the largest such diagonal (~3 weights of 1e4).
+    d_max = float(msg.split("largest diagonal ")[1].split(",")[0])
+    assert 1e3 < d_max < 1e6
+    threshold = float(msg.split("must exceed ~")[1].split(" ")[0])
+    np.testing.assert_allclose(threshold, 10 * np.finfo(np.float32).eps * d_max, rtol=0.1)
+
+
+@pytest.mark.parametrize(
+    "dtype,ridge", [("float64", 1e-6), ("float32", 1e3)], ids=["float64", "float32-big-ridge"]
+)
+def test_resolvable_ridge_does_not_warn(dtype, ridge):
+    p = issue10_like()
+    model = Robusta(rank=8, robust=False, als_ridge=ridge, dtype=dtype, conv_strategy="none")
+    with pytest.warns(UnderdeterminedWarning) as record:  # the coverage report itself
+        model.fit(p["Y"], p["W"], max_iter=3)
+    assert _negligible(record) == []
+    assert any("determines their factors" in m for m in _underdetermined(record))
+
+
+def test_negligible_ridge_with_full_coverage_is_not_checked(problem):
+    # The ridge is negligible everywhere, but no system needs it.
+    model = Robusta(
+        rank=RANK, robust=False, als_ridge=1e-30, dtype="float32", conv_strategy="none"
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UnderdeterminedWarning)
+        model.fit(problem["Y"], problem["W"], max_iter=3)
+
+
+def test_sharded_max_diagonals_match_dense(problem):
+    dense = Robusta(rank=RANK, robust=True, robust_scale=2.0)
+    dense.fit(problem["Y"], problem["W"], max_iter=5)
+    sharded = Robusta(rank=RANK, robust=True, robust_scale=2.0, override_frame=_frame(True))
+    dA, dG = dense._frame.max_diagonals(
+        *dense._frame.prepare(problem["Y"], problem["W"]), dense.state
+    )
+    sA, sG = sharded._frame.max_diagonals(
+        *sharded._frame.prepare(problem["Y"], problem["W"]), dense.state
+    )
+    # The sharded store is float32, so agreement is to float32 round-off.
+    np.testing.assert_allclose(sA, dA, rtol=1e-5)
+    np.testing.assert_allclose(sG, dG, rtol=1e-5)

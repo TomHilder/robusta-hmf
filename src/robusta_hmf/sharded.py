@@ -809,6 +809,41 @@ class ShardedFrame(OptFrame):
             sum_chi2=float(chi2),
         )
 
+    def max_diagonals(self, Y, W, state: RHMFState) -> tuple[np.ndarray, np.ndarray]:
+        """Largest diagonal entry of each row's and each column's least-squares system.
+
+        As :meth:`robusta_hmf.frame.OptFrame.max_diagonals`, accumulated chunk
+        by chunk.
+        """
+        data, _ = self.prepare(Y, W)
+        plan, cdtype = data.plan, self.compute_dtype
+        chunk, likelihood = plan.chunk, self.method.likelihood
+        A = self._pad_A(state.A, plan)
+        G = jnp.asarray(state.G, cdtype)
+
+        def local(Y_l, W_l, A_l, G):
+            n_local, n_pix = Y_l.shape
+            nc = n_local // chunk
+            G2 = G * G
+
+            def body(acc, xs):
+                y, w, a = xs
+                wt = likelihood.weights_total(y.astype(cdtype), w.astype(cdtype), a, G)
+                return acc + wt.T @ (a * a), jnp.max(wt @ G2, axis=1)
+
+            blocks = (
+                Y_l.reshape(nc, chunk, n_pix),
+                W_l.reshape(nc, chunk, n_pix),
+                A_l.reshape(nc, chunk, G.shape[1]),
+            )
+            acc, dA = jax.lax.scan(body, jnp.zeros((n_pix, G.shape[1]), cdtype), blocks)
+            return dA.reshape(n_local), jnp.max(jax.lax.psum(acc, ROW_AXIS), axis=1)
+
+        in_specs = (P(ROW_AXIS, None), P(ROW_AXIS, None), P(ROW_AXIS, None), P())
+        f = jax.jit(_shmap(local, self.mesh, in_specs, (P(ROW_AXIS), P())))
+        dA, dG = f(data.Y, data.W, A, G)
+        return np.asarray(dA)[: data.n_rows], np.asarray(dG)
+
     def robust_weights_blocks(self, Y, W, state: RHMFState, row_block: int | None = None):
         """Yield IRLS weights one row-block at a time, as numpy arrays.
 

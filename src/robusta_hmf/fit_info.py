@@ -9,7 +9,7 @@ import numpy as np
 
 StopReason = Literal["converged", "max_iter"]
 ExclusionAxis = Literal["row", "col"]
-ExclusionCause = Literal["empty", "low_coverage", "robust", "cascade"]
+ExclusionCause = Literal["empty", "low_coverage", "cascade"]
 
 
 @dataclass(frozen=True)
@@ -26,12 +26,10 @@ class ExclusionEvent:
         rows of ``G``).
     indices : numpy.ndarray
         The excluded indices, sorted.
-    cause : {"empty", "low_coverage", "robust", "cascade"}
+    cause : {"empty", "low_coverage", "cascade"}
         ``"empty"``: no non-zero weights. ``"low_coverage"``: fewer non-zero
-        weights than the rank. ``"robust"``: fewer than the rank once entries
-        with robust weight below ``min_robust_weight`` are discounted.
-        ``"cascade"``: fell below the rank after other rows or columns were
-        excluded.
+        weights than the rank. ``"cascade"``: fell below the rank after other
+        rows or columns were excluded.
     """
 
     iteration: int
