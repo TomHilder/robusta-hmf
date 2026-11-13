@@ -96,6 +96,29 @@ def working_form(W: Array, state: RHMFState) -> tuple[Array, RHMFState]:
     return mask_weights(W, state.row_excluded, state.col_excluded), fill_excluded(state, 0.0)
 
 
+def check_state_shape(
+    state: RHMFState, n_rows: int | None, n_cols: int, rank: int, what: str = "state"
+) -> None:
+    """Raise ``ValueError`` unless ``state`` fits data of shape ``(n_rows, n_cols)`` at ``rank``.
+
+    ``n_rows=None`` skips the rows of ``A`` (``infer`` brings new rows).
+    """
+    expected = [("G", state.G.shape, (n_cols, rank))]
+    if state.col_excluded is not None:
+        expected.append(("col_excluded", state.col_excluded.shape, (n_cols,)))
+    if n_rows is not None:
+        expected.append(("A", state.A.shape, (n_rows, rank)))
+        if state.row_excluded is not None:
+            expected.append(("row_excluded", state.row_excluded.shape, (n_rows,)))
+    for name, got, want in expected:
+        if tuple(got) != want:
+            raise ValueError(
+                f"{what}.{name} has shape {tuple(got)}, but the data (shape "
+                f"{(n_rows, n_cols) if n_rows is not None else ('N', n_cols)}) at rank={rank} "
+                f"need {want}."
+            )
+
+
 def check_state_finite(state: RHMFState) -> None:
     """Raise ``ValueError`` if ``A`` or ``G`` is non-finite outside the exclusion masks."""
     for name, X, mask in (("A", state.A, state.row_excluded), ("G", state.G, state.col_excluded)):

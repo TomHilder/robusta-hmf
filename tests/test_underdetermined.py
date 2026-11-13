@@ -1203,3 +1203,54 @@ def test_sharded_robust_weights_blocks_match_dense_with_exclusions(problem):
         sharded._frame.robust_weights_blocks(problem["Y"], problem["W"], state, row_block=7)
     )
     np.testing.assert_allclose(np.concatenate(blocks), dense, rtol=1e-12)
+
+
+# ----------------------------
+# Small items from review: pickles, shapes, where warnings point, overflow wording
+# ----------------------------
+def test_model_pickled_before_nan_error_existed_still_works(problem):
+    import pickle
+
+    model = _model()
+    model.fit(problem["Y"], problem["W"], max_iter=5)
+    del model.__dict__["nan_error"]  # as in a pickle written before the attribute existed
+    old = pickle.loads(pickle.dumps(model))
+    assert old.nan_error is False
+    old.score(problem["Y"], problem["W"])
+    old.infer(problem["Y"][:3], problem["W"][:3], max_iter=2)
+
+
+def test_state_shapes_are_checked_against_the_data(excluded_fit, problem):
+    model, state, Y, W = excluded_fit
+    small = RHMFState(A=np.ones((Y.shape[0] - 1, RANK)), G=np.ones((Y.shape[1], RANK)))
+    with pytest.raises(ValueError, match=r"init_state\.A has shape \(59, 3\)"):
+        _model().fit(Y, W, max_iter=2, init_state=small)
+    short_mask = with_exclusions(state, np.zeros(Y.shape[0] - 1, bool), state.col_excluded)
+    with pytest.raises(ValueError, match=r"row_excluded has shape \(59,\)"):
+        _model().fit(Y, W, max_iter=2, init_state=short_mask)
+    with pytest.raises(ValueError, match=r"state\.G has shape \(30, 3\)"):
+        model.infer(problem["Y"][:5, :20], problem["W"][:5, :20], state=state)
+    with pytest.raises(ValueError, match=r"state\.A has shape \(60, 3\)"):
+        model.score(problem["Y"][:5], problem["W"][:5], state=state)
+
+
+@pytest.mark.parametrize("sharded", [False, True])
+def test_warnings_point_at_the_callers_line(problem, sharded):
+    Y = problem["Y"].copy()
+    Y[3, 3] = np.nan
+    model = Robusta(rank=RANK, robust=False, override_frame=_frame(sharded))
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        model.fit(Y, problem["W"], max_iter=3)
+    kinds = {w.category for w in record}
+    assert DataWarning in kinds and ConvergenceWarning in kinds
+    for w in record:
+        if issubclass(w.category, RobustaWarning):
+            assert w.filename == __file__, (w.category.__name__, w.filename)
+
+
+def test_overflow_on_cast_is_named_in_the_message(problem):
+    Y = problem["Y"].copy()
+    Y[2, 2] = 1e60  # finite in float64, inf in float32
+    with pytest.warns(DataWarning, match=r"in float32 \(finite values beyond float32's range"):
+        _model(dtype="float32").fit(Y, problem["W"], max_iter=2)

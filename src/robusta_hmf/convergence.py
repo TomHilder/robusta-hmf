@@ -9,7 +9,7 @@ import numpy as np
 from jaxtyping import Array
 
 from .state import RHMFState
-from .warnings import ConvergenceWarning
+from .warnings import ConvergenceWarning, user_stacklevel
 
 ConvStrategy = Literal["max_frac_G", "max_frac_A", "rel_frac_loss", "none"]
 
@@ -156,7 +156,7 @@ class RunMonitor:
                 f"{self.losses[t]:.3g}), which the ALS iteration should never do; the fit "
                 f"is numerically unreliable.{see}",
                 ConvergenceWarning,
-                stacklevel=4,
+                stacklevel=user_stacklevel(),
             )
         self.rises += rises
 
@@ -170,6 +170,6 @@ class RunMonitor:
                 f"{self.head}: stopped at max_iter={max_iter} without converging "
                 f"(final loss {self.losses[-1]:.5g}){see}",
                 ConvergenceWarning,
-                stacklevel=4,
+                stacklevel=user_stacklevel(),
             )
         return tuple(self.rises)

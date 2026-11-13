@@ -307,7 +307,7 @@ def shard_data(
     if W is None:
         raise ValueError("W must be provided alongside Y (or pass a prepared ShardedData)")
     check_same_shape(Y, W)
-    bad = BadEntries()
+    bad = BadEntries(dtype=dtype)
     with np.errstate(over="ignore"):  # overflow to inf is what we are counting
         for start in range(0, Y.shape[0], row_block):
             stop = start + row_block

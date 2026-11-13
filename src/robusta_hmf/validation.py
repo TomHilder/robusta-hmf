@@ -15,7 +15,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .warnings import DataWarning
+from .warnings import DataWarning, user_stacklevel
 
 
 @dataclass
@@ -26,6 +26,7 @@ class BadEntries:
     first_nonfinite: tuple[int, int] | None = None
     n_negative: int = 0
     first_negative: tuple[int, int] | None = None
+    dtype: object = None  # the dtype the data were cast to, for the message
 
     def add_block(self, Y, W, row_offset: int = 0) -> None:
         """Count the bad entries of one row block starting at ``row_offset``."""
@@ -44,7 +45,8 @@ class BadEntries:
         if self.n_nonfinite and nan_error:
             raise ValueError(
                 f"Found {self.n_nonfinite:,} non-finite entries in Y or W "
-                f"({_where(self.first_nonfinite)}). Set Y = W = 0 there to mark them "
+                f"({_where(self.first_nonfinite)}){self._cast_note()}. Set Y = W = 0 there "
+                "to mark them "
                 "missing, or pass nan_error=False to have that done automatically."
             )
         if self.n_negative:
@@ -56,10 +58,17 @@ class BadEntries:
         if self.n_nonfinite:
             warnings.warn(
                 f"Found {self.n_nonfinite:,} non-finite entries in Y or W "
-                f"({_where(self.first_nonfinite)}); treated them as missing "
-                "(Y = W = 0). Pass nan_error=True to raise instead.",
+                f"({_where(self.first_nonfinite)}){self._cast_note()}; treated them as "
+                "missing (Y = W = 0). Pass nan_error=True to raise instead.",
                 DataWarning,
+                stacklevel=user_stacklevel(),
             )
+
+    def _cast_note(self) -> str:
+        if self.dtype is None:
+            return ""
+        name = np.dtype(self.dtype).name
+        return f" in {name} (finite values beyond {name}'s range become inf when cast)"
 
 
 def _tally(mask, count: int, first, row_offset: int):
@@ -98,7 +107,7 @@ def sanitise(Y, W, nan_error: bool):
     always raise ``ValueError``.
     """
     check_same_shape(Y, W)
-    bad = BadEntries()
+    bad = BadEntries(dtype=np.result_type(Y.dtype, W.dtype))
     bad.add_block(Y, W)
     bad.resolve(nan_error)
     if bad.n_nonfinite:

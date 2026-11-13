@@ -29,6 +29,7 @@ from .rotations import RotationMethod
 from .state import (
     RHMFState,
     check_state_finite,
+    check_state_shape,
     fill_excluded,
     has_exclusions,
     with_exclusions,
@@ -61,6 +62,7 @@ class Robusta:
     _state: RHMFState | None = None
     _loss_history: Array | None = None
     _fit_info: FitInfo | None = None
+    nan_error: bool = False  # class default, so models pickled before it existed still load
 
     def __init__(
         self,
@@ -310,6 +312,7 @@ class Robusta:
             )
             print("done.", flush=True)
         else:
+            check_state_shape(init_state, N, M, self.rank, "init_state")
             check_state_finite(init_state)
             init_state = _restart_point(init_state)
 
@@ -499,14 +502,14 @@ class Robusta:
                 "No trained state available. Either provide state or call fit() first."
             )
         check_precision(self.dtype, self.rank)
+        check_rank(self.rank, *_data_shape(Y_infer), allow_few_rows=True)
+        check_state_shape(state, None, _data_shape(Y_infer)[1], self.rank)
         check_state_finite(state)
         # Columns excluded in training have NaN rows of G; they stay excluded.
         col_excluded = state.col_excluded
         G_fixed = jnp.asarray(state.G, self.dtype)
         if col_excluded is not None:
             G_fixed = jnp.where(col_excluded[:, None], jnp.zeros((), self.dtype), G_fixed)
-
-        check_rank(self.rank, *_data_shape(Y_infer), allow_few_rows=True)
 
         # Place the held-out data the same way the frame places training data.
         Y_infer, W_infer = self._frame.prepare(Y_infer, W_infer, nan_error=self.nan_error)
@@ -594,6 +597,7 @@ class Robusta:
         if state is None:
             raise ValueError("No trained state available. Call fit() first.")
         check_precision(self.dtype, self.rank)
+        check_state_shape(state, *_data_shape(Y), self.rank)
         check_state_finite(state)
         Y, W = self._frame.prepare(Y, W, nan_error=self.nan_error)
         moments = self._frame.z_moments(Y, W, self._frame.cast_state(state))
