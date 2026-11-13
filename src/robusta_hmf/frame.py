@@ -15,7 +15,14 @@ from .hmf import HMF
 from .initialisation import Initialiser, InitStrategy
 from .metrics import ZMoments, z_moments
 from .precision import nonfinite_factors_message, nonfinite_loss_message
-from .state import RHMFState, fill_excluded, has_exclusions, mask_weights, update_state
+from .state import (
+    RHMFState,
+    fill_excluded,
+    has_exclusions,
+    mask_weights,
+    update_state,
+    working_form,
+)
 from .validation import sanitise
 
 
@@ -139,9 +146,7 @@ class OptFrame:
         Entries in rows or columns the state excludes are scored as zero-weight
         entries, with the excluded factors taken as 0.
         """
-        if has_exclusions(state):
-            W = mask_weights(W, state.row_excluded, state.col_excluded)
-            state = fill_excluded(state, 0.0)
+        W, state = working_form(W, state)
         return z_moments(Y, W, state.A, state.G, self.method.likelihood)
 
     # -- the loop ------------------------------------------------------------ #
@@ -178,9 +183,7 @@ class OptFrame:
         # Initialise states and loss
         state = self.cast_state(init_state)
         masked = has_exclusions(state)
-        if masked:
-            W = mask_weights(W, state.row_excluded, state.col_excluded)
-            state = fill_excluded(state, 0.0)
+        W, state = working_form(W, state)
         prev_state = deepcopy(state)
         prev_loss = jnp.inf
         converged = False

@@ -26,7 +26,7 @@ from .initialisation import Initialiser
 from .metrics import ZMoments
 from .precision import DEFAULT_DTYPE, check_precision, resolve_dtype
 from .rotations import RotationMethod
-from .state import RHMFState, check_state_finite, has_exclusions, with_exclusions
+from .state import RHMFState, check_state_finite, has_exclusions, with_exclusions, working_form
 from .validation import check_rank
 from .warnings import UnderdeterminedWarning
 
@@ -679,12 +679,14 @@ class Robusta:
         Returns
         -------
         weights : Array, shape (N, M)
-            Robust weights
+            Robust weights. Entries in rows or columns the state excludes are
+            treated like missing data and get weight 1, so per-row summaries
+            stay finite; ``state.row_excluded`` / ``col_excluded`` mark them.
         """
         state = state if state is not None else self._state
         if state is None:
             raise ValueError("No trained state available. Call fit() first.")
-
+        W, state = working_form(W, state)
         return self._hmf.likelihood.weights_irls(Y, W, state.A, state.G)
 
     # Convenience properties

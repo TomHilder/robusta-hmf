@@ -84,6 +84,18 @@ def mask_weights(W: Array, row_excluded: Array | None, col_excluded: Array | Non
     return W
 
 
+def working_form(W: Array, state: RHMFState) -> tuple[Array, RHMFState]:
+    """``(W, state)`` as computations should see them when ``state`` has exclusions.
+
+    Excluded rows and columns get zero weight and their factors are taken as 0,
+    so they behave exactly like missing data: they leave every sum, and their
+    robust weights come out as 1. Without exclusions both are returned as is.
+    """
+    if not has_exclusions(state):
+        return W, state
+    return mask_weights(W, state.row_excluded, state.col_excluded), fill_excluded(state, 0.0)
+
+
 def check_state_finite(state: RHMFState) -> None:
     """Raise ``ValueError`` if ``A`` or ``G`` is non-finite outside the exclusion masks."""
     for name, X, mask in (("A", state.A, state.row_excluded), ("G", state.G, state.col_excluded)):

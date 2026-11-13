@@ -891,20 +891,26 @@ class ShardedFrame(OptFrame):
         The full weight matrix is the same size as ``Y``, so this is a
         generator rather than a single array: consume it to compute per-row
         summaries (outlier scores) without ever holding an ``(N, M)`` array in
-        the compute dtype.
+        the compute dtype. As in :meth:`robusta_hmf.Robusta.robust_weights`,
+        entries in excluded rows or columns get weight 1, like missing data.
         """
         row_block = row_block or self.row_block
         cdtype = self.compute_dtype
         likelihood = self.method.likelihood
+        rows = _active(state.row_excluded, Y.shape[0])
+        cols = _active(state.col_excluded, Y.shape[1])
+        state = fill_excluded(state, 0.0) if has_exclusions(state) else state
         G = jnp.asarray(state.G, cdtype)
 
         @jax.jit
-        def block(y, w, a):
-            return likelihood.weights_irls(y.astype(cdtype), w.astype(cdtype), a, G)
+        def block(y, w, a, keep):
+            w = jnp.where(keep, w.astype(cdtype), jnp.zeros((), cdtype))
+            return likelihood.weights_irls(y.astype(cdtype), w, a, G)
 
         for start in range(0, Y.shape[0], row_block):
             stop = min(start + row_block, Y.shape[0])
-            yield np.asarray(block(Y[start:stop], W[start:stop], state.A[start:stop]))
+            keep = rows[start:stop, None] & cols[None, :]
+            yield np.asarray(block(Y[start:stop], W[start:stop], state.A[start:stop], keep))
 
 
 # ---------------------------------------------------------------------------- #

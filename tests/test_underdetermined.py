@@ -1118,3 +1118,37 @@ def test_max_iter_zero_returns_an_empty_history(problem, sharded):
         _, loss_inf = model.infer(problem["Y"][:5], problem["W"][:5], max_iter=0)
     assert np.asarray(loss).size == 0 and np.asarray(loss_inf).size == 0
     assert model.fit_info.n_iter == 0 and model.fit_info.converged is False
+
+
+# ----------------------------
+# robust_weights with exclusions
+# ----------------------------
+def test_robust_weights_treat_excluded_entries_as_missing(problem):
+    Y, W = _dead_row_and_col(problem)
+    model = Robusta(rank=RANK, robust=True, robust_scale=2.0, conv_strategy="none")
+    with pytest.warns(UnderdeterminedWarning):
+        state, _ = model.fit(Y, W, max_iter=15)
+    w = np.asarray(model.robust_weights(problem["Y"], problem["W"], state=state))
+    assert np.isfinite(w).all()
+    assert (w[4, :] == 1).all() and (w[:, 5] == 1).all()  # like missing (W = 0) entries
+    assert np.isfinite(np.median(w, axis=1)).all()  # per-row outlier scores survive
+    # Same as zeroing the excluded weights and factors by hand.
+    W_hand = problem["W"].copy()
+    W_hand[4, :] = 0.0
+    W_hand[:, 5] = 0.0
+    hand = RHMFState(A=np.nan_to_num(np.asarray(state.A)), G=np.nan_to_num(np.asarray(state.G)))
+    ref = np.asarray(model.robust_weights(problem["Y"], W_hand, state=hand))
+    np.testing.assert_array_equal(w, ref)
+
+
+def test_sharded_robust_weights_blocks_match_dense_with_exclusions(problem):
+    Y, W = _dead_row_and_col(problem)
+    model = Robusta(rank=RANK, robust=True, robust_scale=2.0, conv_strategy="none")
+    with pytest.warns(UnderdeterminedWarning):
+        state, _ = model.fit(Y, W, max_iter=15)
+    dense = np.asarray(model.robust_weights(problem["Y"], problem["W"], state=state))
+    sharded = Robusta(rank=RANK, robust=True, robust_scale=2.0, override_frame=_frame(True))
+    blocks = list(
+        sharded._frame.robust_weights_blocks(problem["Y"], problem["W"], state, row_block=7)
+    )
+    np.testing.assert_allclose(np.concatenate(blocks), dense, rtol=1e-12)
