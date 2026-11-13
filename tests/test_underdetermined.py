@@ -581,10 +581,11 @@ def test_masks_survive_npz_and_infer_matches(excluded_fit, tmp_path):
 
 
 def test_fit_continues_from_returned_state(excluded_fit):
-    model, state, Y, W = excluded_fit
-    with warnings.catch_warnings():
-        # Nothing new is under-covered, so nothing new is reported.
-        warnings.simplefilter("error", UnderdeterminedWarning)
+    """Exclusions are recomputed from the data being fitted, so continuing on the same
+    W excludes (and reports) the same rows and columns again."""
+    _, state, Y, W = excluded_fit
+    model = _model()  # the fixture's model must keep its fitted state for later tests
+    with pytest.warns(UnderdeterminedWarning, match="row 4; column 5"):
         new_state, loss = model.fit(Y, W, max_iter=5, init_state=state)
     np.testing.assert_array_equal(
         np.asarray(new_state.row_excluded), np.asarray(state.row_excluded)
@@ -594,7 +595,57 @@ def test_fit_continues_from_returned_state(excluded_fit):
     )
     assert np.isnan(np.asarray(new_state.G)[5]).all()
     assert np.isfinite(np.asarray(loss)).all()
+    assert model.fit_info.exclusions == (
+        ExclusionEvent(axis="row", indices=(4,), cause="empty"),
+        ExclusionEvent(axis="col", indices=(5,), cause="empty"),
+    )
+
+
+def test_refit_on_better_covered_data_brings_rows_back(excluded_fit, problem):
+    _, state, _, _ = excluded_fit
+    model = _model()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UnderdeterminedWarning)
+        new_state, _ = model.fit(problem["Y"], problem["W"], max_iter=5, init_state=state)
+    assert new_state.row_excluded is None and new_state.col_excluded is None
+    assert (
+        np.isfinite(np.asarray(new_state.A)).all() and np.isfinite(np.asarray(new_state.G)).all()
+    )
     assert model.fit_info.exclusions == ()
+
+
+def test_ridge_refit_from_masked_state_excludes_nothing(excluded_fit):
+    _, state, Y, W = excluded_fit
+    model = Robusta(rank=RANK, robust=False, als_ridge=1e-2, conv_strategy="none")
+    with pytest.warns(UnderdeterminedWarning, match="determines their factors"):
+        new_state, _ = model.fit(Y, W, max_iter=5, init_state=state)
+    assert new_state.row_excluded is None and new_state.col_excluded is None
+    assert (
+        np.isfinite(np.asarray(new_state.A)).all() and np.isfinite(np.asarray(new_state.G)).all()
+    )
+
+
+def test_fully_masked_init_state_raises(excluded_fit):
+    _, state, Y, W = excluded_fit
+    model = _model()
+    bad = with_exclusions(
+        update_state(state, A=jnp.full_like(state.A, jnp.nan)),
+        np.ones(Y.shape[0]),
+        state.col_excluded,
+    )
+    with pytest.raises(ValueError, match="every row of A excluded"):
+        model.fit(Y, W, max_iter=5, init_state=bad)
+
+
+def test_infer_with_every_row_excluded_returns_at_once(excluded_fit):
+    model, state, Y, W = excluded_fit
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        inf, loss = model.infer(Y[:5], np.zeros_like(W[:5]), state=state, max_iter=100)
+    assert _convergence(record) == []
+    assert np.asarray(loss).size == 0
+    assert np.isnan(np.asarray(inf.A)).all() and np.asarray(inf.row_excluded).all()
+    np.testing.assert_array_equal(np.asarray(inf.col_excluded), np.asarray(state.col_excluded))
 
 
 def test_infer_keeps_training_exclusions_and_excludes_new_rows(excluded_fit):

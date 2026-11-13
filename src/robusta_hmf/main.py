@@ -26,7 +26,14 @@ from .initialisation import Initialiser
 from .metrics import ZMoments
 from .precision import DEFAULT_DTYPE, check_precision, resolve_dtype
 from .rotations import RotationMethod
-from .state import RHMFState, check_state_finite, has_exclusions, with_exclusions, working_form
+from .state import (
+    RHMFState,
+    check_state_finite,
+    fill_excluded,
+    has_exclusions,
+    with_exclusions,
+    working_form,
+)
 from .validation import check_rank
 from .warnings import UnderdeterminedWarning
 
@@ -304,9 +311,18 @@ class Robusta:
             print("done.", flush=True)
         else:
             check_state_finite(init_state)
+            init_state = _restart_point(init_state)
 
-        # Rows and columns the data cannot determine are excluded up front.
-        init_state, exclusions, under = self._exclude_under_covered(Y, W, init_state)
+        # Rows and columns the data cannot determine are excluded up front, from
+        # these data: masks on an init_state only mark which rows start at zero.
+        if self._ridge is None:
+            row_excluded, col_excluded, exclusions = self._exclusions(Y, W)
+            under = (np.zeros(0, int), np.zeros(0, int))
+        else:
+            row_excluded = col_excluded = None
+            exclusions = ()
+            under = self._report_ridge_determined(Y, W)
+        init_state = with_exclusions(init_state, row_excluded, col_excluded)
         ridge_warned = self._check_ridge_resolution(Y, W, init_state, under)
 
         # Run optimization
@@ -333,51 +349,54 @@ class Robusta:
     def _ridge(self) -> float | None:
         return self._hmf.a_step.ridge if self.method == "als" else None
 
-    def _exclude_under_covered(self, Y, W, state: RHMFState, *, infer: bool = False):
-        """Mark rows (and, when fitting, columns) whose coverage is below the rank.
+    def _exclusions(self, Y, W, col_excluded=None, *, infer: bool = False):
+        """Rows (and, when fitting, columns) whose coverage is below the rank.
 
-        Starts from the masks already on ``state``. Without a ridge the
-        exclusions cascade to a fixed point and are recorded on the returned
-        state; with a ridge nothing is excluded, but under-covered rows and
-        columns are still reported. Returns ``(state, events, (rows, cols))``,
-        the last being the under-covered rows and columns when a ridge is set.
+        Excludes them and cascades to a fixed point, warning once. In ``infer``
+        the columns are fixed by ``col_excluded`` (from training) and only rows
+        are excluded. Returns ``(row_excluded, col_excluded, events)``, with
+        ``None`` for an axis where nothing is excluded.
         """
-        none = (np.zeros(0, int), np.zeros(0, int))
         K = self.rank
         N, M = _data_shape(Y)
-        row0 = _active(state.row_excluded, N)
-        col0 = _active(state.col_excluded, M)
         coverage = partial(self._frame.coverage, Y, W)
-
-        if self._ridge is not None:
-            rows, cols = under_covered(coverage, K, row0, col0 if not infer else np.ones(M, bool))
-            if infer:
-                cols = cols[:0]
-            if rows.size or cols.size:
-                warnings.warn(
-                    ridge_message(K, rows, cols, self._ridge), UnderdeterminedWarning, stacklevel=3
-                )
-            return state, (), (rows, cols)
-
-        row_active, col_active, events = cascade(coverage, K, row0, col0, update_cols=not infer)
-        if not events:
-            return state, (), none
+        row_active, col_active, events = cascade(
+            coverage, K, np.ones(N, bool), _active(col_excluded, M), update_cols=not infer
+        )
         if not infer and (row_active.sum() < K or col_active.sum() < K):
             raise ValueError(
                 f"After excluding rows and columns with fewer than {K} non-zero weights, "
                 f"{row_active.sum()} rows and {col_active.sum()} columns remain, fewer than "
                 f"rank={K}: there is nothing left to fit. Check W, or lower the rank."
             )
-        rows, cols = indices_by_axis(events)
-        warnings.warn(
-            exclusion_message(K, rows, cols, infer=infer), UnderdeterminedWarning, stacklevel=3
+        if events:
+            rows, cols = indices_by_axis(events)
+            warnings.warn(
+                exclusion_message(K, rows, cols, infer=infer), UnderdeterminedWarning, stacklevel=3
+            )
+        return (
+            None if row_active.all() else ~row_active,
+            None if col_active.all() else ~col_active,
+            tuple(events),
         )
-        state = with_exclusions(
-            state,
-            ~row_active if not row_active.all() else None,
-            ~col_active if not col_active.all() else None,
-        )
-        return state, tuple(events), none
+
+    def _report_ridge_determined(self, Y, W, col_excluded=None, *, infer: bool = False):
+        """With ``als_ridge`` set: warn about the rows and columns the ridge determines.
+
+        Nothing is excluded. Returns ``(rows, cols)``, the under-covered indices
+        (columns only when fitting).
+        """
+        K = self.rank
+        N, M = _data_shape(Y)
+        coverage = partial(self._frame.coverage, Y, W)
+        rows, cols = under_covered(coverage, K, np.ones(N, bool), _active(col_excluded, M))
+        if infer:
+            cols = cols[:0]
+        if rows.size or cols.size:
+            warnings.warn(
+                ridge_message(K, rows, cols, self._ridge), UnderdeterminedWarning, stacklevel=3
+            )
+        return rows, cols
 
     def _check_ridge_resolution(self, Y, W, state: RHMFState, under) -> bool:
         """Warn if ``als_ridge`` is too small to affect any under-covered system.
@@ -494,15 +513,25 @@ class Robusta:
 
         # New rows with fewer than K non-zero weights in the active columns are excluded.
         n_rows = _data_shape(Y_infer)[0]
-        masks = RHMFState(
-            A=jnp.zeros((n_rows, self.rank), self.dtype), G=G_fixed, col_excluded=col_excluded
-        )
-        masks, _, _ = self._exclude_under_covered(Y_infer, W_infer, masks, infer=True)
+        if self._ridge is None:
+            row_excluded, _, _ = self._exclusions(Y_infer, W_infer, col_excluded, infer=True)
+        else:
+            row_excluded = None
+            self._report_ridge_determined(Y_infer, W_infer, col_excluded, infer=True)
+        if row_excluded is not None and row_excluded.all():
+            # Nothing to infer: every row is excluded.
+            empty = RHMFState(
+                A=jnp.zeros((n_rows, self.rank), self.dtype),
+                G=G_fixed,
+                row_excluded=row_excluded,
+                col_excluded=col_excluded,
+            )
+            return fill_excluded(empty, jnp.nan), jnp.zeros(0, self.dtype)
 
         # Get an initial guess for the coefficients using the data weights
         ridge = self._ridge
         A_init = self._frame.initial_coefficients(
-            Y_infer, W_infer, G_fixed, ridge, row_excluded=masks.row_excluded
+            Y_infer, W_infer, G_fixed, ridge, row_excluded=row_excluded
         )
 
         # We can't use conv_strategy of max_frac_G here because G is fixed
@@ -520,7 +549,7 @@ class Robusta:
                 A=A_init,
                 G=G_fixed,
                 it=0,
-                row_excluded=masks.row_excluded,
+                row_excluded=row_excluded,
                 col_excluded=col_excluded,
             ),
             rotation_cadence=1,  # No rotation since G is fixed so this is a dummy value
@@ -727,3 +756,20 @@ def _data_shape(Y) -> tuple[int, int]:
 def _active(excluded, n: int) -> np.ndarray:
     """Host bool mask of active entries from an optional exclusion mask."""
     return np.ones(n, bool) if excluded is None else ~np.asarray(excluded, bool)
+
+
+def _restart_point(state: RHMFState) -> RHMFState:
+    """``state`` as a starting point: excluded (NaN) rows set to 0, masks dropped.
+
+    Exclusions are recomputed from the data being fitted, so rows the state
+    excluded can come back if the new weights cover them.
+    """
+    if not has_exclusions(state):
+        return state
+    for name, mask in (("A", state.row_excluded), ("G", state.col_excluded)):
+        if mask is not None and bool(np.asarray(mask).all()):
+            raise ValueError(
+                f"init_state has every row of {name} excluded, so there is nothing to start "
+                "the fit from."
+            )
+    return with_exclusions(fill_excluded(state, 0.0), None, None)
