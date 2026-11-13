@@ -762,34 +762,35 @@ class ShardedFrame(OptFrame):
         f = _shmap(local, self.mesh, in_specs, P(ROW_AXIS, None))
         return jax.jit(f)(data.Y, data.W, row_active, jnp.asarray(G, cdtype))
 
-    def _make_moments(self, plan: RowPlan):
+    def _make_moments(self, plan: RowPlan, masked: bool = False):
         """Chunked sums of z, z^2 and chi^2 over the held-out residuals."""
         chunk, cdtype = plan.chunk, self.compute_dtype
         likelihood = self.method.likelihood
 
-        def local(Y_l, W_l, A_l, G):
+        def local(Y_l, W_l, A_l, G, RA_l=None, CA=None):
             n_local, n_pix = Y_l.shape
             nc = n_local // chunk
 
             def body(carry, xs):
                 s1, s2, chi2 = carry
-                y, w, a = xs
+                y, w, a, *ra = xs
                 y = y.astype(cdtype)
                 w = w.astype(cdtype)
+                if masked:
+                    w = _mask_chunk(w, ra[0], CA)
                 r = y - a @ G.T
                 z = r * jnp.sqrt(w * likelihood.weights_irls(y, w, a, G))
                 return (s1 + jnp.sum(z), s2 + jnp.sum(z * z), chi2 + jnp.sum(w * r * r)), None
 
             zero = jnp.zeros((), cdtype)
-            (s1, s2, chi2), _ = jax.lax.scan(
-                body,
-                (zero, zero, zero),
-                (
-                    Y_l.reshape(nc, chunk, n_pix),
-                    W_l.reshape(nc, chunk, n_pix),
-                    A_l.reshape(nc, chunk, G.shape[1]),
-                ),
+            blocks = (
+                Y_l.reshape(nc, chunk, n_pix),
+                W_l.reshape(nc, chunk, n_pix),
+                A_l.reshape(nc, chunk, G.shape[1]),
             )
+            if masked:
+                blocks += (RA_l.reshape(nc, chunk),)
+            (s1, s2, chi2), _ = jax.lax.scan(body, (zero, zero, zero), blocks)
             return (
                 jax.lax.psum(s1, ROW_AXIS),
                 jax.lax.psum(s2, ROW_AXIS),
@@ -797,6 +798,8 @@ class ShardedFrame(OptFrame):
             )
 
         in_specs = (P(ROW_AXIS, None), P(ROW_AXIS, None), P(ROW_AXIS, None), P())
+        if masked:
+            in_specs += (P(ROW_AXIS), P())
         return jax.jit(_shmap(local, self.mesh, in_specs, (P(), P(), P())))
 
     def z_moments(self, Y, W, state: RHMFState) -> ZMoments:
@@ -805,12 +808,19 @@ class ShardedFrame(OptFrame):
         Identical in definition to :func:`robusta_hmf.metrics.z_moments`, but
         never materialises an ``(N, M)`` array. Padding rows contribute nothing
         to the sums and are excluded from the count. Statistics run over every
-        pixel, including those masked to zero weight.
+        pixel, including those masked to zero weight. Entries in rows or
+        columns the state excludes are scored as zero-weight entries, with the
+        excluded factors taken as 0.
         """
         data, _ = self.prepare(Y, W)
+        masked = has_exclusions(state)
+        masks = ()
+        if masked:
+            masks = self._active_masks(state, data)
+            state = fill_excluded(state, 0.0)
         A = self._pad_A(state.A, data.plan)
-        s1, s2, chi2 = self._make_moments(data.plan)(
-            data.Y, data.W, A, jnp.asarray(state.G, self.compute_dtype)
+        s1, s2, chi2 = self._make_moments(data.plan, masked)(
+            data.Y, data.W, A, jnp.asarray(state.G, self.compute_dtype), *masks
         )
         return ZMoments(
             n=data.n_rows * data.n_pixels,

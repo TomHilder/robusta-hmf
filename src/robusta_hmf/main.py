@@ -26,7 +26,7 @@ from .initialisation import Initialiser
 from .metrics import ZMoments
 from .precision import DEFAULT_DTYPE, check_precision, resolve_dtype
 from .rotations import RotationMethod
-from .state import RHMFState, check_state_finite, with_exclusions
+from .state import RHMFState, check_state_finite, has_exclusions, with_exclusions
 from .validation import check_rank
 from .warnings import UnderdeterminedWarning
 
@@ -565,8 +565,22 @@ class Robusta:
         if state is None:
             raise ValueError("No trained state available. Call fit() first.")
         check_precision(self.dtype, self.rank)
+        check_state_finite(state)
         Y, W = self._frame.prepare(Y, W, nan_error=self.nan_error)
-        return self._frame.z_moments(Y, W, self._frame.cast_state(state))
+        moments = self._frame.z_moments(Y, W, self._frame.cast_state(state))
+        if not has_exclusions(state):
+            return moments
+        N, M = _data_shape(Y)
+        rows, cols = _active(state.row_excluded, N), _active(state.col_excluded, M)
+        everything = np.ones(N, bool), np.ones(M, bool)
+        total = int(self._frame.coverage(Y, W, *everything)[0].sum())
+        kept = int(self._frame.coverage(Y, W, rows, cols)[0][rows].sum())
+        return replace(
+            moments,
+            n_excluded_rows=int((~rows).sum()),
+            n_excluded_cols=int((~cols).sum()),
+            n_excluded_entries=total - kept,
+        )
 
     def basis_vectors(self, state: RHMFState | None = None) -> Array:
         """

@@ -907,3 +907,52 @@ def test_rising_loss_is_reported_at_the_first_check(capsys, sharded):
             model.fit(p["Y"], p["W"], max_iter=30, conv_check_cadence=10)
     # The first check is at iteration 10; it raised before printing its progress line.
     assert "iter 0" not in capsys.readouterr().out
+
+
+# ----------------------------
+# score() with exclusions
+# ----------------------------
+def test_score_with_exclusions_equals_zeroing_by_hand(excluded_fit, problem):
+    model, state, _, _ = excluded_fit
+    Y, W = problem["Y"], problem["W"]  # full weights: row 4 and column 5 do carry data here
+    m = model.score(Y, W, state=state)
+    assert np.isfinite([m.kl, m.mean_z, m.std_z, m.chi2_red]).all()
+    assert (m.n_excluded_rows, m.n_excluded_cols) == (1, 1)
+    assert m.n_excluded_entries == 30 + 60 - 1
+    assert m.n == Y.size  # excluded entries still count in n, like any zero-weight entry
+
+    W_hand = W.copy()
+    W_hand[4, :] = 0.0
+    W_hand[:, 5] = 0.0
+    A = np.nan_to_num(np.asarray(state.A))
+    G = np.nan_to_num(np.asarray(state.G))
+    ref = model.score(Y, W_hand, state=RHMFState(A=A, G=G))
+    for key in ("sum_z", "sum_z2", "sum_chi2", "n"):
+        np.testing.assert_allclose(getattr(m, key), getattr(ref, key), rtol=1e-12)
+    assert ref.n_excluded_entries == 0
+    assert m.as_dict()["n_excluded_entries"] == 89
+
+
+def test_score_dense_and_sharded_agree_with_exclusions(excluded_fit, problem):
+    model, state, _, _ = excluded_fit
+    dense = model.score(problem["Y"], problem["W"], state=state)
+    sharded = _model(True).score(problem["Y"], problem["W"], state=state)
+    for key in ("sum_z", "sum_z2", "sum_chi2"):
+        # The sharded store is float32.
+        np.testing.assert_allclose(getattr(sharded, key), getattr(dense, key), rtol=1e-5)
+    for key in ("n", "n_excluded_rows", "n_excluded_cols", "n_excluded_entries"):
+        assert getattr(sharded, key) == getattr(dense, key)
+
+
+def test_score_rejects_nan_outside_masks(excluded_fit, problem):
+    model, state, _, _ = excluded_fit
+    bad = update_state(state, G=state.G.at[0, 0].set(jnp.nan))
+    with pytest.raises(ValueError, match="outside its exclusion masks"):
+        model.score(problem["Y"], problem["W"], state=bad)
+
+
+def test_score_without_exclusions_reports_zero_counts(problem):
+    model = _model()
+    model.fit(problem["Y"], problem["W"], max_iter=15)
+    m = model.score(problem["Y"], problem["W"])
+    assert (m.n_excluded_rows, m.n_excluded_cols, m.n_excluded_entries) == (0, 0, 0)

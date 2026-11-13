@@ -134,7 +134,14 @@ class OptFrame:
         return np.asarray(row_cov), np.asarray(col_cov)
 
     def z_moments(self, Y: Array, W: Array, state: RHMFState) -> ZMoments:
-        """Held-out moments for ``state`` on ``(Y, W)``."""
+        """Held-out moments for ``state`` on ``(Y, W)``.
+
+        Entries in rows or columns the state excludes are scored as zero-weight
+        entries, with the excluded factors taken as 0.
+        """
+        if has_exclusions(state):
+            W = mask_weights(W, state.row_excluded, state.col_excluded)
+            state = fill_excluded(state, 0.0)
         return z_moments(Y, W, state.A, state.G, self.method.likelihood)
 
     # -- the loop ------------------------------------------------------------ #
