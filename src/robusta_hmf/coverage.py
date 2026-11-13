@@ -145,9 +145,13 @@ def ridge_message(rank: int, rows: np.ndarray, cols: np.ndarray, ridge: float) -
     )
 
 
+#: A ridge is negligible next to a system when ridge ≤ NEGLIGIBLE_RIDGE_FACTOR·ε·d.
+NEGLIGIBLE_RIDGE_FACTOR = 10
+
+
 def negligible_ridge(ridge: float, eps: float, diagonals: np.ndarray) -> np.ndarray:
     """Which systems a ridge cannot affect: ``ridge ≤ 10·ε·d``, d their largest diagonal."""
-    return ridge <= 10 * eps * np.asarray(diagonals)
+    return ridge <= NEGLIGIBLE_RIDGE_FACTOR * eps * np.asarray(diagonals)
 
 
 def negligible_ridge_message(ridge, dtype, rows, cols, d_max) -> str:
@@ -157,7 +161,7 @@ def negligible_ridge_message(ridge, dtype, rows, cols, d_max) -> str:
     return (
         f"als_ridge={ridge:g} is below {np.dtype(dtype).name} resolution for {counts} with "
         f"fewer than K non-zero weights (largest diagonal {d_max:.1e}, so the ridge must "
-        f"exceed ~{10 * eps * d_max:.1e} to have any effect); it is not determining their "
-        "factors. Increase als_ridge, use float64, or set als_ridge=None to exclude them "
-        "instead."
+        f"exceed ~{NEGLIGIBLE_RIDGE_FACTOR * eps * d_max:.1e} to have any effect); it is not "
+        "determining their factors. Increase als_ridge, use float64, or set als_ridge=None "
+        "to exclude them instead."
     )

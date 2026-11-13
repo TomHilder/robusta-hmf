@@ -184,7 +184,9 @@ class OptFrame:
         prev_state = deepcopy(state)
         prev_loss = jnp.inf
         converged = False
-        monitor = self.make_monitor(Y, W, state.A.shape[0], state.A.shape[1], skip_G)
+        monitor = self.make_monitor(state.A.shape[0], state.A.shape[1], skip_G)
+        if monitor.check_rises:
+            monitor.data_scale = self.zero_model_loss(Y, W)
 
         # Training loop
         for i in range(max_iter):
@@ -218,21 +220,26 @@ class OptFrame:
         info = make_fit_info(converged, loss_history, loss_rises)
         return state, jnp.array(loss_history), info
 
-    def make_monitor(self, Y, W, n_rows: int, rank: int, infer: bool) -> RunMonitor:
-        """The :class:`~robusta_hmf.convergence.RunMonitor` for one run of the loop."""
-        als = self.method.opt_method == "als"
+    def make_monitor(self, n_rows: int, rank: int, infer: bool) -> RunMonitor:
+        """The :class:`~robusta_hmf.convergence.RunMonitor` for one run of the loop.
+
+        Loss rises are checked only for ALS without a ridge: a ridge makes ALS
+        minimise ``loss + ridge·(‖A‖² + ‖G‖²)``, and with rotation that is not
+        monotone either, so a rising data loss says nothing about the numerics.
+        """
         return RunMonitor(
             rank=rank,
             scale=getattr(self.method.likelihood, "scale", None),
-            check_rises=als,
+            check_rises=self.method.opt_method == "als" and self.method.a_step.ridge is None,
             infer=infer,
             n_rows=n_rows,
-            data_scale=self.weighted_sum_of_squares(Y, W) if als else 0.0,
         )
 
-    def weighted_sum_of_squares(self, Y, W) -> float:
-        """``Σ W·Y²``, the scale of the loss's round-off near zero."""
-        return float(jnp.sum(W * Y * Y))
+    def zero_model_loss(self, Y, W) -> float:
+        """The loss of the zero model (``A = G = 0``), the scale of the loss's round-off."""
+        zeros_A = jnp.zeros((Y.shape[0], 1), Y.dtype)
+        zeros_G = jnp.zeros((Y.shape[1], 1), Y.dtype)
+        return float(self.method.likelihood.loss(Y, W, zeros_A, zeros_G))
 
 
 def check_factors_finite(A, G, iteration: int, dtype) -> None:

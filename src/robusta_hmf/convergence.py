@@ -65,31 +65,42 @@ class ConvergenceTester:
             return never_converged()
 
 
+#: A rise is tolerated up to this multiple of the recent average decrease.
+RISE_TOLERANCE = 2
+#: Number of previous steps averaged for that decrease.
+RISE_WINDOW = 5
+#: Multiple of ε·√(|L|·S₀) treated as round-off (see :func:`rising_loss_iterations`).
+ROUNDOFF_FACTOR = 100
+
+
 def rising_loss_iterations(
     losses, eps: float, start: int = 1, data_scale: float = 0.0
 ) -> list[int]:
     """Iterations ``t ≥ start`` at which the loss rose by more than ALS allows.
 
-    ALS never increases the loss in exact arithmetic, so a rise beyond
-    round-off means the iteration has gone numerically wrong. Iteration ``t``
-    is flagged when
+    Without a ridge, ALS never increases the loss in exact arithmetic, so a
+    rise beyond round-off means the iteration has gone numerically wrong.
+    Iteration ``t`` is flagged when
 
-        L_t − L_{t−1} > max(2·D̄_t, 100·ε·|L_{t−1}| + 1000·ε²·S),
+        L_t − L_{t−1} > max(2·D̄_t, 100·ε·√(|L_{t−1}|·S₀)),
         D̄_t = (L_{t−1−w} − L_{t−1}) / w,  w = min(5, t − 1),  D̄_1 = 0:
 
-    twice the recent average decrease, with a floor that keeps round-off
-    from triggering it. ``S`` (``data_scale``) is ``Σ W·Y²``: residuals carry
-    round-off of order ``ε·|Y|``, so a loss near zero, as in an exact fit,
-    fluctuates on the scale of tens of ``ε²·S`` rather than ``ε·|L|``.
+    twice the recent average decrease, with a floor that keeps round-off from
+    triggering it. ``S₀`` (``data_scale``) is the loss of the zero model
+    (``A = G = 0``). Near convergence the loss's round-off comes from the cross
+    term ``2·r·δ`` between residuals ``r`` and the ``ε·|Y|``-sized error ``δ``
+    in the model, which scales as ``ε·√(L·S₀)``; this one term covers exact
+    fits (``L`` at round-off) and ordinary ones alike. A robust likelihood caps
+    outliers in ``S₀`` as it does in ``L``.
     """
-    abs_floor = 1000 * eps**2 * data_scale
     L = np.asarray(losses, dtype=np.float64)
     flagged = []
     with np.errstate(invalid="ignore"):  # inf − inf once the loss has diverged
         for t in range(max(start, 1), L.size):
-            w = min(5, t - 1)
+            w = min(RISE_WINDOW, t - 1)
             dbar = (L[t - 1 - w] - L[t - 1]) / w if w > 0 else 0.0
-            if L[t] - L[t - 1] > max(2 * dbar, 100 * eps * abs(L[t - 1]) + abs_floor):
+            floor = ROUNDOFF_FACTOR * eps * np.sqrt(abs(L[t - 1]) * data_scale)
+            if L[t] - L[t - 1] > max(RISE_TOLERANCE * dbar, floor):
                 flagged.append(t)
     return flagged
 
@@ -99,9 +110,9 @@ class RunMonitor:
 
     :meth:`update` runs at each convergence check: it reads the losses
     recorded since the last check and issues one :class:`ConvergenceWarning`
-    per run, at the first loss rise (ALS only). :meth:`finish` warns if the
-    loop hit ``max_iter`` without converging, and returns every flagged
-    iteration.
+    per run, at the first loss rise (ALS without a ridge only). :meth:`finish`
+    warns if the loop hit ``max_iter`` without converging, and returns every
+    flagged iteration. ``data_scale`` is the loss of the zero model.
     """
 
     def __init__(
@@ -153,7 +164,7 @@ class RunMonitor:
         self, loss_history: list, converged: bool, max_iter: int, strategy: str
     ) -> tuple[int, ...]:
         self.update(loss_history)
-        if not converged and strategy != "none" and len(self.losses) >= max_iter:
+        if not converged and strategy != "none" and 0 < max_iter <= len(self.losses):
             see = "" if self.infer else "; see model.fit_info"
             warnings.warn(
                 f"{self.head}: stopped at max_iter={max_iter} without converging "

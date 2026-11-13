@@ -728,27 +728,31 @@ def test_rising_loss_rule_on_fixed_sequences():
     from robusta_hmf.convergence import rising_loss_iterations
 
     # Strictly decreasing: nothing.
-    assert rising_loss_iterations([10, 8, 6, 5, 4.5, 4.4, 4.39], EPS32) == []
-    # Round-off-sized rises near convergence (below 100·ε·|L|): nothing.
+    assert rising_loss_iterations([10, 8, 6, 5, 4.5, 4.4, 4.39], EPS32, data_scale=10) == []
+    # Round-off-sized rises near convergence, below 100·ε·√(L·S0) ≈ 15: nothing.
     L = 1.25e6 + np.array([5, 3, 2, 1.5, 1.4, 1.5, 1.4, 2.0, 1.3])
-    assert rising_loss_iterations(L, EPS32) == []
+    assert rising_loss_iterations(L, EPS32, data_scale=1.25e6) == []
     # A real jump at t=3: flagged at 3 although the 5-step window isn't full yet.
-    assert rising_loss_iterations([10, 9, 8.5, 50, 40, 39], EPS32) == [3]
+    assert rising_loss_iterations([10, 9, 8.5, 50, 40, 39], EPS32, data_scale=10) == [3]
     # A rise smaller than twice the recent average decrease is tolerated...
-    assert rising_loss_iterations([100, 90, 80, 70, 60, 50, 55], EPS32) == []
+    assert rising_loss_iterations([100, 90, 80, 70, 60, 50, 55], EPS32, data_scale=100) == []
     # ...but not one larger.
-    assert rising_loss_iterations([100, 90, 80, 70, 60, 50, 71], EPS32) == [6]
+    assert rising_loss_iterations([100, 90, 80, 70, 60, 50, 71], EPS32, data_scale=100) == [6]
     # Only iterations from `start` on are evaluated.
-    assert rising_loss_iterations([10, 9, 8.5, 50, 40, 60], EPS32, start=4) == [5]
+    seq = [10, 9, 8.5, 50, 40, 60]
+    assert rising_loss_iterations(seq, EPS32, start=4, data_scale=10) == [5]
 
 
 def test_rising_loss_floor_handles_a_loss_at_round_off():
     from robusta_hmf.convergence import rising_loss_iterations
 
-    # The exact fit in test_fit_shape_extremes[30-6-6]: S = Σ W·Y² ≈ 1e5.
+    # The exact fit in test_fit_shape_extremes[30-6-6]: S0 ≈ 1e5, the loss is round-off.
     L = [1.6e-26, 1.5e-25, 9e-26, 2e-25]
-    assert rising_loss_iterations(L, 2.2e-16) != []  # relative floor alone: false alarm
+    assert rising_loss_iterations(L, 2.2e-16) != []  # no floor: false alarm
     assert rising_loss_iterations(L, 2.2e-16, data_scale=1e5) == []
+    # A high-S/N fit near convergence: L ≈ 67 with S0 ≈ 2e7; a 13th-digit wobble.
+    L = 66.6 + np.array([0.0, -1e-12, 2e-12, -1e-12, 3e-12])
+    assert rising_loss_iterations(L, 2.2e-16, data_scale=2e7) == []
 
 
 def test_exact_fit_does_not_warn():
@@ -758,33 +762,65 @@ def test_exact_fit_does_not_warn():
         Robusta(rank=6, robust=False, conv_strategy="none").fit(prob["Y"], prob["W"], max_iter=20)
 
 
-@pytest.mark.parametrize("sharded", [False, True])
-def test_unstable_float32_fit_is_reported(sharded):
-    """float32 with a ridge far below float32 resolution: the under-covered systems are
-    singular, so the fit is numerically unstable. It must never finish silently. Whether the
-    loss first rises (a ConvergenceWarning) or a solve divides by an exactly-zero pivot (a
-    FloatingPointError) depends on the CPU's rounding: arm64 and x86-64 differ here."""
-    p = issue10_like()
-    model = Robusta(
-        rank=8,
-        robust=True,
-        als_ridge=1e-6,
-        dtype="float32",
-        conv_strategy="none",
-        override_frame=_frame(True) if sharded else None,
-    )
+def tiny_weight_regularised(tiny=1e-6, **kw):
+    p = issue10_like(**kw)
+    W = p["W"].copy()
+    W[:, p["sparse_cols"]] = np.where(W[:, p["sparse_cols"]] == 0, tiny, W[:, p["sparse_cols"]])
+    return p["Y"], W
+
+
+def _fit_reports(model, Y, W, max_iter=60):
+    """(raised FloatingPointError?, rising-loss warning messages)."""
     with warnings.catch_warnings(record=True) as record:
         warnings.simplefilter("always")
         try:
-            model.fit(p["Y"], p["W"], max_iter=30)
+            model.fit(Y, W, max_iter=max_iter)
             raised = False
         except FloatingPointError:
             raised = True
-    rises = [m for m in _convergence(record) if "loss rose" in m]
+    return raised, [m for m in _convergence(record) if "loss rose" in m]
+
+
+@pytest.mark.parametrize("sharded", [False, True])
+def test_unstable_float32_fit_is_reported(sharded):
+    """Scaled-down #10 regularised by hand: the sparse columns' missing entries get
+    W = 1e-6 instead of 0, so they count as covered and nothing is excluded. Their
+    systems mix weights 1e4 and 1e-6, a ratio of 1e10: beyond float32's resolution
+    (~1e7), well inside float64's (~1e16). In float32 the fit is unstable and must be
+    reported, as a
+    rising loss (ConvergenceWarning) or a non-finite one (FloatingPointError): which of
+    the two depends on the CPU's rounding (arm64 and x86-64 differ)."""
+    Y, W = tiny_weight_regularised()
+    model = Robusta(
+        rank=8, robust=True, dtype="float32", conv_strategy="none", override_frame=_frame(sharded)
+    )
+    raised, rises = _fit_reports(model, Y, W)
     assert raised or rises
     assert len(rises) <= 1  # at most one rising-loss warning per fit
     if rises:
         assert rises[0].startswith("K=8, Q=1: loss rose at iteration")
+
+
+@pytest.mark.parametrize("sharded", [False, True])
+def test_same_fit_in_float64_is_not_flagged(sharded):
+    Y, W = tiny_weight_regularised()
+    model = Robusta(
+        rank=8, robust=True, dtype="float64", conv_strategy="none", override_frame=_frame(sharded)
+    )
+    assert _fit_reports(model, Y, W) == (False, [])
+
+
+@pytest.mark.parametrize("sharded", [False, True])
+def test_one_huge_outlier_does_not_hide_an_instability(sharded):
+    """The floor's scale is the robust loss of the zero model, which caps outliers; a
+    plain Σ W·Y² would let this one entry (W·Y² = 1e18) silence the rule."""
+    Y, W = tiny_weight_regularised()
+    Y[0, 0] = 1e7
+    model = Robusta(
+        rank=8, robust=True, dtype="float32", conv_strategy="none", override_frame=_frame(sharded)
+    )
+    raised, rises = _fit_reports(model, Y, W)
+    assert raised or rises
 
 
 @pytest.mark.parametrize("dtype", ["float32", "float64"])
@@ -899,21 +935,15 @@ def test_sharded_nonfinite_loss_is_caught_at_the_end(problem):
 def test_instability_is_reported_at_the_first_check(capsys, sharded):
     """With ConvergenceWarning made an error, the unstable fit stops at the first
     convergence check (iteration 10) by either route, not at the end of the run."""
-    p = issue10_like()
+    Y, W = tiny_weight_regularised()
     model = Robusta(
-        rank=8,
-        robust=True,
-        als_ridge=1e-6,
-        dtype="float32",
-        conv_strategy="none",
-        override_frame=_frame(True) if sharded else None,
+        rank=8, robust=True, dtype="float32", conv_strategy="none", override_frame=_frame(sharded)
     )
     capsys.readouterr()
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UnderdeterminedWarning)
         warnings.simplefilter("error", ConvergenceWarning)
         with pytest.raises((ConvergenceWarning, FloatingPointError), match="iteration"):
-            model.fit(p["Y"], p["W"], max_iter=30, conv_check_cadence=10)
+            model.fit(Y, W, max_iter=30, conv_check_cadence=10)
     # Checks run at iterations 10 and 20. Stopping at the first means the second never
     # prints its progress line. (The NaN route prints the first line, then raises.)
     assert "iter 021" not in capsys.readouterr().out
@@ -1058,3 +1088,28 @@ def test_run_monitor_exempts_sgd_and_reports_infer_rows():
     assert _convergence(record) == [
         "infer on 1,234 rows (K=3): stopped at max_iter=2 without converging (final loss 2)"
     ]
+
+
+@pytest.mark.parametrize("sharded", [False, True])
+def test_ridge_fits_are_exempt_from_the_rising_loss_rule(sharded):
+    """With a ridge, ALS minimises loss + ridge·(‖A‖² + ‖G‖²), so the data loss can rise
+    on a correct fit (and with rotation the penalised objective is not monotone either)."""
+    rng = np.random.default_rng(0)
+    Y = rng.normal(size=(60, 3)) @ rng.normal(size=(80, 3)).T + 0.1 * rng.normal(size=(60, 80))
+    W = np.full(Y.shape, 100.0)
+    model = Robusta(rank=3, als_ridge=1.0, conv_strategy="none", override_frame=_frame(sharded))
+    _, loss = model.fit(Y, W, max_iter=60)
+    loss = np.asarray(loss)
+    assert (np.diff(loss) > 0).any()  # the data loss does rise...
+    assert model.fit_info.loss_rises == ()  # ...and that is not reported
+
+
+@pytest.mark.parametrize("sharded", [False, True])
+def test_max_iter_zero_returns_an_empty_history(problem, sharded):
+    model = Robusta(rank=RANK, override_frame=_frame(sharded))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        _, loss = model.fit(problem["Y"], problem["W"], max_iter=0)
+        _, loss_inf = model.infer(problem["Y"][:5], problem["W"][:5], max_iter=0)
+    assert np.asarray(loss).size == 0 and np.asarray(loss_inf).size == 0
+    assert model.fit_info.n_iter == 0 and model.fit_info.converged is False

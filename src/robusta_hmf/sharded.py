@@ -652,7 +652,13 @@ class ShardedFrame(OptFrame):
         prev_state = RHMFState(A=A[: plan.n_rows], G=G, it=it0)
         prev_loss = jnp.inf
         converged = False
-        monitor = self.make_monitor(data, None, plan.n_rows, G.shape[1], skip_G)
+        monitor = self.make_monitor(plan.n_rows, G.shape[1], skip_G)
+        if monitor.check_rises:
+            # The loss of the zero model, through the same masked loss pass.
+            zero_loss = self._make_pass_two(plan, masked)
+            monitor.data_scale = float(
+                jax.jit(zero_loss)(data.Y, data.W, jnp.zeros_like(A), jnp.zeros_like(G), *masks)
+            )
 
         for i in range(max_iter):
             rot = i % rotation_cadence == 0 and i != 0
@@ -843,27 +849,6 @@ class ShardedFrame(OptFrame):
             sum_z2=float(s2),
             sum_chi2=float(chi2),
         )
-
-    def weighted_sum_of_squares(self, Y, W) -> float:
-        """``Σ W·Y²`` over the stored data, accumulated chunk by chunk."""
-        data, _ = self.prepare(Y, W)
-        chunk, cdtype = data.plan.chunk, self.compute_dtype
-
-        def local(Y_l, W_l):
-            n_local, n_pix = Y_l.shape
-            nc = n_local // chunk
-
-            def body(total, xs):
-                y, w = xs
-                y = y.astype(cdtype)
-                return total + jnp.sum(w.astype(cdtype) * y * y), None
-
-            blocks = (Y_l.reshape(nc, chunk, n_pix), W_l.reshape(nc, chunk, n_pix))
-            total, _ = jax.lax.scan(body, jnp.zeros((), cdtype), blocks)
-            return jax.lax.psum(total, ROW_AXIS)
-
-        in_specs = (P(ROW_AXIS, None), P(ROW_AXIS, None))
-        return float(jax.jit(_shmap(local, self.mesh, in_specs, P()))(data.Y, data.W))
 
     def max_diagonals(self, Y, W, state: RHMFState) -> tuple[np.ndarray, np.ndarray]:
         """Largest diagonal entry of each row's and each column's least-squares system.
