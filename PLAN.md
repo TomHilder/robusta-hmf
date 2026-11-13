@@ -42,6 +42,29 @@ retire this file.
   across the codebase (the package already ships a `py.typed` marker).
 - **Code clean-up** — refactors and dead-code removal.
 
+**After PR #13 (under-determined fits), from its adversarial review**
+- Release notes for the version that ships it ("Changed"): `OptFrame` subclasses must accept
+  `prepare(Y, W, nan_error=...)` and return `(state, loss_history, fit_info)` from `run`;
+  excluded rows of `A`/`G` come back as NaN where they used to be zeros; fits that stop at
+  `max_iter` now warn; `ZMoments.as_dict()` gains three `n_excluded_*` keys.
+- One shared run loop for the dense and sharded frames (they are near-copies; every new
+  run-level behaviour is written twice).
+- Finish consolidating exclusion handling (`state.working_form` is a start; `infer` and the
+  sharded kernels still mask their own way).
+- One chunked-reduction helper in `sharded.py`, compiled once per frame: the kernels repeat
+  the same scan/psum shape six times and are re-jitted on every call (a fixed ~6–10% on short
+  4-device fits); drop the `masked` static flag at the same time.
+- Warning text and `RunMonitor` owned by `Robusta`, not the frame layer.
+- Document the frame contract (`coverage`, `max_diagonals`, `zero_model_loss`, `z_moments`,
+  `initial_coefficients`) in `OptFrame`.
+- Split `tests/test_underdetermined.py` along its section headers; shared fixtures to
+  `conftest.py`.
+- Negligible-ridge check in `infer` (only `fit` has it).
+- Excluded rows held at zero dilute the `max_frac_*` convergence test.
+- A `verbose` switch instead of `print` progress.
+- Sharded float32 store counts weights below ~1e-38 as zero (dense does not).
+- `infer()` on SGD-fitted models crashes (`opt_state=None`); predates PR #13.
+
 **Possible extensions** (ideas, not commitments)
 - Regularisation (no implementation yet; the empty `regularisers.py` placeholder was removed 2026-07-30).
 - Non-pixel bases.
@@ -53,6 +76,7 @@ Append-only. Add an entry when you do something notable.
 
 | Date | Event |
 |------|-------|
+| 2026-11-13 | Under-determined fits (#2, #10; PR #13): NaN/inf inputs are treated as missing (`DataWarning`, or `nan_error=True`); rows and columns with fewer non-zero weights than the rank are excluded before the loop (cascading), returned as NaN with `row_excluded`/`col_excluded` masks, and reported (`UnderdeterminedWarning`, `fit_info.exclusions`); with `als_ridge` they are reported instead, plus a warning when the ridge is below working precision. A rising ALS loss or reaching `max_iter` gives a `ConvergenceWarning`; `model.fit_info` records the run. `score()` honours exclusions. Exclusion on robust weights during the fit was tried and dropped (false positives from the initial guess). Ordinary fits are bit-identical to before. |
 | 2026-11-10 | Precision made explicit: `Robusta(dtype=...)`, float64 by default; with `jax_enable_x64` off a float64 fit raises `PrecisionError` instead of silently running in float32 (the global x64 side effect was removed in f6a17aa). Dense loop now raises on a non-finite loss, like the sharded one. Paper scripts set x64 / `dtype=` so they reproduce the published fits. |
 | 2026-08-02 | Packed the final full-RVS fit (K=16, Q=7.5) into a single HDF5 file — flux, ivar, model flux, per-pixel robust weights and the whole metadata CSV, in catalogue row order (`export_model_hdf5.py`, `gaia_rvs_results/full_rvs_K16_Q7.50_model.hdf5`, 36 GiB). Added `make_paper_figs.py outlier_taxonomy`: one paper-style exemplar per outlier group named in Section 5, titled "Gaia DR3 <id>: <group>", with Ce/Nd/Zr abundance windows on the neutron-capture example. |
 | 2026-06-27 | Slimmed the project-management scaffolding. The previous PLAN.md (full task/decision/log history through Task 17) is preserved in git history. Reduced PLAN.md to status + outstanding-work; trimmed CLAUDE.md project-management ceremony; removed equinox-report.md (also in history). |

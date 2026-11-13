@@ -83,12 +83,22 @@ class ZMoments:
         ``sum(z)`` and ``sum(z**2)``.
     sum_chi2 : float
         ``sum(W * r**2)``, the unrobustified chi-squared.
+    n_excluded_rows, n_excluded_cols : int
+        Rows and columns the scored state excludes (see
+        :class:`~robusta_hmf.state.RHMFState`). Their entries enter the sums
+        as zero-weight entries do: z and chi-squared are 0 there, but they
+        still count in ``n``.
+    n_excluded_entries : int
+        Entries with non-zero weight that fall in an excluded row or column.
     """
 
     n: int
     sum_z: float
     sum_z2: float
     sum_chi2: float
+    n_excluded_rows: int = 0
+    n_excluded_cols: int = 0
+    n_excluded_entries: int = 0
 
     @property
     def mean_z(self) -> float:
@@ -133,6 +143,9 @@ class ZMoments:
             "chi2_red": self.chi2_red,
             "rmse": self.rmse,
             "n": self.n,
+            "n_excluded_rows": self.n_excluded_rows,
+            "n_excluded_cols": self.n_excluded_cols,
+            "n_excluded_entries": self.n_excluded_entries,
         }
 
 

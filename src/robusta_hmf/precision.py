@@ -68,5 +68,16 @@ def nonfinite_loss_message(iteration: int, loss, dtype) -> str:
     return (
         f"Loss is not finite at iteration {iteration}: {loss}. {hint} Other common "
         "causes: rows or columns of W with fewer non-zero weights than the rank "
-        "(an under-determined ALS solve), or non-finite values in Y where W > 0."
+        "(an under-determined ALS solve), or values in Y or W large enough to overflow "
+        f"{dtype_name}."
+    )
+
+
+def nonfinite_factors_message(iteration: int, dtype) -> str:
+    """Error message for factors that have gone NaN or infinite while the loss has not."""
+    dtype_name = np.dtype(dtype).name if dtype is not None else "the input dtype"
+    return (
+        f"A or G is not finite at iteration {iteration} (outside excluded rows), although "
+        f"the loss is. The ALS solves have broken down in {dtype_name}; "
+        + ("try float64 first." if dtype_name == "float32" else "check W and the rank.")
     )

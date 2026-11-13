@@ -2,20 +2,41 @@
 
 import warnings
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from functools import partial
 
 import jax.numpy as jnp
 import numpy as np
 from jaxtyping import Array
 
 from .convergence import ConvergenceTester
+from .coverage import (
+    cascade,
+    exclusion_message,
+    indices_by_axis,
+    negligible_ridge,
+    negligible_ridge_message,
+    ridge_message,
+    under_covered,
+)
+from .fit_info import FitInfo
 from .frame import OptFrame
 from .hmf import HMF, OptMethod
 from .initialisation import Initialiser
 from .metrics import ZMoments
 from .precision import DEFAULT_DTYPE, check_precision, resolve_dtype
 from .rotations import RotationMethod
-from .state import RHMFState
+from .state import (
+    RHMFState,
+    check_state_finite,
+    check_state_shape,
+    fill_excluded,
+    has_exclusions,
+    with_exclusions,
+    working_form,
+)
+from .validation import check_rank
+from .warnings import UnderdeterminedWarning
 
 
 @dataclass
@@ -40,6 +61,8 @@ class Robusta:
     # Internal state from last fit
     _state: RHMFState | None = None
     _loss_history: Array | None = None
+    _fit_info: FitInfo | None = None
+    nan_error: bool = False  # class default, so models pickled before it existed still load
 
     def __init__(
         self,
@@ -63,6 +86,8 @@ class Robusta:
         rotation: RotationMethod = "fast",
         # Precision
         dtype: str | np.dtype | None = None,
+        # Data checks
+        nan_error: bool = False,
         **rotation_kwargs,
     ):
         """
@@ -112,11 +137,18 @@ class Robusta:
             diverge when rows or columns of ``W`` have fewer non-zero weights
             than ``rank``, so it has to be requested explicitly. When None, a
             ``compute_dtype`` set on ``override_frame`` is used, else float64.
+        nan_error : bool, default=False
+            What :meth:`fit`, :meth:`infer` and :meth:`score` do with entries
+            where ``Y`` or ``W`` is NaN or infinite. With False they are
+            treated as missing (``Y = W = 0`` there) and one
+            :class:`~robusta_hmf.warnings.DataWarning` is issued; with True
+            they raise ``ValueError``. Negative weights always raise.
         **rotation_kwargs
             Additional arguments for rotation method
         """
         self.rank = rank
         self.method = method
+        self.nan_error = nan_error
         self.dtype = self._resolve_model_dtype(dtype, override_frame)
 
         # Build HMF
@@ -160,6 +192,7 @@ class Robusta:
         # Initialize internal state
         self._state = None
         self._loss_history = None
+        self._fit_info = None
 
     @staticmethod
     def _resolve_model_dtype(dtype, override_frame: OptFrame | None) -> np.dtype:
@@ -234,12 +267,18 @@ class Robusta:
             Final optimization state
         loss_history : Array
             Loss values over iterations
+
+        Notes
+        -----
+        Diagnostics of the run (convergence, exclusions, loss rises) are kept
+        in :attr:`fit_info`.
         """
         check_precision(self.dtype, self.rank)
+        check_rank(self.rank, *_data_shape(Y))
 
         # Let the frame place the data first: the initialiser and the loop both
         # consume whatever it hands back.
-        Y, W = self._frame.prepare(Y, W)
+        Y, W = self._frame.prepare(Y, W, nan_error=self.nan_error)
         N, M = Y.shape
 
         # Give warning if rotation cadence is not 1 for ALS
@@ -272,9 +311,25 @@ class Robusta:
                 opt=self._hmf.opt if self.method == "sgd" else None,
             )
             print("done.", flush=True)
+        else:
+            check_state_shape(init_state, N, M, self.rank, "init_state")
+            check_state_finite(init_state)
+            init_state = _restart_point(init_state)
+
+        # Rows and columns the data cannot determine are excluded up front, from
+        # these data: masks on an init_state only mark which rows start at zero.
+        if self._ridge is None:
+            row_excluded, col_excluded, exclusions = self._exclusions(Y, W)
+            under = (np.zeros(0, int), np.zeros(0, int))
+        else:
+            row_excluded = col_excluded = None
+            exclusions = ()
+            under = self._report_ridge_determined(Y, W)
+        init_state = with_exclusions(init_state, row_excluded, col_excluded)
+        ridge_warned = self._check_ridge_resolution(Y, W, init_state, under)
 
         # Run optimization
-        final_state, loss_history = self._frame.run(
+        final_state, loss_history, fit_info = self._frame.run(
             Y=Y,
             W=W,
             init_state=init_state,
@@ -283,11 +338,94 @@ class Robusta:
             max_iter=max_iter,
         )
 
+        if not ridge_warned:
+            self._check_ridge_resolution(Y, W, final_state, under)
+
         # Store internally
         self._state = final_state
         self._loss_history = loss_history
+        self._fit_info = replace(fit_info, exclusions=exclusions + fit_info.exclusions)
 
         return final_state, loss_history
+
+    @property
+    def _ridge(self) -> float | None:
+        return self._hmf.a_step.ridge if self.method == "als" else None
+
+    def _exclusions(self, Y, W, col_excluded=None, *, infer: bool = False):
+        """Rows (and, when fitting, columns) whose coverage is below the rank.
+
+        Excludes them and cascades to a fixed point, warning once. In ``infer``
+        the columns are fixed by ``col_excluded`` (from training) and only rows
+        are excluded. Returns ``(row_excluded, col_excluded, events)``, with
+        ``None`` for an axis where nothing is excluded.
+        """
+        K = self.rank
+        N, M = _data_shape(Y)
+        coverage = partial(self._frame.coverage, Y, W)
+        row_active, col_active, events = cascade(
+            coverage, K, np.ones(N, bool), _active(col_excluded, M), update_cols=not infer
+        )
+        if not infer and (row_active.sum() < K or col_active.sum() < K):
+            raise ValueError(
+                f"After excluding rows and columns with fewer than {K} non-zero weights, "
+                f"{row_active.sum()} rows and {col_active.sum()} columns remain, fewer than "
+                f"rank={K}: there is nothing left to fit. Check W, or lower the rank."
+            )
+        if events:
+            rows, cols = indices_by_axis(events)
+            warnings.warn(
+                exclusion_message(K, rows, cols, infer=infer), UnderdeterminedWarning, stacklevel=3
+            )
+        return (
+            None if row_active.all() else ~row_active,
+            None if col_active.all() else ~col_active,
+            tuple(events),
+        )
+
+    def _report_ridge_determined(self, Y, W, col_excluded=None, *, infer: bool = False):
+        """With ``als_ridge`` set: warn about the rows and columns the ridge determines.
+
+        Nothing is excluded. Returns ``(rows, cols)``, the under-covered indices
+        (columns only when fitting).
+        """
+        K = self.rank
+        N, M = _data_shape(Y)
+        coverage = partial(self._frame.coverage, Y, W)
+        rows, cols = under_covered(coverage, K, np.ones(N, bool), _active(col_excluded, M))
+        if infer:
+            cols = cols[:0]
+        if rows.size or cols.size:
+            warnings.warn(
+                ridge_message(K, rows, cols, self._ridge), UnderdeterminedWarning, stacklevel=3
+            )
+        return rows, cols
+
+    def _check_ridge_resolution(self, Y, W, state: RHMFState, under) -> bool:
+        """Warn if ``als_ridge`` is too small to affect any under-covered system.
+
+        A ridge changes a system only if it is resolvable next to the
+        system's diagonal at the working precision: here, if
+        ``ridge > 10·ε·d`` for d its largest diagonal entry. Only systems
+        with fewer than K non-zero weights need the ridge, so only those are
+        checked. Returns whether it warned.
+        """
+        rows, cols = under
+        if self._ridge is None or not (rows.size or cols.size):
+            return False
+        dA, dG = self._frame.max_diagonals(Y, W, state)
+        eps = float(np.finfo(self.dtype).eps)
+        bad_rows = rows[negligible_ridge(self._ridge, eps, dA[rows])]
+        bad_cols = cols[negligible_ridge(self._ridge, eps, dG[cols])]
+        if not (bad_rows.size or bad_cols.size):
+            return False
+        d_max = float(max(dA[bad_rows].max(initial=0), dG[bad_cols].max(initial=0)))
+        warnings.warn(
+            negligible_ridge_message(self._ridge, self.dtype, bad_rows, bad_cols, d_max),
+            UnderdeterminedWarning,
+            stacklevel=3,
+        )
+        return True
 
     def synthesize(
         self,
@@ -358,23 +496,46 @@ class Robusta:
         loss_history : Array
             Loss values over iterations.
         """
-        try:
-            G_fixed = state.G if state is not None else self.G
-        except AttributeError:
-            G_fixed = None
-        if G_fixed is None:
+        state = state if state is not None else self._state
+        if state is None:
             raise ValueError(
                 "No trained state available. Either provide state or call fit() first."
             )
         check_precision(self.dtype, self.rank)
-        G_fixed = jnp.asarray(G_fixed, self.dtype)
+        check_rank(self.rank, *_data_shape(Y_infer), allow_few_rows=True)
+        check_state_shape(state, None, _data_shape(Y_infer)[1], self.rank)
+        check_state_finite(state)
+        # Columns excluded in training have NaN rows of G; they stay excluded.
+        col_excluded = state.col_excluded
+        G_fixed = jnp.asarray(state.G, self.dtype)
+        if col_excluded is not None:
+            G_fixed = jnp.where(col_excluded[:, None], jnp.zeros((), self.dtype), G_fixed)
 
         # Place the held-out data the same way the frame places training data.
-        Y_infer, W_infer = self._frame.prepare(Y_infer, W_infer)
+        Y_infer, W_infer = self._frame.prepare(Y_infer, W_infer, nan_error=self.nan_error)
+
+        # New rows with fewer than K non-zero weights in the active columns are excluded.
+        n_rows = _data_shape(Y_infer)[0]
+        if self._ridge is None:
+            row_excluded, _, _ = self._exclusions(Y_infer, W_infer, col_excluded, infer=True)
+        else:
+            row_excluded = None
+            self._report_ridge_determined(Y_infer, W_infer, col_excluded, infer=True)
+        if row_excluded is not None and row_excluded.all():
+            # Nothing to infer: every row is excluded.
+            empty = RHMFState(
+                A=jnp.zeros((n_rows, self.rank), self.dtype),
+                G=G_fixed,
+                row_excluded=row_excluded,
+                col_excluded=col_excluded,
+            )
+            return fill_excluded(empty, jnp.nan), jnp.zeros(0, self.dtype)
 
         # Get an initial guess for the coefficients using the data weights
-        ridge = self._hmf.a_step.ridge if self.method == "als" else None
-        A_init = self._frame.initial_coefficients(Y_infer, W_infer, G_fixed, ridge)
+        ridge = self._ridge
+        A_init = self._frame.initial_coefficients(
+            Y_infer, W_infer, G_fixed, ridge, row_excluded=row_excluded
+        )
 
         # We can't use conv_strategy of max_frac_G here because G is fixed
         if conv_strategy == "max_frac_G":
@@ -384,13 +545,15 @@ class Robusta:
         # Run one-sided optimization through this model's frame
         conv_tester = ConvergenceTester(strategy=conv_strategy, tol=conv_tol)
         frame = self._frame.bind(self._hmf, conv_tester, self.dtype)
-        final_state, loss_history = frame.run(
+        final_state, loss_history, _ = frame.run(
             Y=Y_infer,
             W=W_infer,
             init_state=RHMFState(
                 A=A_init,
                 G=G_fixed,
                 it=0,
+                row_excluded=row_excluded,
+                col_excluded=col_excluded,
             ),
             rotation_cadence=1,  # No rotation since G is fixed so this is a dummy value
             conv_check_cadence=conv_check_cadence,
@@ -434,8 +597,23 @@ class Robusta:
         if state is None:
             raise ValueError("No trained state available. Call fit() first.")
         check_precision(self.dtype, self.rank)
-        Y, W = self._frame.prepare(Y, W)
-        return self._frame.z_moments(Y, W, self._frame.cast_state(state))
+        check_state_shape(state, *_data_shape(Y), self.rank)
+        check_state_finite(state)
+        Y, W = self._frame.prepare(Y, W, nan_error=self.nan_error)
+        moments = self._frame.z_moments(Y, W, self._frame.cast_state(state))
+        if not has_exclusions(state):
+            return moments
+        N, M = _data_shape(Y)
+        rows, cols = _active(state.row_excluded, N), _active(state.col_excluded, M)
+        everything = np.ones(N, bool), np.ones(M, bool)
+        total = int(self._frame.coverage(Y, W, *everything)[0].sum())
+        kept = int(self._frame.coverage(Y, W, rows, cols)[0][rows].sum())
+        return replace(
+            moments,
+            n_excluded_rows=int((~rows).sum()),
+            n_excluded_cols=int((~cols).sum()),
+            n_excluded_entries=total - kept,
+        )
 
     def basis_vectors(self, state: RHMFState | None = None) -> Array:
         """
@@ -534,12 +712,14 @@ class Robusta:
         Returns
         -------
         weights : Array, shape (N, M)
-            Robust weights
+            Robust weights. Entries in rows or columns the state excludes are
+            treated like missing data and get weight 1, so per-row summaries
+            stay finite; ``state.row_excluded`` / ``col_excluded`` mark them.
         """
         state = state if state is not None else self._state
         if state is None:
             raise ValueError("No trained state available. Call fit() first.")
-
+        W, state = working_form(W, state)
         return self._hmf.likelihood.weights_irls(Y, W, state.A, state.G)
 
     # Convenience properties
@@ -562,3 +742,38 @@ class Robusta:
     def loss_history(self) -> Array | None:
         """Loss history from last fit."""
         return self._loss_history
+
+    @property
+    def fit_info(self) -> FitInfo | None:
+        """Diagnostics of the last :meth:`fit` (not updated by :meth:`infer`)."""
+        return self._fit_info
+
+
+def _data_shape(Y) -> tuple[int, int]:
+    """``(rows, columns)`` of an array or of a frame's prepared data handle."""
+    shape = Y.shape if hasattr(Y, "shape") else np.shape(Y)
+    if len(shape) != 2:
+        raise ValueError(f"Y must be 2-D, got shape {tuple(shape)}")
+    return int(shape[0]), int(shape[1])
+
+
+def _active(excluded, n: int) -> np.ndarray:
+    """Host bool mask of active entries from an optional exclusion mask."""
+    return np.ones(n, bool) if excluded is None else ~np.asarray(excluded, bool)
+
+
+def _restart_point(state: RHMFState) -> RHMFState:
+    """``state`` as a starting point: excluded (NaN) rows set to 0, masks dropped.
+
+    Exclusions are recomputed from the data being fitted, so rows the state
+    excluded can come back if the new weights cover them.
+    """
+    if not has_exclusions(state):
+        return state
+    for name, mask in (("A", state.row_excluded), ("G", state.col_excluded)):
+        if mask is not None and bool(np.asarray(mask).all()):
+            raise ValueError(
+                f"init_state has every row of {name} excluded, so there is nothing to start "
+                "the fit from."
+            )
+    return with_exclusions(fill_excluded(state, 0.0), None, None)
