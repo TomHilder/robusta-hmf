@@ -330,12 +330,6 @@ def _active(excluded, n: int) -> np.ndarray:
     return np.ones(n, bool) if excluded is None else ~np.asarray(excluded, bool)
 
 
-@jax.jit
-def _coverage_counts(W, row_active, col_active):
-    nz = W > 0
-    return jnp.sum(nz & col_active[None, :], axis=1), jnp.sum(nz & row_active[:, None], axis=0)
-
-
 # ---------------------------------------------------------------------------- #
 # The frame
 # ---------------------------------------------------------------------------- #
@@ -719,8 +713,29 @@ class ShardedFrame(OptFrame):
             col_excluded=~np.asarray(col_active, bool),
         )
         ra, ca = self._active_masks(state, data)
-        row_cov, col_cov = _coverage_counts(data.W, ra, ca)
+        row_cov, col_cov = self._make_coverage(data.plan)(data.W, ra, ca)
         return np.asarray(row_cov)[: data.n_rows], np.asarray(col_cov)
+
+    def _make_coverage(self, plan: RowPlan):
+        """Chunked non-zero-weight counts: per row (local), per column (summed)."""
+        chunk = plan.chunk
+
+        def local(W_l, RA_l, CA):
+            n_local, n_pix = W_l.shape
+            nc = n_local // chunk
+
+            def body(col_cov, xs):
+                w, ra = xs
+                nz = w > 0
+                row_cov = jnp.sum(nz & CA[None, :], axis=1, dtype=jnp.int32)
+                return col_cov + jnp.sum(nz & ra[:, None], axis=0, dtype=jnp.int32), row_cov
+
+            blocks = (W_l.reshape(nc, chunk, n_pix), RA_l.reshape(nc, chunk))
+            col_cov, row_cov = jax.lax.scan(body, jnp.zeros(n_pix, jnp.int32), blocks)
+            return row_cov.reshape(n_local), jax.lax.psum(col_cov, ROW_AXIS)
+
+        in_specs = (P(ROW_AXIS, None), P(ROW_AXIS), P())
+        return jax.jit(_shmap(local, self.mesh, in_specs, (P(ROW_AXIS), P())))
 
     # -- held-out inference and scoring -------------------------------------- #
 

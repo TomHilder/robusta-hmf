@@ -956,3 +956,37 @@ def test_score_without_exclusions_reports_zero_counts(problem):
     model.fit(problem["Y"], problem["W"], max_iter=15)
     m = model.score(problem["Y"], problem["W"])
     assert (m.n_excluded_rows, m.n_excluded_cols, m.n_excluded_entries) == (0, 0, 0)
+
+
+# ----------------------------
+# Sharded parity
+# ----------------------------
+@pytest.mark.parametrize("n_devices", [1, 4])
+def test_sharded_coverage_matches_dense(n_devices):
+    rng = np.random.default_rng(2)
+    N, M = 61, 23  # not a multiple of the chunk or device count: padding rows exist
+    W = (rng.random((N, M)) < 0.3).astype(float)
+    row_active = rng.random(N) < 0.8
+    col_active = rng.random(M) < 0.8
+    frame = ShardedFrame(row_block=8, devices=jax.devices("cpu")[:n_devices], verbose=False)
+    data, _ = frame.prepare(np.zeros((N, M)), W)
+    s_rows, s_cols = frame.coverage(data, None, row_active, col_active)
+    assert s_rows.shape == (N,)  # padding rows are not reported
+    np.testing.assert_array_equal(s_rows, (W > 0)[:, col_active].sum(axis=1))
+    np.testing.assert_array_equal(s_cols, (W > 0)[row_active].sum(axis=0))
+
+
+@pytest.mark.parametrize("n_devices", [1, 4])
+def test_sharded_infer_keeps_training_exclusions(excluded_fit, n_devices):
+    _, state, Y, W = excluded_fit
+    W_new = W[:13].copy()
+    W_new[2, :] = 0.0
+    W_new[2, :2] = 1.0
+    frame = ShardedFrame(row_block=4, devices=jax.devices("cpu")[:n_devices], verbose=False)
+    model = Robusta(rank=RANK, robust=False, conv_strategy="none", override_frame=frame)
+    with pytest.warns(UnderdeterminedWarning, match=r"rows 2, 4"):
+        inf, _ = model.infer(Y[:13], W_new, state=state, max_iter=5)
+    assert np.flatnonzero(np.asarray(inf.row_excluded)).tolist() == [2, 4]
+    A = np.asarray(inf.A)
+    assert A.shape == (13, RANK)
+    assert np.isnan(A[[2, 4]]).all() and np.isfinite(np.delete(A, [2, 4], 0)).all()
