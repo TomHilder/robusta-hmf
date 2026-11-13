@@ -44,9 +44,77 @@ coeffs = state.A         # (N, K) per-row coefficients
 reconstruction = model.synthesize()   # A @ G.T, shape (N, M)
 ```
 
-Missing or masked data is handled by setting the corresponding entries of `W` to `0`.
-See `examples_paper/` for complete, worked pipelines (synthetic validation in `toy/` and
-Gaia RVS spectra in `gaia_rvs/`).
+Missing or masked data is handled by setting the corresponding entries of `W` to `0` (see
+below). See `examples_paper/` for complete, worked pipelines (synthetic validation in `toy/`
+and Gaia RVS spectra in `gaia_rvs/`).
+
+### Missing data and coverage
+
+Mark missing entries with `W = 0`; their values in `Y` are ignored. NaN or infinite values in
+`Y` or `W` are treated the same way: they are set to `Y = W = 0` and a `DataWarning` says how
+many there were. Pass `Robusta(..., nan_error=True)` to raise instead. Negative weights always
+raise.
+
+The **coverage** of a row or column is its number of non-zero weights. A row of `A` (one
+row of `Y`) or of `G` (one column of `Y`) has `rank` unknowns, so it is determined by the data
+only if its coverage is at least `rank`. Rows and columns with less are **excluded**:
+
+- Excluding one can leave another with too little coverage, so exclusion repeats until
+  nothing changes.
+- Excluded rows and columns take no part in the fit. Their rows of `A` and `G` come back as
+  NaN, and `state.row_excluded` / `state.col_excluded` mark them, so `synthesize()` and
+  `residuals()` are NaN exactly where the model is undefined.
+- One `UnderdeterminedWarning` lists them, and `model.fit_info.exclusions` records each one
+  and why.
+- The returned state can be saved, passed back to `fit(init_state=...)`, or used for
+  `infer()` and `score()`. `infer()` keeps the columns excluded in training and excludes new
+  rows with too little coverage. `score()` treats excluded entries as zero-weight and reports
+  how many there were (`n_excluded_rows`, `n_excluded_cols`, `n_excluded_entries`).
+
+If you would rather keep every row and column, set `als_ridge`. The ridge then decides the
+under-covered factors (it shrinks them towards zero), nothing is excluded, and the
+`UnderdeterminedWarning` says which factors the ridge, not the data, determines. A ridge too
+small to register next to the least-squares system at the working precision
+(`ridge ≤ 10·ε·d`, with `d` the system's largest diagonal entry) is no prior at all, and a
+warning gives the value it would need to exceed.
+
+### Convergence and warnings
+
+Every warning robusta-hmf issues derives from `RobustaWarning`:
+
+| Warning | Means |
+|---|---|
+| `DataWarning` | Non-finite input entries were treated as missing. |
+| `UnderdeterminedWarning` | Some rows or columns have fewer non-zero weights than `rank`. |
+| `ConvergenceWarning` | The fit stopped at `max_iter` without converging, or its loss rose. |
+
+`model.fit_info` records how the last `fit()` went: `converged`, `stop_reason`, `n_iter`,
+`final_loss`, `loss_rises` and `exclusions`. `infer()` stores nothing on the model, since one
+model is often applied to many datasets; its warnings name the number of rows instead.
+
+To make any of them an error:
+
+```python
+import warnings
+from robusta_hmf import ConvergenceWarning
+warnings.simplefilter("error", ConvergenceWarning)
+```
+
+### If the loss rises or diverges
+
+ALS never increases the loss in exact arithmetic. So when a fit's loss rises by more than
+round-off, the computation itself has gone wrong, and a `ConvergenceWarning` says at which
+iteration. The usual causes, in order:
+
+1. **float32.** Fit in float64 (the default) first. If that behaves, the float32 fit was
+   running out of precision in badly conditioned solves.
+2. **A ridge too small to matter.** If you set `als_ridge`, check for the warning above, and
+   either raise the ridge or remove it so under-covered rows and columns are excluded.
+3. **A rank too high for the data.** Rows or columns with coverage only just above `rank`
+   are determined, but poorly. Try a lower rank.
+
+If the loss becomes NaN or infinite, the fit stops with a `FloatingPointError` whose message
+names the likely cause.
 
 ### Precision
 
@@ -56,10 +124,8 @@ created. Without it, `fit()`, `infer()` and `score()` raise `PrecisionError` ins
 silently computing in float32.
 
 float32 is supported as an explicit choice, `Robusta(..., dtype="float32")`, and is much
-faster on GPUs. It is also less forgiving: rows or columns of `W` with fewer non-zero
-weights than the rank leave the ALS solves under-determined, and in float32 that can
-make the fit diverge. If the loss ever goes non-finite, the fit stops with a
-`FloatingPointError` that names the likely cause.
+faster on GPUs. It is also less forgiving of badly conditioned solves; see
+[If the loss rises or diverges](#if-the-loss-rises-or-diverges).
 
 ### Model selection
 
