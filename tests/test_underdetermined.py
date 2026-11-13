@@ -665,7 +665,9 @@ def test_negligible_ridge_warns_in_float32():
     p = issue10_like()
     model = Robusta(rank=8, robust=False, als_ridge=1e-6, dtype="float32", conv_strategy="none")
     with pytest.warns(UnderdeterminedWarning) as record:
-        model.fit(p["Y"], p["W"], max_iter=3)
+        # The warning comes from the check before the loop; one iteration is enough, and
+        # more can reach NaN (which iteration depends on the CPU's float32 rounding).
+        model.fit(p["Y"], p["W"], max_iter=1)
     [msg] = _negligible(record)
     assert "als_ridge=1e-06 is below float32 resolution for 40 columns" in msg
     # The threshold it reports is 10·ε·d for the largest such diagonal (~3 weights of 1e4).
@@ -757,7 +759,11 @@ def test_exact_fit_does_not_warn():
 
 
 @pytest.mark.parametrize("sharded", [False, True])
-def test_issue10_float32_ridge_warns_on_rising_loss(sharded):
+def test_unstable_float32_fit_is_reported(sharded):
+    """float32 with a ridge far below float32 resolution: the under-covered systems are
+    singular, so the fit is numerically unstable. It must never finish silently. Whether the
+    loss first rises (a ConvergenceWarning) or a solve divides by an exactly-zero pivot (a
+    FloatingPointError) depends on the CPU's rounding: arm64 and x86-64 differ here."""
     p = issue10_like()
     model = Robusta(
         rank=8,
@@ -767,15 +773,18 @@ def test_issue10_float32_ridge_warns_on_rising_loss(sharded):
         conv_strategy="none",
         override_frame=_frame(True) if sharded else None,
     )
-    with pytest.warns(ConvergenceWarning) as record:
-        model.fit(p["Y"], p["W"], max_iter=30)
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        try:
+            model.fit(p["Y"], p["W"], max_iter=30)
+            raised = False
+        except FloatingPointError:
+            raised = True
     rises = [m for m in _convergence(record) if "loss rose" in m]
-    assert len(rises) == 1  # one warning per fit, however many rises
-    assert rises[0].startswith("K=8, Q=1: loss rose at iteration")
-    assert "fit_info.loss_rises" in rises[0]
-    first = int(rises[0].split("iteration ")[1].split(" ")[0])
-    assert model.fit_info.loss_rises[0] == first
-    assert len(model.fit_info.loss_rises) > 1
+    assert raised or rises
+    assert len(rises) <= 1  # at most one rising-loss warning per fit
+    if rises:
+        assert rises[0].startswith("K=8, Q=1: loss rose at iteration")
 
 
 @pytest.mark.parametrize("dtype", ["float32", "float64"])
@@ -887,9 +896,9 @@ def test_sharded_nonfinite_loss_is_caught_at_the_end(problem):
 
 
 @pytest.mark.parametrize("sharded", [False, True])
-def test_rising_loss_is_reported_at_the_first_check(capsys, sharded):
-    """The warning comes at the convergence check after the rise, not at the end of the
-    run, so it precedes anything that stops the fit later."""
+def test_instability_is_reported_at_the_first_check(capsys, sharded):
+    """With ConvergenceWarning made an error, the unstable fit stops at the first
+    convergence check (iteration 10) by either route, not at the end of the run."""
     p = issue10_like()
     model = Robusta(
         rank=8,
@@ -903,10 +912,11 @@ def test_rising_loss_is_reported_at_the_first_check(capsys, sharded):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UnderdeterminedWarning)
         warnings.simplefilter("error", ConvergenceWarning)
-        with pytest.raises(ConvergenceWarning, match="loss rose at iteration"):
+        with pytest.raises((ConvergenceWarning, FloatingPointError), match="iteration"):
             model.fit(p["Y"], p["W"], max_iter=30, conv_check_cadence=10)
-    # The first check is at iteration 10; it raised before printing its progress line.
-    assert "iter 0" not in capsys.readouterr().out
+    # Checks run at iterations 10 and 20. Stopping at the first means the second never
+    # prints its progress line. (The NaN route prints the first line, then raises.)
+    assert "iter 021" not in capsys.readouterr().out
 
 
 # ----------------------------
@@ -1015,3 +1025,36 @@ def test_issue10_regression(dtype):
     pred = np.asarray(state.A) @ np.asarray(state.G)[good].T
     rms = np.sqrt(np.mean((pred - p["Y_clean"][:, good]) ** 2))
     assert rms < 0.01  # sigma = 0.01: the model is within the noise of the truth
+
+
+def test_run_monitor_warns_once_and_records_every_rise():
+    from robusta_hmf.convergence import RunMonitor
+
+    monitor = RunMonitor(rank=4, scale=2.0, check_rises=True, infer=False, n_rows=10)
+    losses = [100.0, 90.0, 85.0, 425.0, 80.0, 79.0, 300.0]
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        monitor.update(losses[:4])  # a convergence check after the first rise
+        monitor.update(losses)  # a later check, after the second
+        rises = monitor.finish(losses, converged=False, max_iter=100, strategy="max_frac_G")
+    expected = (
+        "K=4, Q=2: loss rose at iteration 3 (85 → 425), which the ALS iteration "
+        "should never do; the fit is numerically unreliable. See "
+        "model.fit_info.loss_rises."
+    )
+    assert _convergence(record) == [expected]
+    assert rises == (3, 6)
+
+
+def test_run_monitor_exempts_sgd_and_reports_infer_rows():
+    from robusta_hmf.convergence import RunMonitor
+
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        sgd = RunMonitor(rank=3, scale=None, check_rises=False, infer=False, n_rows=5)
+        assert sgd.finish([1.0, 5.0, 2.0], converged=True, max_iter=3, strategy="none") == ()
+        inf = RunMonitor(rank=3, scale=None, check_rises=True, infer=True, n_rows=1234)
+        inf.finish([3.0, 2.0], converged=False, max_iter=2, strategy="max_frac_A")
+    assert _convergence(record) == [
+        "infer on 1,234 rows (K=3): stopped at max_iter=2 without converging (final loss 2)"
+    ]
