@@ -91,7 +91,7 @@ from jaxtyping import Array
 
 from .als import normal_equations, solve_normal_equations
 from .fit_info import FitInfo
-from .frame import OptFrame, make_fit_info
+from .frame import OptFrame, check_factors_finite, make_fit_info
 from .initialisation import Initialiser, InitStrategy
 from .metrics import ZMoments
 from .precision import nonfinite_loss_message
@@ -658,6 +658,7 @@ class ShardedFrame(OptFrame):
         prev_state = RHMFState(A=A[: plan.n_rows], G=G, it=it0)
         prev_loss = jnp.inf
         converged = False
+        monitor = self.make_monitor(data, None, plan.n_rows, G.shape[1], skip_G)
 
         for i in range(max_iter):
             rot = i % rotation_cadence == 0 and i != 0
@@ -668,6 +669,7 @@ class ShardedFrame(OptFrame):
                 # otherwise dilute mean(A**2) and make max_frac_A stricter
                 # than the same test on the dense path.
                 state = RHMFState(A=A[: plan.n_rows], G=G, it=it0 + i + 1)
+                monitor.update(loss_history)
                 if self.conv_tester.is_converged(prev_state, state, prev_loss, loss):
                     print(f"Converged at iteration {i}")
                     converged = True
@@ -677,7 +679,14 @@ class ShardedFrame(OptFrame):
                 print(f"iter {state.it:03d} | loss {loss:.4f}", flush=True)
                 if not np.isfinite(float(loss)):
                     raise FloatingPointError(nonfinite_loss_message(i, loss, self.compute_dtype))
+                check_factors_finite(state.A, state.G, i, self.compute_dtype)
 
+        loss_rises = monitor.finish(loss_history, converged, max_iter, self.conv_tester.strategy)
+        if loss_history and not np.isfinite(float(loss_history[-1])):
+            last = len(loss_history) - 1
+            raise FloatingPointError(
+                nonfinite_loss_message(last, loss_history[-1], self.compute_dtype)
+            )
         state = RHMFState(
             A=A[: plan.n_rows],
             G=G,
@@ -687,7 +696,8 @@ class ShardedFrame(OptFrame):
         )
         if masked:
             state = fill_excluded(state, jnp.nan)
-        return state, jnp.array(loss_history), make_fit_info(converged, loss_history)
+        info = make_fit_info(converged, loss_history, loss_rises)
+        return state, jnp.array(loss_history), info
 
     def _active_masks(self, state: RHMFState, data: "ShardedData") -> tuple[Array, Array]:
         """``(row_active, col_active)`` on the mesh: rows padded and sharded, columns replicated."""
@@ -808,6 +818,27 @@ class ShardedFrame(OptFrame):
             sum_z2=float(s2),
             sum_chi2=float(chi2),
         )
+
+    def weighted_sum_of_squares(self, Y, W) -> float:
+        """``Σ W·Y²`` over the stored data, accumulated chunk by chunk."""
+        data, _ = self.prepare(Y, W)
+        chunk, cdtype = data.plan.chunk, self.compute_dtype
+
+        def local(Y_l, W_l):
+            n_local, n_pix = Y_l.shape
+            nc = n_local // chunk
+
+            def body(total, xs):
+                y, w = xs
+                y = y.astype(cdtype)
+                return total + jnp.sum(w.astype(cdtype) * y * y), None
+
+            blocks = (Y_l.reshape(nc, chunk, n_pix), W_l.reshape(nc, chunk, n_pix))
+            total, _ = jax.lax.scan(body, jnp.zeros((), cdtype), blocks)
+            return jax.lax.psum(total, ROW_AXIS)
+
+        in_specs = (P(ROW_AXIS, None), P(ROW_AXIS, None))
+        return float(jax.jit(_shmap(local, self.mesh, in_specs, P()))(data.Y, data.W))
 
     def max_diagonals(self, Y, W, state: RHMFState) -> tuple[np.ndarray, np.ndarray]:
         """Largest diagonal entry of each row's and each column's least-squares system.

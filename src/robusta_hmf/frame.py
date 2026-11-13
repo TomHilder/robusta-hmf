@@ -9,12 +9,12 @@ import numpy as np
 from jaxtyping import Array
 
 from .als import WeightedAStep
-from .convergence import ConvergenceTester
+from .convergence import ConvergenceTester, RunMonitor
 from .fit_info import FitInfo
 from .hmf import HMF
 from .initialisation import Initialiser, InitStrategy
 from .metrics import ZMoments, z_moments
-from .precision import nonfinite_loss_message
+from .precision import nonfinite_factors_message, nonfinite_loss_message
 from .state import RHMFState, fill_excluded, has_exclusions, mask_weights, update_state
 from .validation import sanitise
 
@@ -177,6 +177,7 @@ class OptFrame:
         prev_state = deepcopy(state)
         prev_loss = jnp.inf
         converged = False
+        monitor = self.make_monitor(Y, W, state.A.shape[0], state.A.shape[1], skip_G)
 
         # Training loop
         for i in range(max_iter):
@@ -187,6 +188,7 @@ class OptFrame:
             loss_history.append(loss)
             # Check convergence and print loss every conv_check_cadence iterations
             if i % conv_check_cadence == 0 and i != 0:
+                monitor.update(loss_history)
                 if self.conv_tester.is_converged(prev_state, state, prev_loss, loss):
                     print(f"Converged at iteration {i}")
                     converged = True
@@ -196,7 +198,9 @@ class OptFrame:
                 print(f"iter {state.it:03d} | loss {loss:.4f}", flush=True)
                 if not np.isfinite(float(loss)):
                     raise FloatingPointError(nonfinite_loss_message(i, loss, self.compute_dtype))
+                check_factors_finite(state.A, state.G, i, self.compute_dtype)
 
+        loss_rises = monitor.finish(loss_history, converged, max_iter, self.conv_tester.strategy)
         if loss_history and not np.isfinite(float(loss_history[-1])):
             last = len(loss_history) - 1
             raise FloatingPointError(
@@ -204,14 +208,41 @@ class OptFrame:
             )
         if masked:
             state = fill_excluded(state, jnp.nan)
-        return state, jnp.array(loss_history), make_fit_info(converged, loss_history)
+        info = make_fit_info(converged, loss_history, loss_rises)
+        return state, jnp.array(loss_history), info
+
+    def make_monitor(self, Y, W, n_rows: int, rank: int, infer: bool) -> RunMonitor:
+        """The :class:`~robusta_hmf.convergence.RunMonitor` for one run of the loop."""
+        als = self.method.opt_method == "als"
+        return RunMonitor(
+            rank=rank,
+            scale=getattr(self.method.likelihood, "scale", None),
+            check_rises=als,
+            infer=infer,
+            n_rows=n_rows,
+            data_scale=self.weighted_sum_of_squares(Y, W) if als else 0.0,
+        )
+
+    def weighted_sum_of_squares(self, Y, W) -> float:
+        """``Σ W·Y²``, the scale of the loss's round-off near zero."""
+        return float(jnp.sum(W * Y * Y))
 
 
-def make_fit_info(converged: bool, loss_history: list) -> FitInfo:
+def check_factors_finite(A, G, iteration: int, dtype) -> None:
+    """Raise ``FloatingPointError`` if ``A`` or ``G`` holds NaN or inf.
+
+    Called inside the loop, where excluded rows are zero rather than NaN.
+    """
+    if not (np.isfinite(np.asarray(A)).all() and np.isfinite(np.asarray(G)).all()):
+        raise FloatingPointError(nonfinite_factors_message(iteration, dtype))
+
+
+def make_fit_info(converged: bool, loss_history: list, loss_rises=()) -> FitInfo:
     """The :class:`FitInfo` for a loop that ran ``len(loss_history)`` iterations."""
     return FitInfo(
         converged=converged,
         stop_reason="converged" if converged else "max_iter",
         n_iter=len(loss_history),
         final_loss=float(loss_history[-1]) if loss_history else float("nan"),
+        loss_rises=tuple(loss_rises),
     )

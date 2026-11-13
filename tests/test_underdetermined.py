@@ -710,3 +710,200 @@ def test_sharded_max_diagonals_match_dense(problem):
     # The sharded store is float32, so agreement is to float32 round-off.
     np.testing.assert_allclose(sA, dA, rtol=1e-5)
     np.testing.assert_allclose(sG, dG, rtol=1e-5)
+
+
+# ----------------------------
+# Convergence reporting: rising loss, max_iter, non-finite factors
+# ----------------------------
+def _convergence(record):
+    return [str(w.message) for w in record if issubclass(w.category, ConvergenceWarning)]
+
+
+EPS32 = float(np.finfo(np.float32).eps)
+
+
+def test_rising_loss_rule_on_fixed_sequences():
+    from robusta_hmf.convergence import rising_loss_iterations
+
+    # Strictly decreasing: nothing.
+    assert rising_loss_iterations([10, 8, 6, 5, 4.5, 4.4, 4.39], EPS32) == []
+    # Round-off-sized rises near convergence (below 100·ε·|L|): nothing.
+    L = 1.25e6 + np.array([5, 3, 2, 1.5, 1.4, 1.5, 1.4, 2.0, 1.3])
+    assert rising_loss_iterations(L, EPS32) == []
+    # A real jump at t=3: flagged at 3 although the 5-step window isn't full yet.
+    assert rising_loss_iterations([10, 9, 8.5, 50, 40, 39], EPS32) == [3]
+    # A rise smaller than twice the recent average decrease is tolerated...
+    assert rising_loss_iterations([100, 90, 80, 70, 60, 50, 55], EPS32) == []
+    # ...but not one larger.
+    assert rising_loss_iterations([100, 90, 80, 70, 60, 50, 71], EPS32) == [6]
+    # Only iterations from `start` on are evaluated.
+    assert rising_loss_iterations([10, 9, 8.5, 50, 40, 60], EPS32, start=4) == [5]
+
+
+def test_rising_loss_floor_handles_a_loss_at_round_off():
+    from robusta_hmf.convergence import rising_loss_iterations
+
+    # The exact fit in test_fit_shape_extremes[30-6-6]: S = Σ W·Y² ≈ 1e5.
+    L = [1.6e-26, 1.5e-25, 9e-26, 2e-25]
+    assert rising_loss_iterations(L, 2.2e-16) != []  # relative floor alone: false alarm
+    assert rising_loss_iterations(L, 2.2e-16, data_scale=1e5) == []
+
+
+def test_exact_fit_does_not_warn():
+    prob = make_low_rank_problem(seed=3, N=30, M=6, K=6)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        Robusta(rank=6, robust=False, conv_strategy="none").fit(prob["Y"], prob["W"], max_iter=20)
+
+
+@pytest.mark.parametrize("sharded", [False, True])
+def test_issue10_float32_ridge_warns_on_rising_loss(sharded):
+    p = issue10_like()
+    model = Robusta(
+        rank=8,
+        robust=True,
+        als_ridge=1e-6,
+        dtype="float32",
+        conv_strategy="none",
+        override_frame=_frame(True) if sharded else None,
+    )
+    with pytest.warns(ConvergenceWarning) as record:
+        model.fit(p["Y"], p["W"], max_iter=30)
+    rises = [m for m in _convergence(record) if "loss rose" in m]
+    assert len(rises) == 1  # one warning per fit, however many rises
+    assert rises[0].startswith("K=8, Q=1: loss rose at iteration")
+    assert "fit_info.loss_rises" in rises[0]
+    first = int(rises[0].split("iteration ")[1].split(" ")[0])
+    assert model.fit_info.loss_rises[0] == first
+    assert len(model.fit_info.loss_rises) > 1
+
+
+@pytest.mark.parametrize("dtype", ["float32", "float64"])
+@pytest.mark.parametrize("sharded", [False, True])
+def test_healthy_fits_never_flag_a_rise(problem, dtype, sharded):
+    model = Robusta(
+        rank=RANK, robust=True, dtype=dtype, conv_tol=1e-8, override_frame=_frame(sharded)
+    )
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        model.fit(problem["Y"], problem["W"], max_iter=300)
+    assert [m for m in _convergence(record) if "loss rose" in m] == []
+    assert model.fit_info.loss_rises == ()
+
+
+@pytest.mark.parametrize("sharded", [False, True])
+def test_max_iter_warns_with_details(problem, sharded):
+    model = Robusta(rank=RANK, robust=True, robust_scale=3.0, override_frame=_frame(sharded))
+    with pytest.warns(ConvergenceWarning) as record:
+        _, loss = model.fit(problem["Y"], problem["W"], max_iter=4)
+    [msg] = _convergence(record)
+    assert msg == (
+        f"K=3, Q=3: stopped at max_iter=4 without converging (final loss "
+        f"{float(loss[-1]):.5g}); see model.fit_info"
+    )
+    info = model.fit_info
+    assert info.converged is False and info.stop_reason == "max_iter" and info.n_iter == 4
+
+
+def test_gaussian_max_iter_message_has_no_Q(problem):
+    with pytest.warns(ConvergenceWarning, match=r"^K=3: stopped at max_iter=4"):
+        Robusta(rank=RANK, robust=False).fit(problem["Y"], problem["W"], max_iter=4)
+
+
+def test_converged_fit_does_not_warn(problem):
+    model = Robusta(rank=RANK, robust=False, conv_tol=1e-4)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        model.fit(problem["Y"], problem["W"], max_iter=500)
+    assert model.fit_info.converged is True
+
+
+def test_conv_strategy_none_does_not_warn(problem):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        Robusta(rank=RANK, robust=False, conv_strategy="none").fit(
+            problem["Y"], problem["W"], max_iter=4
+        )
+
+
+def test_different_K_in_one_loop_warn_separately(problem):
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("default")  # Python's default once-per-location filtering
+        for K in (2, 3):
+            Robusta(rank=K, robust=False).fit(problem["Y"], problem["W"], max_iter=3)
+    msgs = _convergence(record)
+    assert len(msgs) == 2 and msgs[0].startswith("K=2") and msgs[1].startswith("K=3")
+
+
+def test_convergence_warning_can_be_made_an_error(problem):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ConvergenceWarning)
+        with pytest.raises(ConvergenceWarning, match="max_iter=3"):
+            Robusta(rank=RANK, robust=False).fit(problem["Y"], problem["W"], max_iter=3)
+
+
+def test_sgd_is_exempt_from_the_rising_loss_rule(problem):
+    model = Robusta(rank=RANK, method="sgd", robust=False, learning_rate=0.5, conv_strategy="none")
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        _, loss = model.fit(problem["Y"], problem["W"], max_iter=40)
+    loss = np.asarray(loss)
+    assert (np.diff(loss) > 1e-3 * np.abs(loss[:-1])).any()  # SGD did go uphill
+    assert [m for m in _convergence(record) if "loss rose" in m] == []
+    assert model.fit_info.loss_rises == ()
+
+
+@pytest.mark.parametrize("sharded", [False, True])
+def test_infer_max_iter_warning_names_rows_and_stores_nothing(problem, sharded):
+    model = Robusta(rank=RANK, robust=False, conv_tol=1e-4, override_frame=_frame(sharded))
+    model.fit(problem["Y"], problem["W"], max_iter=500)
+    before = model.fit_info
+    with pytest.warns(ConvergenceWarning) as record:
+        model.infer(problem["Y"][:12], problem["W"][:12], max_iter=2, conv_tol=1e-30)
+    [msg] = _convergence(record)
+    assert msg.startswith("infer on 12 rows (K=3): stopped at max_iter=2 without converging")
+    assert "fit_info" not in msg
+    assert model.fit_info is before
+
+
+def test_nonfinite_factors_raise():
+    from robusta_hmf.frame import check_factors_finite
+
+    check_factors_finite(np.ones((3, 2)), np.ones((4, 2)), 7, np.float64)
+    with pytest.raises(FloatingPointError, match="A or G is not finite at iteration 7"):
+        check_factors_finite(np.ones((3, 2)), np.array([[1.0, np.nan]] * 4), 7, np.float64)
+
+
+def test_sharded_nonfinite_loss_is_caught_at_the_end(problem):
+    # max_iter is below conv_check_cadence, so only the end-of-run check can see it.
+    Y = problem["Y"].copy()
+    Y[5, 7] = 1e200
+    frame = ShardedFrame(
+        row_block=16, devices=jax.devices("cpu")[:1], verbose=False, store_dtype=np.float64
+    )
+    model = Robusta(rank=RANK, init_strategy="random", override_frame=frame)
+    with pytest.raises(FloatingPointError, match="Loss is not finite"):
+        model.fit(Y, problem["W"], max_iter=3, conv_check_cadence=10)
+
+
+@pytest.mark.parametrize("sharded", [False, True])
+def test_rising_loss_is_reported_at_the_first_check(capsys, sharded):
+    """The warning comes at the convergence check after the rise, not at the end of the
+    run, so it precedes anything that stops the fit later."""
+    p = issue10_like()
+    model = Robusta(
+        rank=8,
+        robust=True,
+        als_ridge=1e-6,
+        dtype="float32",
+        conv_strategy="none",
+        override_frame=_frame(True) if sharded else None,
+    )
+    capsys.readouterr()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UnderdeterminedWarning)
+        warnings.simplefilter("error", ConvergenceWarning)
+        with pytest.raises(ConvergenceWarning, match="loss rose at iteration"):
+            model.fit(p["Y"], p["W"], max_iter=30, conv_check_cadence=10)
+    # The first check is at iteration 10; it raised before printing its progress line.
+    assert "iter 0" not in capsys.readouterr().out
