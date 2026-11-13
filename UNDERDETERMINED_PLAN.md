@@ -4,6 +4,15 @@ Implements the behaviour agreed in PR #13 (issues #2 and #10). The proposal itse
 PR comments; this file turns it into a spec, a test list, an order of work and a list of risks.
 Delete this file once the work is merged and documented.
 
+**Changed during implementation (2026-11-13):** the rule that excluded rows and columns *during*
+the fit when their robust weights fell below `min_robust_weight` was dropped, with the
+`min_robust_weight` argument and the `"robust"` exclusion cause. On toy data with a few columns
+of 4–10 clean, consistent weights, it excluded 28% of them at iteration 0: it judged the initial
+guess, not the data. Skipping the first iterations removed those false positives, but after ~10
+iterations it no longer fired on outlier-dominated columns either, and those don't fail
+numerically. Exclusion now happens only before the loop, from `W`. The negligible-ridge check
+runs before the loop and on the final state rather than every iteration.
+
 ## Notation
 
 The model is `Y ≈ A Gᵀ`, where:
@@ -12,21 +21,17 @@ The model is `Y ≈ A Gᵀ`, where:
 
 The **coverage** of a row or column is its number of entries with non-zero weight.
 
-The **effective coverage** during a fit counts only entries with `W > 0` *and* a robust (IRLS)
-weight of at least `min_robust_weight`.
-
 ## 1. Spec
 
 ### 1.1 Public API changes
 
-**`Robusta(...)` gains two keyword arguments:**
+**`Robusta(...)` gains a keyword argument:**
 
 | Argument | Default | Meaning |
 |---|---|---|
 | `nan_error` | `False` | With `False`, non-finite entries in `Y` or `W` are treated as missing (both set to 0 there) and one `DataWarning` is issued. With `True`, raise `ValueError` instead. |
-| `min_robust_weight` | `1e-2` | During the fit, an entry counts towards effective coverage only if its robust weight is at least this. Ignored for Gaussian (non-robust) fits, whose robust weights are all 1. |
 
-They go on the constructor, not on `fit()`, so that `fit`, `infer` and `score` behave the same
+It goes on the constructor, not on `fit()`, so that `fit`, `infer` and `score` behave the same
 way for one model.
 
 **New warning classes in `robusta_hmf.warnings`**, exported from the package root:
@@ -50,7 +55,7 @@ way for one model.
 - `iteration`: `-1` means before the first iteration, i.e. from the input weights;
 - `axis`: `"row"` or `"col"`;
 - `indices`: the excluded indices;
-- `cause`: `"empty"`, `"low_coverage"`, `"robust"` or `"cascade"`.
+- `cause`: `"empty"`, `"low_coverage"` or `"cascade"`.
 
 **`RHMFState` gains two optional fields:**
 - `row_excluded`: bool array of shape `(N,)`, or `None`;
@@ -107,13 +112,6 @@ editing `A` or `G` directly during the loop.
 5. Issue one `UnderdeterminedWarning` for the whole cascade, for example:
    `"K=8: 3 rows and 352 columns have fewer than 8 non-zero weights (rows 12, 40, 41, …; columns 1000, 1001, …). Excluded them from the fit; their entries in A and G are returned as NaN. See model.fit_info.exclusions."`
 
-**During the fit (ALS, robust likelihood only), at every iteration:**
-1. Compute the effective coverage from `W_eff > 0` and `w_irls ≥ min_robust_weight`, using the robust weights the step has already computed.
-2. Exclude rows and columns whose effective coverage is `< K`, then cascade as above.
-3. Exclusion is permanent: an excluded row or column never comes back.
-4. The masks are updated on device inside the jitted step, so no per-iteration host synchronisation is needed. An `excluded_at` integer array (initially `-1`) records the iteration of each exclusion.
-5. At each convergence check, the host reads `excluded_at`. If anything new was excluded since the last check, it issues one `UnderdeterminedWarning` for that batch.
-
 **With `als_ridge` set:** coverage is computed and the same `UnderdeterminedWarning` is issued,
 worded "…have fewer than K non-zero weights; the ridge determines their factors". Nothing is
 excluded and no NaN is returned, because the ridge is the user's chosen prior.
@@ -130,7 +128,7 @@ where:
 
 The diagonals are cheap: `W_eff @ G²` for the rows of `A`, and `W_effᵀ @ A²` for the rows of `G`. Both are `O(NMK)`.
 
-The check runs only over systems with coverage `< K`. Where coverage is ≥ K the ridge is not needed, and a negligible ridge is harmless. It is evaluated on device every iteration as a single boolean and read at each convergence check. If it is ever true, issue one `UnderdeterminedWarning` per fit, for example:
+The check runs only over systems with coverage `< K`. Where coverage is ≥ K the ridge is not needed, and a negligible ridge is harmless. It is evaluated before the loop and, if that passes, on the final state (the factors' scale grows during a fit). Issue at most one `UnderdeterminedWarning` per fit, for example:
 
 `"als_ridge=1e-06 is below float32 resolution for 352 under-covered columns (largest diagonal 1.4e+04, so the ridge must exceed ~1.6e-02 to have any effect); it is not determining their factors. Increase als_ridge, use float64, or set als_ridge=None to exclude them instead."`
 
@@ -139,7 +137,6 @@ The #10 setup triggers it in float32: at the first iteration the under-covered c
 **`infer`:**
 - Columns excluded in the training state (`state.col_excluded`) stay excluded.
 - New rows with coverage `< K` against the active columns are excluded, with the same warning.
-- The new rows' robust-weight exclusions follow the same rules as in `fit`.
 - There is no cascade into columns, because `G` is fixed in `infer`.
 
 ### 1.4 What is returned
@@ -181,8 +178,7 @@ At iteration t, with loss `L_t`, the iteration breaks the rule if
 L_t − L_{t−1} > max( 2·D̄_t , 100·ε·|L_{t−1}| ),   D̄_t = (L_{t−1−w} − L_{t−1}) / w,   w = min(5, t−1)
 ```
 
-with `D̄_1 = 0`, and `ε` the machine epsilon of the model's dtype. The window restarts at
-any iteration where an exclusion happened: `w` counts only iterations since the last exclusion.
+with `D̄_1 = 0`, and `ε` the machine epsilon of the model's dtype.
 
 **Evaluation.** On the host, at each convergence check, over the loss values since the last
 check. Those are already in `loss_history`; converting them to floats is the only cost.
@@ -213,8 +209,6 @@ Everything in §1.2–1.7 applies to `ShardedFrame`. Differences:
 - **Coverage:**
   - row coverage is computed per chunk;
   - column coverage is accumulated over chunks and `psum`'d across devices, like the G-step accumulators;
-  - effective coverage is computed in `_make_pass_one` from the `Wt` it already forms;
-  - one more `(M,)` int accumulator is added to the carry.
 - **Padding rows** (zero weight) count as coverage 0. They must not be reported as exclusions. Report only indices `< n_rows`.
 - **The masks** live on device: `row_active` sharded with the rows, `col_active` replicated.
 
@@ -222,7 +216,7 @@ Everything in §1.2–1.7 applies to `ShardedFrame`. Differences:
 
 - `als.solve_normal_equations` and `_min_norm_solve` stay as they are. The minimum-norm path is still used when a kernel is called directly with `n_obs < K`. It is no longer reachable from `fit`, because §1.2 rejects `K > N` and `K > M` first.
 - `fit()` and `infer()` keep their return types.
-- Fits with no non-finite inputs, every coverage ≥ K, and robust weights never below `min_robust_weight` on a row or column's last K points are unchanged. That covers almost every fit today, and the results must be identical (§2.9).
+- Fits with no non-finite inputs and every coverage ≥ K are unchanged. That covers almost every fit today, and the results must be identical (§2.9).
 
 ## 2. Tests
 
@@ -245,13 +239,6 @@ verified by deliberately breaking each mechanism once (mutation check) before me
 - A cascade: a column exclusion that drops a row below K, which then drops another column. One warning, all three in `fit_info.exclusions`, causes `"low_coverage"` then `"cascade"`.
 - A cascade that removes everything: `ValueError`.
 - Result equivalence: a fit with exclusions equals a fit where the user removed those rows and columns by hand, to round-off on the shared entries.
-
-### 2.3 Effective coverage during the fit
-- Construct a column whose few points become strong outliers, so their robust weights fall below 1e-2 after a few iterations. It is excluded at that iteration, with cause `"robust"`, and the event's `iteration` is > −1.
-- Exclusion is permanent: once excluded, the column stays excluded at convergence, even when its robust weights would recover against the zero factor.
-- `min_robust_weight=0` disables the check (nothing excluded); a large value excludes earlier.
-- Gaussian likelihood: no robust-weight exclusions.
-- One warning per convergence-check batch, not one per iteration.
 
 ### 2.4 Ridge
 - Coverage < K with `als_ridge` set: one `UnderdeterminedWarning`; nothing excluded; no NaN; result equals the current ridge result.
@@ -277,7 +264,6 @@ verified by deliberately breaking each mechanism once (mutation check) before me
   - a monotone sequence: no flags;
   - a sequence with round-off rises below `100·ε·|L|`: no flags;
   - a jump at t=3: flagged at 3, i.e. the short early window works;
-  - a jump right after an exclusion iteration: the window restarts.
 - Integration: a scaled-down #10 reproduction (§2.8) in float32 with `als_ridge=1e-6` gives one `ConvergenceWarning`, with the first rise and `fit_info.loss_rises` non-empty.
 - Healthy float32 and float64 fits (the existing ground-truth recovery fixture) give no `ConvergenceWarning`.
 - `max_iter` reached: one `ConvergenceWarning`; message contains K, Q, `max_iter` and the final loss; `fit_info.converged is False` and `stop_reason == "max_iter"`.
@@ -312,7 +298,7 @@ One commit per step, each with its tests, and the full suite passing after every
    - `OptFrame.run` returns a third value internally (`FitInfo`); `Robusta.fit` stores it and still returns two.
 2. **Input validation** (§1.2), dense path, with `nan_error`. Then `shard_data` sanitising (§1.8).
 3. **Static coverage, cascade and the masked loop** (§1.3, start of fit), dense path, including the NaN return and the state round trip (§1.4). Update the affected existing tests.
-4. **Effective coverage during the fit** (§1.3), dense path, with `min_robust_weight`.
+4. **Negligible-ridge warning** (§1.3). (Was: effective coverage during the fit; dropped, see the note at the top.)
 5. **Convergence reporting** (§1.6, §1.7), dense path. The rising-loss rule goes in `convergence.py` as a pure function.
 6. **`infer` and `score`** (§1.3 `infer`, §1.4 `score`), dense path.
 7. **Sharded parity** (§1.8): coverage accumulators, device masks, padding handling, end-of-run finite check, `z_moments`.
@@ -329,19 +315,18 @@ One commit per step, each with its tests, and the full suite passing after every
 1. **The paper scripts may change behaviour.**
    - The Gaia pipeline sets NaN to 0 before fitting and clips edge pixels. If any bin has fully masked columns, `G` now comes back with NaN rows there, where it used to come back with zeros. The analysis code (`analysis_funcs.py`, residual plots, outlier scores) may not expect NaN. Example: `np.percentile(w, 1, axis=1)` over robust weights.
    - Mitigation: step 10. Where needed, use `nanpercentile` and the masks in the scripts. The published fits used inputs with no NaN and very likely coverage ≥ K everywhere, so the fitted values should be unchanged. That needs checking, not assuming.
-2. **The effective-coverage check changes results** for fits where a column's points are nearly all down-weighted. Those fits used to keep the column, which was ill-determined, and will now exclude it. This is intended, but it is a behaviour change in robust fits with aggressive `Q`. The `1e-2` default (≈14σ at ν=2, s=1) keeps it rare. Release notes should say so.
+2. *(Dropped with the robust-weight rule; see the note at the top.)*
 3. **Performance.**
-   - Coverage counts add one elementwise comparison and two reductions over `(N, M)` per iteration. On the dense path they fuse with the robust-weight computation; on the sharded path they add one `(M,)` `psum`.
-   - Expected cost is a few percent, against a normal-equations step that is `O(NMK²)`.
-   - The host still synchronises only at convergence checks.
+   - Coverage is counted once per fit, before the loop, plus the cascade's few extra passes. The negligible-ridge check adds up to two `O(NMK)` passes, and only when `als_ridge` is set.
+   - Masked fits zero excluded weights inside each step: one fused elementwise select.
    - Measure on the timing setup used in the PR (N=20k, M=2400, K=10 and 32) before and after.
-4. **Cascade cost.** The cascade is a loop to a fixed point. At the start it runs on the host, once. During the fit it must run on device: use `lax.while_loop` with a bound of `N + M` iterations, though in practice it ends in 1–2. A pathological cascade could cost many coverage passes in one iteration. That is acceptable, since it can happen at most `N + M` times per fit in total.
-5. **Interaction with the convergence test.** `max_frac_G` and `max_frac_A` compare matrices between checks. With masks, the comparison must skip excluded rows: their value goes from finite to 0 at exclusion, which would look like a big change and delay convergence once, or from 0 to NaN at the end. Compare only active rows.
+4. **Cascade cost.** The cascade is a loop to a fixed point, run once on the host before the loop. It is bounded by `N + M` rounds, though in practice it ends in 1–2.
+5. **Interaction with the convergence test.** `max_frac_G` and `max_frac_A` compare matrices between checks. With masks, the comparison must skip excluded rows: with exclusions only before the loop, excluded rows are 0 from the start and become NaN only after the last check, so no special handling is needed.
 6. **Rotation.** Excluded rows of `G` are exactly zero during the fit, so they contribute nothing to `FastAffine`'s `GᵀG`. `SlowAffine` uses QR of `A` and `G`: zero rows are fine. Check that no rotation divides by a per-row norm.
 7. **`ZMoments.n` convention.** Excluded entries count in `n` like any other zero-weight entry. That matches the paper's convention but slightly lowers `std_z` when much is excluded. Reporting the exclusion counts next to the scores is the mitigation. Changing the convention is out of scope.
 8. **Warning noise in tests and in the paper scripts.** Fits that hit `max_iter` on purpose (many existing tests use small `max_iter`) will now warn. Tests should assert the warning where it is the point, and otherwise filter it with a module-level `pytestmark`. Don't silence it globally in `conftest.py`, which would hide regressions.
-9. **SGD.** Input validation and static exclusions apply. Effective-coverage exclusions and the rising-loss rule do not (no robust-weight step to read, no monotonicity). The SGD path is weakly tested already, and `infer()` on SGD-fitted models crashes (a separate known bug). Keep SGD changes minimal, and test only that SGD fits run and honour static exclusions.
-10. **API naming.** `nan_error`, `min_robust_weight`, `fit_info`, the warning class names and the `ExclusionEvent` fields will be public. Settle the names in review before step 1.
+9. **SGD.** Input validation and static exclusions apply. The rising-loss rule does not (no monotonicity). The SGD path is weakly tested already, and `infer()` on SGD-fitted models crashes (a separate known bug). Keep SGD changes minimal, and test only that SGD fits run and honour static exclusions.
+10. **API naming.** `nan_error`, `fit_info`, the warning class names and the `ExclusionEvent` fields will be public. Settle the names in review before step 1.
 
 ## 5. Out of scope
 
