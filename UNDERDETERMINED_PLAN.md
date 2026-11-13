@@ -175,10 +175,12 @@ Three additions:
 At iteration t, with loss `L_t`, the iteration breaks the rule if
 
 ```
-L_t − L_{t−1} > max( 2·D̄_t , 100·ε·|L_{t−1}| ),   D̄_t = (L_{t−1−w} − L_{t−1}) / w,   w = min(5, t−1)
+L_t − L_{t−1} > max( 2·D̄_t , 100·ε·|L_{t−1}| + 1000·ε²·S ),   D̄_t = (L_{t−1−w} − L_{t−1}) / w,   w = min(5, t−1),   S = Σ W·Y²
 ```
 
-with `D̄_1 = 0`, and `ε` the machine epsilon of the model's dtype.
+with `D̄_1 = 0`, and `ε` the machine epsilon of the model's dtype. The `S` term (added in implementation) keeps an exact fit
+from warning: its loss is round-off near zero, which fluctuates on the scale of tens of `ε²·S`
+(measured: a 3.2e-25 rise against `ε²·S` ≈ 6e-27), where the relative term vanishes.
 
 **Evaluation.** On the host, at each convergence check, over the loss values since the last
 check. Those are already in `loss_history`; converting them to floats is the only cost.
