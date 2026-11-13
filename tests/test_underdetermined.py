@@ -990,3 +990,28 @@ def test_sharded_infer_keeps_training_exclusions(excluded_fit, n_devices):
     A = np.asarray(inf.A)
     assert A.shape == (13, RANK)
     assert np.isnan(A[[2, 4]]).all() and np.isfinite(np.delete(A, [2, 4], 0)).all()
+
+
+# ----------------------------
+# Regression: issue #10
+# ----------------------------
+@pytest.mark.parametrize("dtype", ["float32", "float64"])
+def test_issue10_regression(dtype):
+    """Scaled-down #10: 40 columns kept by only 3 rows at K=8, no ridge.
+
+    Before exclusion existed, float32 went NaN at iteration ~40 and float64 never
+    converged, with the well-covered columns ending ~66σ from the truth.
+    """
+    p = issue10_like()
+    good = np.setdiff1d(np.arange(p["Y"].shape[1]), p["sparse_cols"])
+    model = Robusta(rank=8, robust=True, dtype=dtype)
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        state, _ = model.fit(p["Y"], p["W"], max_iter=1000)
+    assert _convergence(record) == []
+    assert model.fit_info.converged
+    assert np.flatnonzero(np.asarray(state.col_excluded)).tolist() == p["sparse_cols"].tolist()
+    assert state.row_excluded is None
+    pred = np.asarray(state.A) @ np.asarray(state.G)[good].T
+    rms = np.sqrt(np.mean((pred - p["Y_clean"][:, good]) ** 2))
+    assert rms < 0.01  # sigma = 0.01: the model is within the noise of the truth
