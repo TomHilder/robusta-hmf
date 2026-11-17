@@ -10,6 +10,27 @@
 % same identifier ... duplicate ignored", 60+ warnings). Sequentially-numbered
 % destination names sidestep the collisions; links are unaffected.
 \hypersetup{hypertexnames=false}
+% Referee-response change markup. Two traps here:
+% (1) AASTeX already defines \added (its own track-changes command, which
+%     renders plainly), so \providecommand would be a silent no-op: force our
+%     definitions with the provide-then-renew pattern.
+% (2) ulem's \sout cannot break lines under aastex631 (long deleted spans get
+%     set as one box overflowing the page), so we use soul's \st instead,
+%     registering the citation/ref commands it must treat as atomic.
+\usepackage{soul}
+\soulregister\cite7
+\soulregister\citep7
+\soulregister\citet7
+\soulregister\citealt7
+\soulregister\ref7
+\soulregister\eqref7
+\providecommand{\add}{}\renewcommand{\add}[1]{{\color{blue}#1}}
+\providecommand{\del}{}\renewcommand{\del}[1]{{\color{red}\st{#1}}}
+\providecommand{\added}{}\renewcommand{\added}[1]{{\color{blue}#1}}
+\providecommand{\removed}{}\renewcommand{\removed}[1]{{\color{red}\st{#1}}}
+% Math-mode variants: ulem's \sout fails in math mode, so use color-only.
+\providecommand{\maddm}[1]{{\color{blue}#1}}
+\providecommand{\mdelm}[1]{{\color{red}#1}}
 
 % adjust margins
 \addtolength{\textwidth}{-1.0in} % Hogg adjusting just a tiny bit narrower bc bleeding eyes.
@@ -597,7 +618,7 @@ Convergence was reached after 70 iterations, which took nine minutes on an NVIDI
     \label{fig:full_rvs_outliers} 
 \end{figure}
 
-Using the same object-level statistic and threshold as before ($w_i^{\rm object} < 0.5$, with $w_i^{\rm object}$ the 1\% quantile over pixels), the model flags $1{,}559$ spectra, or $0.16\%$ of the sample. Their distribution is shown in Figure~\ref{fig:full_rvs_outliers}. The bulk of the population sits near $w_i^{\rm object} \approx 0.9$ with a long tail toward zero, and the flagged spectra are concentrated toward the hot, luminous end of the color-magnitude diagram: of the \replaced{77}{78} spectra scoring below $0.05$, \replaced{69}{70} lie blueward of BP$-$RP $=1.5$ and 72 are brighter than $M_G = 0$.
+Using the same object-level statistic and threshold as before ($w_i^{\rm object} < 0.5$, with $w_i^{\rm object}$ the 1\% quantile over pixels), the model flags $1{,}559$ spectra, or $0.16\%$ of the sample. Their distribution is shown in Figure~\ref{fig:full_rvs_outliers}. The bulk of the population sits near $w_i^{\rm object} \approx 0.9$ with a long tail toward zero, and the flagged spectra are concentrated toward the hot, luminous end of the color-magnitude diagram: of the \removed{77} \added{78} spectra scoring below $0.05$, \removed{69} \added{70} lie blueward of BP$-$RP $=1.5$ and 72 are brighter than $M_G = 0$.
 
 We visually inspected all $1{,}559$ spectra flagged as outliers and grouped them by similarity in their spectrum residuals. While we avoid interpreting every flagged outlier (or groups of outliers), it is worth commenting on the most frequent outlier types identified. The most anomalous group (lowest object score) are blue supergiants, and the largest group includes hot stars with broad line profiles, where line asymmetry or emission in the Ca II triplet is the dominant residual feature. Other dominant groups include: cool stars with chromospheric activity; stars with significant interstellar absorption; Mira variables; Long Period Variables; or stars rich in neutron-capture abundances. A gallery of these examples is shown in the Appendix (Figures~\ref{fig:tax_bsg} to \ref{fig:tax_ncap}), and in the supplementary materials we provide a catalog of all $999{,}645$ Gaia DR3 spectra, their associated metadata, best-fitting model spectra, and robust weights. This catalog can be used to readily identify outliers in the Gaia RVS sample, and to construct matched-filter searches for specific classes of outliers.
 
