@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from conftest import make_low_rank_problem, make_outlier_problem
 
-from robusta_hmf import Robusta
+from robusta_hmf import Robusta, UnderdeterminedWarning
 from robusta_hmf.metrics import z_moments
 from robusta_hmf.sharded import (
     GramInitialiser,
@@ -251,12 +251,16 @@ def test_dead_row_and_pixel_do_not_poison_the_batch():
     W[4, :] = 0.0  # a spectrum masked in every pixel
     W[:, 5] = 0.0  # a pixel masked in every spectrum
     model = sharded_model(4, 64, rank=RANK, robust=True, conv_tol=0.0)
-    state, loss = model.fit(prob["Y"], W, max_iter=10, conv_check_cadence=99)
-    assert np.all(np.isfinite(np.asarray(state.A)))
-    assert np.all(np.isfinite(np.asarray(state.G)))
+    with pytest.warns(UnderdeterminedWarning, match="1 row and 1 column"):
+        state, loss = model.fit(prob["Y"], W, max_iter=10, conv_check_cadence=99)
+    A, G = np.asarray(state.A), np.asarray(state.G)
+    # The dead row and pixel are excluded and returned as NaN; nothing else is touched.
+    assert np.flatnonzero(np.asarray(state.row_excluded)).tolist() == [4]
+    assert np.flatnonzero(np.asarray(state.col_excluded)).tolist() == [5]
+    assert np.all(np.isnan(A[4])) and np.all(np.isnan(G[5]))
+    assert np.all(np.isfinite(np.delete(A, 4, axis=0)))
+    assert np.all(np.isfinite(np.delete(G, 5, axis=0)))
     assert np.all(np.isfinite(np.asarray(loss)))
-    assert np.allclose(np.asarray(state.A)[4], 0.0)
-    assert np.allclose(np.asarray(state.G)[5], 0.0)
 
 
 def test_padding_rows_are_inert(problem):
@@ -370,7 +374,7 @@ def test_plain_initialiser_is_rerouted_through_the_gram_path(problem):
 
 def test_rank_above_min_dimension_is_rejected(problem):
     model = sharded_model(1, 64, rank=99, robust=False)
-    with pytest.raises(ValueError, match="exceeds"):
+    with pytest.raises(ValueError, match="rank=99 is larger than the number of rows"):
         model.fit(problem["Y"][:10], problem["W"][:10], max_iter=1)
 
 

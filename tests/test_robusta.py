@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from conftest import make_low_rank_problem, subspace_alignment
-from robusta_hmf import Robusta, load_state_from_npz, save_state_to_npz
+from robusta_hmf import Robusta, UnderdeterminedWarning, load_state_from_npz, save_state_to_npz
 
 jax.config.update("jax_enable_x64", True)
 
@@ -205,7 +205,9 @@ def test_fully_masked_column_with_ridge(low_rank_problem):
     W = low_rank_problem["W"].copy()
     W[:, 5] = 0.0  # no information at all about column 5
     model = Robusta(rank=RANK, robust=False, als_ridge=1e-6, conv_tol=1e-10)
-    state, _ = model.fit(jnp.array(low_rank_problem["Y"]), jnp.array(W), max_iter=200)
+    # The ridge determines column 5, so it is reported but not excluded.
+    with pytest.warns(UnderdeterminedWarning, match="als_ridge=1e-06 determines"):
+        state, _ = model.fit(jnp.array(low_rank_problem["Y"]), jnp.array(W), max_iter=200)
     assert np.all(np.isfinite(np.asarray(state.A)))
     assert np.all(np.isfinite(np.asarray(state.G)))
     # With ridge and zero weight, the dead column's basis row collapses to zero
@@ -221,19 +223,23 @@ def test_fit_and_infer_survive_dead_row_and_column(low_rank_problem):
     W = jnp.array(W)
 
     model = Robusta(rank=RANK, robust=False, conv_tol=1e-10)
-    state, loss_history = model.fit(Y, W, max_iter=200)
-    assert np.all(np.isfinite(np.asarray(state.A)))
-    assert np.all(np.isfinite(np.asarray(state.G)))
+    with pytest.warns(UnderdeterminedWarning):
+        state, loss_history = model.fit(Y, W, max_iter=200)
+    A, G = np.asarray(state.A), np.asarray(state.G)
+    # The uninformed row and column are excluded and come back as NaN; the
+    # rest of the batch is unaffected.
+    assert np.all(np.isnan(A[4])) and np.all(np.isnan(G[5]))
+    assert np.all(np.isfinite(np.delete(A, 4, axis=0)))
+    assert np.all(np.isfinite(np.delete(G, 5, axis=0)))
     assert np.all(np.isfinite(np.asarray(loss_history)))
-    # The uninformed row and column carry no information, so they solve to zero.
-    assert np.allclose(np.asarray(state.A)[4], 0.0)
-    assert np.allclose(np.asarray(state.G)[5], 0.0)
 
     # infer() on a held-out set containing an all-masked spectrum
-    infer_state, infer_loss = model.infer(Y, W, state=state, max_iter=50, conv_tol=1e-10)
-    assert np.all(np.isfinite(np.asarray(infer_state.A)))
+    with pytest.warns(UnderdeterminedWarning, match="infer"):
+        infer_state, infer_loss = model.infer(Y, W, state=state, max_iter=50, conv_tol=1e-10)
+    A_inf = np.asarray(infer_state.A)
+    assert np.all(np.isnan(A_inf[4]))
+    assert np.all(np.isfinite(np.delete(A_inf, 4, axis=0)))
     assert np.all(np.isfinite(np.asarray(infer_loss)))
-    assert np.allclose(np.asarray(infer_state.A)[4], 0.0)
 
 
 # ----------------------------

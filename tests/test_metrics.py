@@ -79,7 +79,17 @@ def test_variance_never_goes_negative():
 def test_as_dict_carries_every_score():
     m = ZMoments(n=4, sum_z=1.0, sum_z2=5.0, sum_chi2=8.0)
     d = m.as_dict()
-    assert set(d) == {"kl", "mean_z", "std_z", "chi2_red", "rmse", "n"}
+    assert set(d) == {
+        "kl",
+        "mean_z",
+        "std_z",
+        "chi2_red",
+        "rmse",
+        "n",
+        "n_excluded_rows",
+        "n_excluded_cols",
+        "n_excluded_entries",
+    }
     assert d["kl"] == m.kl
     assert d["std_z"] == m.std_z
 
