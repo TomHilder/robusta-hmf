@@ -5,7 +5,8 @@ description = "Robust heteroskedastic matrix factorisation in JAX."
 readme = "README.md"
 authors = [
     { name = "Tom Hilder", email = "tom.hilder.dlhp@gmail.com" },
-    { name = "David W. Hogg", email = "TODO@TODO.com" },
+    { name = "David W. Hogg", email = "david.hogg@nyu.edu" },
+    { name = "Andrew R. Casey", email = "acasey@flatironinstitute.org" },
 ]
 requires-python = ">=3.10"
 dependencies = [
