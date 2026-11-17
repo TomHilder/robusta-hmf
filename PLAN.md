@@ -10,7 +10,7 @@ file is used. Git history is the detailed record; this is for orientation and fo
 effectively done. Ongoing work is software engineering — hardening and polishing the
 library — plus possible feature extensions. Releases are automated: push a `vX.Y.Z` tag and
 `.github/workflows/release.yml` builds and publishes to PyPI via Trusted Publishers
-(hatch-vcs derives the version from the tag). Latest release is `v0.0.2`.
+(hatch-vcs derives the version from the tag). Latest release is `v0.1.0` (2026-11-17).
 
 ## Outstanding
 
@@ -43,10 +43,6 @@ retire this file.
 - **Code clean-up** — refactors and dead-code removal.
 
 **After PR #13 (under-determined fits), from its adversarial review**
-- Release notes for the version that ships it ("Changed"): `OptFrame` subclasses must accept
-  `prepare(Y, W, nan_error=...)` and return `(state, loss_history, fit_info)` from `run`;
-  excluded rows of `A`/`G` come back as NaN where they used to be zeros; fits that stop at
-  `max_iter` now warn; `ZMoments.as_dict()` gains three `n_excluded_*` keys.
 - One shared run loop for the dense and sharded frames (they are near-copies; every new
   run-level behaviour is written twice).
 - Finish consolidating exclusion handling (`state.working_form` is a start; `infer` and the
@@ -76,6 +72,7 @@ Append-only. Add an entry when you do something notable.
 
 | Date | Event |
 |------|-------|
+| 2026-11-17 | Released `v0.1.0`, the first release since `v0.0.2` (2025-11-24): `ShardedFrame`, `score()` and `robusta_hmf.metrics`, explicit precision (`dtype=`, `PrecisionError`; importing the package no longer enables x64), and the under-determined-fit handling of PR #13. Breaking changes are listed in the GitHub release notes. Hogg's email and Andrew R. Casey added to the package authors; `pandas` moved from the core dependencies to the `examples` group. |
 | 2026-11-13 | Under-determined fits (#2, #10; PR #13): NaN/inf inputs are treated as missing (`DataWarning`, or `nan_error=True`); rows and columns with fewer non-zero weights than the rank are excluded before the loop (cascading), returned as NaN with `row_excluded`/`col_excluded` masks, and reported (`UnderdeterminedWarning`, `fit_info.exclusions`); with `als_ridge` they are reported instead, plus a warning when the ridge is below working precision. A rising ALS loss or reaching `max_iter` gives a `ConvergenceWarning`; `model.fit_info` records the run. `score()` honours exclusions. Exclusion on robust weights during the fit was tried and dropped (false positives from the initial guess). Ordinary fits are bit-identical to before. |
 | 2026-11-10 | Precision made explicit: `Robusta(dtype=...)`, float64 by default; with `jax_enable_x64` off a float64 fit raises `PrecisionError` instead of silently running in float32 (the global x64 side effect was removed in f6a17aa). Dense loop now raises on a non-finite loss, like the sharded one. Paper scripts set x64 / `dtype=` so they reproduce the published fits. |
 | 2026-08-02 | Packed the final full-RVS fit (K=16, Q=7.5) into a single HDF5 file — flux, ivar, model flux, per-pixel robust weights and the whole metadata CSV, in catalogue row order (`export_model_hdf5.py`, `gaia_rvs_results/full_rvs_K16_Q7.50_model.hdf5`, 36 GiB). Added `make_paper_figs.py outlier_taxonomy`: one paper-style exemplar per outlier group named in Section 5, titled "Gaia DR3 <id>: <group>", with Ce/Nd/Zr abundance windows on the neutron-capture example. |
