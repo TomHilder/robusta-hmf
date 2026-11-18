@@ -2,19 +2,19 @@
 
 """Held-out scoring for a fitted factorisation.
 
-The headline number is :meth:`ZMoments.kl`, the paper's model-selection score
+The headline number is [`ZMoments.kl`][robusta_hmf.ZMoments.kl], the paper's model-selection score
 (Eq. 20). All of the moment-based metrics are derived from three sums over the
-residuals, so they are accumulated once into a :class:`ZMoments` and read off
+residuals, so they are accumulated once into a [`ZMoments`][robusta_hmf.ZMoments] and read off
 as properties rather than recomputed per metric.
 
-Two accumulation routes produce the same :class:`ZMoments`:
+Two accumulation routes produce the same [`ZMoments`][robusta_hmf.ZMoments]:
 
-- :func:`z_moments`, which forms the full ``(N, M)`` residual array; and
-- :meth:`robusta_hmf.sharded.ShardedFrame.z_moments`, which accumulates the
+- [`z_moments()`][robusta_hmf.z_moments], which forms the full ``(N, M)`` residual array; and
+- `ShardedFrame.z_moments()`, which accumulates the
   same three sums chunk by chunk and never materialises an ``(N, M)`` array.
 
-:func:`mad_z` is deliberately not part of :class:`ZMoments`: a median needs the
-whole ``z`` array, which is exactly what the chunked route exists to avoid.
+[`mad_z()`][robusta_hmf.mad_z] is deliberately not part of [`ZMoments`][robusta_hmf.ZMoments]: a
+median needs the whole ``z`` array, which is exactly what the chunked route exists to avoid.
 """
 
 from dataclasses import dataclass
@@ -85,7 +85,7 @@ class ZMoments:
         ``sum(W * r**2)``, the unrobustified chi-squared.
     n_excluded_rows, n_excluded_cols : int
         Rows and columns the scored state excludes (see
-        :class:`~robusta_hmf.state.RHMFState`). Their entries enter the sums
+        [`RHMFState`][robusta_hmf.state.RHMFState]). Their entries enter the sums
         as zero-weight entries do: z and chi-squared are 0 there, but they
         still count in ``n``.
     n_excluded_entries : int
@@ -130,7 +130,7 @@ class ZMoments:
         """KL divergence of the z distribution from N(0, 1). Target: 0.
 
         The paper's model-selection score (Eq. 20). See
-        :func:`kl_from_moments`. Lower is better.
+        [`kl_from_moments()`][robusta_hmf.kl_from_moments]. Lower is better.
         """
         return kl_from_moments(self.mean_z, self.std_z)
 
@@ -150,7 +150,7 @@ class ZMoments:
 
 
 def moments_from_z(z: Array, W: Array, r: Array) -> ZMoments:
-    """Accumulate a :class:`ZMoments` from an already-computed residual block.
+    """Accumulate a [`ZMoments`][robusta_hmf.ZMoments] from an already-computed residual block.
 
     Used by both the dense and the chunked routes so there is one definition
     of what each sum means.
@@ -171,7 +171,7 @@ def z_moments(Y: Array, W: Array, A: Array, G: Array, likelihood: Likelihood) ->
     Y, W : Array, shape (N, M)
         Data and weights.
     A : Array, shape (N, K)
-        Coefficients, e.g. from :meth:`robusta_hmf.Robusta.infer`.
+        Coefficients, e.g. from [`Robusta.infer()`][robusta_hmf.Robusta.infer].
     G : Array, shape (M, K)
         Basis vectors.
     likelihood : Likelihood
@@ -193,7 +193,7 @@ def z_moments(Y: Array, W: Array, A: Array, G: Array, likelihood: Likelihood) ->
 def mad_z(Y: Array, W: Array, A: Array, G: Array, likelihood: Likelihood) -> float:
     """Median absolute z-score. Target: 0.6745 (the normal MAD).
 
-    Not available from :class:`ZMoments`: a median needs the whole ``(N, M)``
+    Not available from [`ZMoments`][robusta_hmf.ZMoments]: a median needs the whole ``(N, M)``
     ``z`` array, so this has no out-of-core equivalent.
     """
     return float(jnp.median(jnp.abs(z_scores(Y, W, A, G, likelihood))))

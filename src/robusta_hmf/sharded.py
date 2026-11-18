@@ -4,7 +4,7 @@
 
 Why this exists
 ---------------
-:class:`~robusta_hmf.Robusta` evaluates every ALS step over the whole ``(N, M)``
+[`Robusta`][robusta_hmf.Robusta] evaluates every ALS step over the whole ``(N, M)``
 matrix at once. Each step materialises roughly five full-size intermediates --
 ``A @ G.T``, the squared residuals, the IRLS weights, ``W * Y``, and the loss
 residuals -- on top of the resident ``Y`` and ``W``. For the full Gaia RVS
@@ -13,7 +13,7 @@ array is 8.6 GiB, so a step needs ~43 GiB of scratch on top of 17 GiB of data.
 That is why subsampling every 5th spectrum fits in a 48 GiB A6000 and every 4th
 does not.
 
-Two independent changes fix it, and :class:`ShardedFrame` applies both:
+Two independent changes fix it, and [`ShardedFrame`][robusta_hmf.ShardedFrame] applies both:
 
 1. **Row chunking.** Every quantity the ALS steps need is either row-local (the
    A step) or a *sum over rows* (the G step, the loss). So a single pass over
@@ -38,7 +38,7 @@ with, so nothing is lost, while the resident data halves and every accumulation
 (normal equations, loss) still happens in ``compute_dtype``.
 
 The SVD initialiser is replaced by a mathematically equivalent Gram-matrix
-route (:class:`GramInitialiser`), because ``jnp.linalg.svd`` on a
+route ([`GramInitialiser`][robusta_hmf.GramInitialiser]), because ``jnp.linalg.svd`` on a
 (496_955, 2321) matrix wants a ``U`` the size of ``Y`` itself.
 
 Usage
@@ -65,11 +65,11 @@ Contracts
   padded row is all-zero in ``Y`` and ``W``, contributes nothing to the G-step
   sums and nothing to the loss (``log1p(0) == 0``), and its A-step normal
   equations are exactly zero, which
-  :func:`~robusta_hmf.als.solve_normal_equations` detects. This holds for
-  :class:`~robusta_hmf.likelihoods.GaussianLikelihood`,
-  :class:`~robusta_hmf.likelihoods.CauchyLikelihood` and
-  :class:`~robusta_hmf.likelihoods.StudentTLikelihood`, and is a contract on
-  any :class:`~robusta_hmf.likelihoods.Likelihood` used with this frame.
+  `solve_normal_equations()` detects. This holds for
+  `GaussianLikelihood`,
+  `CauchyLikelihood` and
+  `StudentTLikelihood`, and is a contract on
+  any `Likelihood` used with this frame.
 - **Results are not bitwise reproducible across ``row_block`` or device
   count**, because the summation order changes. The observed spread is ~1e-12
   in the loss and ~1e-14 in ``G``, i.e. round-off, but it is not zero.
@@ -149,7 +149,7 @@ class RowPlan:
 
     ``shard_map`` needs every device to hold the same number of rows, and the
     inner ``lax.scan`` needs that number to be an exact multiple of the chunk
-    size, so the row axis is padded up to :attr:`n_padded`. The chunk size is
+    size, so the row axis is padded up to `n_padded`. The chunk size is
     shrunk from the requested ``row_block`` where that makes the padding
     smaller -- for the full RVS sample on 4 devices this is 18 padded rows
     rather than the 8082 a fixed 8192-row block would need.
@@ -259,9 +259,8 @@ def _mask_chunk(w, row_active, col_active):
 class ShardedData:
     """``Y`` and ``W`` resident on a mesh, plus the plan describing their layout.
 
-    Built once by :meth:`ShardedFrame.prepare` and reused: a (K, Q) grid over
-    the same sample would otherwise re-transfer the full matrices for every
-    grid point.
+    Built once by [`ShardedFrame.prepare()`][robusta_hmf.ShardedFrame.prepare] and reused: a (K, Q)
+    grid over the same sample would otherwise re-transfer the full matrices for every grid point.
 
     Attributes
     ----------
@@ -299,7 +298,7 @@ def shard_data(
 
     Entries where ``Y`` or ``W`` is non-finite in ``dtype`` are stored as
     ``Y = W = 0`` (missing), with one
-    :class:`~robusta_hmf.warnings.DataWarning`; with ``nan_error=True`` they
+    [`DataWarning`][robusta_hmf.DataWarning]; with ``nan_error=True`` they
     raise ``ValueError`` instead. Negative weights raise ``ValueError``. The
     checks run block by block on the host before anything is transferred, and
     never copy the full matrices.
@@ -337,12 +336,12 @@ def _active(excluded, n: int) -> np.ndarray:
 
 @dataclass
 class ShardedFrame(OptFrame):
-    """An :class:`~robusta_hmf.frame.OptFrame` that chunks and shards the rows.
+    """An [`OptFrame`][robusta_hmf.OptFrame] that chunks and shards the rows.
 
     Reads the likelihood, rotation and ALS ridge off the
-    :class:`~robusta_hmf.hmf.HMF` it is bound to, so it never duplicates the
+    `HMF` it is bound to, so it never duplicates the
     model's parameter list. Hand it to
-    :class:`~robusta_hmf.Robusta` via ``override_frame``.
+    [`Robusta`][robusta_hmf.Robusta] via ``override_frame``.
 
     Parameters
     ----------
@@ -358,7 +357,7 @@ class ShardedFrame(OptFrame):
         to begin with, and all arithmetic still happens in ``compute_dtype``.
     compute_dtype : dtype | None, default=None
         Dtype of the arithmetic and of ``A``/``G``. When None, it comes from
-        the ``dtype`` of the :class:`~robusta_hmf.Robusta` model the frame is
+        the ``dtype`` of the [`Robusta`][robusta_hmf.Robusta] model the frame is
         bound to (float64 by default). Setting it here is the same explicit
         choice as passing ``dtype`` to ``Robusta``; setting both to different
         values is an error.
@@ -367,7 +366,7 @@ class ShardedFrame(OptFrame):
 
     Notes
     -----
-    Results are not bitwise identical to :class:`~robusta_hmf.Robusta`'s dense
+    Results are not bitwise identical to [`Robusta`][robusta_hmf.Robusta]'s dense
     path, nor across different ``row_block`` or device counts: the arithmetic
     is the same but the summation order is not. See the module docstring.
     """
@@ -423,8 +422,8 @@ class ShardedFrame(OptFrame):
         """Validate and place ``(Y, W)`` on the mesh, or pass through an existing handle.
 
         Returns ``(data, None)``: the weights live inside the
-        :class:`ShardedData`, so there is no second array to carry. See
-        :func:`shard_data` for the checks and ``nan_error``; a handle has
+        [`ShardedData`][robusta_hmf.ShardedData], so there is no second array to carry. See
+        `shard_data()` for the checks and ``nan_error``; a handle has
         already been through them.
         """
         if isinstance(Y, ShardedData):
@@ -458,16 +457,17 @@ class ShardedFrame(OptFrame):
         )
 
     def make_initialiser(self, N: int, M: int, K: int, strategy: InitStrategy) -> Initialiser:
-        """A :class:`GramInitialiser`, which is the only kind this frame can use."""
+        """A [`GramInitialiser`][robusta_hmf.GramInitialiser], which is the only kind this frame
+        can use."""
         return GramInitialiser(N=N, M=M, K=K, strategy=strategy, frame=self)
 
     def adopt_initialiser(self, initialiser: Initialiser) -> Initialiser:
         """Bind or convert a user-supplied initialiser to this frame.
 
         A bare ``GramInitialiser()`` gets this frame's mesh, so the user never
-        has to hand it one. A plain :class:`~robusta_hmf.Initialiser` keeps its
+        has to hand it one. A plain [`Initialiser`][robusta_hmf.Initialiser] keeps its
         strategy but is re-routed through the chunked equivalent, because it
-        would otherwise be handed a :class:`ShardedData` and fail inside
+        would otherwise be handed a [`ShardedData`][robusta_hmf.ShardedData] and fail inside
         ``jnp.linalg.svd``.
         """
         if isinstance(initialiser, GramInitialiser):
@@ -622,11 +622,11 @@ class ShardedFrame(OptFrame):
     ) -> tuple[RHMFState, Array, FitInfo]:
         """Run the ALS loop over sharded, chunked rows.
 
-        Mirrors :meth:`robusta_hmf.frame.OptFrame.run`. ``Y`` may be a
-        :class:`ShardedData` from :meth:`prepare`, in which case ``W`` is
-        ignored. The returned ``state.A`` has exactly ``n_rows`` rows: the
-        padding used on device is stripped. Also returns a
-        :class:`~robusta_hmf.fit_info.FitInfo`, as the dense loop does.
+        Mirrors `OptFrame.run()`. ``Y`` may be a
+        [`ShardedData`][robusta_hmf.ShardedData] from
+        [`prepare()`][robusta_hmf.ShardedFrame.prepare], in which case ``W`` is ignored. The
+        returned ``state.A`` has exactly ``n_rows`` rows: the padding used on device is stripped.
+        Also returns a [`FitInfo`][robusta_hmf.FitInfo], as the dense loop does.
         """
         self._check_method()
         data, _ = self.prepare(Y, W)
@@ -752,7 +752,7 @@ class ShardedFrame(OptFrame):
 
         Uses the data weights alone, matching the dense path's initial guess;
         rows marked in ``row_excluded`` get zero weight and solve to zero.
-        Returns the padded ``A`` so :meth:`run` can consume it without a
+        Returns the padded ``A`` so `run()` can consume it without a
         host round trip.
         """
         data, _ = self.prepare(Y, W)
@@ -826,7 +826,7 @@ class ShardedFrame(OptFrame):
     def z_moments(self, Y, W, state: RHMFState) -> ZMoments:
         """Held-out moments, accumulated chunk by chunk.
 
-        Identical in definition to :func:`robusta_hmf.metrics.z_moments`, but
+        Identical in definition to [`z_moments()`][robusta_hmf.z_moments], but
         never materialises an ``(N, M)`` array. Padding rows contribute nothing
         to the sums and are excluded from the count. Statistics run over every
         pixel, including those masked to zero weight. Entries in rows or
@@ -853,7 +853,7 @@ class ShardedFrame(OptFrame):
     def max_diagonals(self, Y, W, state: RHMFState) -> tuple[np.ndarray, np.ndarray]:
         """Largest diagonal entry of each row's and each column's least-squares system.
 
-        As :meth:`robusta_hmf.frame.OptFrame.max_diagonals`, accumulated chunk
+        As `OptFrame.max_diagonals()`, accumulated chunk
         by chunk.
         """
         data, _ = self.prepare(Y, W)
@@ -891,7 +891,7 @@ class ShardedFrame(OptFrame):
         The full weight matrix is the same size as ``Y``, so this is a
         generator rather than a single array: consume it to compute per-row
         summaries (outlier scores) without ever holding an ``(N, M)`` array in
-        the compute dtype. As in :meth:`robusta_hmf.Robusta.robust_weights`,
+        the compute dtype. As in [`Robusta.robust_weights()`][robusta_hmf.Robusta.robust_weights],
         entries in excluded rows or columns get weight 1, like missing data.
         """
         row_block = row_block or self.row_block
@@ -923,7 +923,7 @@ class GramInitialiser(Initialiser):
     """SVD initialisation via the Gram matrix, for data too large to ``svd``.
 
     Identical in exact arithmetic to
-    :func:`~robusta_hmf.initialisation.svd_init`: for ``Y = U S V.T``,
+    `svd_init()`: for ``Y = U S V.T``,
     ``Y.T @ Y = V S^2 V.T``, so the top-K eigenvectors of the Gram matrix are
     ``V[:, :K]`` and ``Y @ V = U S``. This returns ``A = U sqrt(S)`` and
     ``G = V sqrt(S)``, matching the library's convention, without ever forming
@@ -940,7 +940,7 @@ class GramInitialiser(Initialiser):
     Parameters
     ----------
     N, M, K : int | None
-        Filled in by :meth:`Robusta.fit` when left unset.
+        Filled in by [`Robusta.fit()`][robusta_hmf.Robusta.fit] when left unset.
     strategy : {"svd", "random", "custom"}, default="svd"
         ``"svd"`` takes the Gram route; the others behave as usual but place
         their output on the mesh.
@@ -970,7 +970,7 @@ class GramInitialiser(Initialiser):
         A, G : Array | None
             Used by ``strategy="custom"``.
         Y : ShardedData
-            Prepared by :meth:`ShardedFrame.prepare`.
+            Prepared by [`ShardedFrame.prepare()`][robusta_hmf.ShardedFrame.prepare].
         opt : optax.GradientTransformation | None
             Must be None; the sharded loop has no SGD path.
 

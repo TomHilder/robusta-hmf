@@ -4,7 +4,7 @@
 
 robusta-hmf computes in float64 unless told otherwise. JAX only provides
 float64 when ``jax_enable_x64`` is on, and silently computes in float32 when it
-is off, so a float64 fit with x64 disabled raises :class:`PrecisionError`
+is off, so a float64 fit with x64 disabled raises [`PrecisionError`][robusta_hmf.PrecisionError]
 rather than quietly running in float32. float32 is supported, but only as an
 explicit choice (``Robusta(..., dtype="float32")``): it is much faster on GPUs,
 and it is also where the ALS solves become fragile -- rows or columns of ``W``
@@ -19,7 +19,16 @@ DEFAULT_DTYPE = np.dtype("float64")
 
 
 class PrecisionError(RuntimeError):
-    """A fit asked for float64 but JAX's float64 support is disabled."""
+    """A fit asked for float64 but JAX's float64 support is disabled.
+
+    JAX computes in float32 unless
+    ``jax.config.update("jax_enable_x64", True)`` is called before any JAX
+    array is created. Rather than silently running a float64 model in
+    float32, [`fit()`][robusta_hmf.Robusta.fit], [`infer()`][robusta_hmf.Robusta.infer]
+    and [`score()`][robusta_hmf.Robusta.score] raise this. Enable x64, or pass
+    ``dtype="float32"`` to [`Robusta`][robusta_hmf.Robusta] to choose float32
+    explicitly.
+    """
 
 
 def resolve_dtype(dtype) -> np.dtype:
@@ -40,7 +49,8 @@ def resolve_dtype(dtype) -> np.dtype:
 
 
 def check_precision(dtype: np.dtype, rank: int | None = None) -> None:
-    """Raise :class:`PrecisionError` if ``dtype`` is float64 but x64 is off."""
+    """Raise [`PrecisionError`][robusta_hmf.PrecisionError] if ``dtype`` is float64 but x64 is
+    off."""
     if np.dtype(dtype) != np.float64 or jax.config.jax_enable_x64:
         return
     rank_arg = f"rank={rank}, " if rank is not None else ""

@@ -39,7 +39,7 @@ def normal_equations(W: Array, WY: Array, F: Array) -> tuple[Array, Array]:
     It also shards cleanly: with ``W`` and ``Y`` split along ``batch``, both
     matmuls are row-local, so a data-parallel split needs no cross-device
     communication in the A step and a single all-reduce of the small ``(K, K)``
-    blocks in the G step. :mod:`robusta_hmf.sharded` relies on this.
+    blocks in the G step. `sharded` relies on this.
     """
     FF = (F[:, :, None] * F[:, None, :]).reshape(F.shape[0], -1)  # (P, K*K)
     M = (W @ FF).reshape(W.shape[0], F.shape[1], F.shape[1])  # (batch, K, K)
@@ -76,7 +76,7 @@ def solve_normal_equations(
     A row (or, in the G step, a pixel) whose weights are all zero gives
     ``M == 0`` exactly. That happens for a spectrum that is NaN throughout, for
     a pixel masked in every spectrum, and for the padding rows that
-    :mod:`robusta_hmf.sharded` appends. ``jnp.linalg.solve`` returns NaN there,
+    `sharded` appends. ``jnp.linalg.solve`` returns NaN there,
     and because the solve is batched a single such row poisons every other
     row's result. Substituting the identity returns a zero factor for that row
     instead, which is exact: such a row enters no downstream sum with non-zero
