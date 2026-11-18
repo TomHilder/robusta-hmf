@@ -42,11 +42,38 @@ from .warnings import UnderdeterminedWarning
 @dataclass
 class Robusta:
     """
-    Unified interface for Robust Heteroscedastic Matrix Factorization.
+    Robust heteroskedastic matrix factorisation (RHMF) of a data matrix.
 
-    This class provides a scikit-learn-like API for training and inference
-    with heteroscedastic matrix factorization, supporting both standard Gaussian
-    and robust Student-t likelihoods, and both ALS and SGD optimization methods.
+    Factorises an ``(N, M)`` data matrix ``Y`` with inverse-variance weights
+    ``W`` as ``Y ≈ A @ G.T``, where ``A`` ``(N, K)`` holds per-row coefficients
+    and ``G`` ``(M, K)`` holds ``K`` shared basis vectors (``K`` is ``rank``).
+    Missing entries are entries with ``W = 0``.
+
+    With ``robust=True`` (the default) the fit maximises a Student-t
+    likelihood by iteratively reweighted least squares: each iteration
+    computes per-entry robust weights ``Q² / (Q² + W r²)``, where ``r`` is the
+    residual and ``Q² = robust_nu · robust_scale²``, then solves weighted least
+    squares for ``A`` and then ``G``, then rotates so the columns of ``G`` are
+    orthonormal. Entries the model cannot explain get robust weights near 0,
+    which flags them as outliers. With ``robust=False`` it is plain
+    heteroskedastic matrix factorisation (HMF).
+
+    The interface follows scikit-learn: :meth:`fit` learns ``A`` and ``G``,
+    :meth:`infer` finds coefficients for new rows with ``G`` held fixed,
+    :meth:`score` scores held-out data for choosing ``rank`` and
+    ``robust_scale``, and :meth:`robust_weights` returns the per-entry outlier
+    weights. The model keeps the state of its last :meth:`fit`, which the
+    other methods use when no ``state`` is passed.
+
+    Examples
+    --------
+    >>> import jax
+    >>> jax.config.update("jax_enable_x64", True)
+    >>> from robusta_hmf import Robusta
+    >>> model = Robusta(rank=5, robust_scale=3.0)
+    >>> state, loss_history = model.fit(Y, W)
+    >>> weights = model.robust_weights(Y, W)        # (N, M), 1 = inlier
+    >>> per_row = jnp.quantile(weights, 0.01, axis=1)  # one outlier score per row
     """
 
     rank: int
@@ -91,31 +118,49 @@ class Robusta:
         **rotation_kwargs,
     ):
         """
-        Initialize Robusta model.
+        Configure a model. Nothing is computed until :meth:`fit`.
 
         Parameters
         ----------
         rank : int
-            Number of latent factors/basis vectors
-        method : OptMethod, default="als"
-            Optimization method, either "als" or "sgd"
+            Number of basis vectors, ``K``. It must be chosen before fitting
+            (unlike PCA, the components of a rank-``K`` fit are not the first
+            ``K`` of a larger fit); :meth:`score` on held-out data helps choose it.
+        method : {"als", "sgd"}, default="als"
+            ``"als"``: iteratively reweighted alternating least squares, the
+            algorithm of the paper. ``"sgd"``: gradient descent on the loss
+            with optax (Adafactor unless overridden).
         robust : bool, default=True
-            If True, use Student-t likelihood; if False, use Gaussian
+            If True, use the Student-t likelihood, which downweights outliers;
+            if False, use a Gaussian likelihood (plain HMF, all robust weights 1).
         robust_nu : float, default=1.0
-            Degrees of freedom for Student-t likelihood (only used if robust=True)
+            Student-t degrees of freedom. The fit depends on ``robust_nu`` and
+            ``robust_scale`` only through ``Q² = robust_nu · robust_scale²``,
+            so the default of 1 (a Cauchy likelihood) loses nothing.
         robust_scale : float, default=1.0
-            Scale parameter for Student-t likelihood (only used if robust=True)
-        init_strategy : str, default="svd"
-            Initialization strategy for factors
+            The soft outlier threshold ``Q`` (with ``robust_nu=1``), in units
+            of the measurement uncertainty: residuals much smaller than
+            ``Q / sqrt(W)`` are treated as Gaussian noise, much larger ones are
+            downweighted. Values of roughly 2 to 5 are typical starting points.
+        init_strategy : {"svd", "random"}, default="svd"
+            How ``A`` and ``G`` are seeded. ``"svd"`` uses the leading ``rank``
+            singular vectors of ``Y`` (scaled by the square roots of the
+            singular values); ``"random"`` draws standard normals from ``seed``.
+            To start from factors you already have, pass ``init_state`` to
+            :meth:`fit` instead.
         override_initialiser : Initialiser | None, default=None
-            Custom initialiser object (overrides init_strategy if provided)
+            Custom initialiser; replaces ``init_strategy`` if given.
         conv_strategy : str, default="max_frac_G"
-            Convergence detection strategy: "max_frac_G", "max_frac_A",
-            "rel_frac_loss" or "none"
+            Convergence test, checked every ``conv_check_cadence`` iterations:
+            ``"max_frac_G"`` (largest squared change in ``G`` relative to the
+            mean square of ``G``), ``"max_frac_A"`` (the same for ``A``),
+            ``"rel_frac_loss"`` (relative change in the loss) or ``"none"``
+            (run to ``max_iter``).
         conv_tol : float, default=1e-3
-            Convergence tolerance
+            Tolerance for ``conv_strategy``.
         override_conv_tester : ConvergenceTester | None, default=None
-            Custom convergence tester (overrides conv_strategy/conv_tol if provided)
+            Custom convergence tester; replaces ``conv_strategy`` and
+            ``conv_tol`` if given.
         override_frame : OptFrame | None, default=None
             Custom optimisation frame, which owns how the loop is scheduled.
             Defaults to a plain ``OptFrame`` that evaluates each step over the
@@ -123,11 +168,22 @@ class Robusta:
             :class:`robusta_hmf.sharded.ShardedFrame` to chunk and shard the
             row axis, for data larger than one device's memory.
         als_ridge : float | None, default=None
-            Ridge parameter for ALS updates (only used if method="als")
+            Ridge added to the diagonal of every least-squares solve for ``A``
+            and ``G`` (``method="als"`` only). Without it, rows and columns
+            with fewer non-zero weights than ``rank`` are excluded from the
+            fit; with it they are kept and shrunk towards zero, and an
+            :class:`~robusta_hmf.warnings.UnderdeterminedWarning` names them.
         learning_rate : float, default=1e-3
-            Learning rate for SGD (only used if method="sgd")
-        rotation : RotationMethod, default="fast"
-            Rotation method to use
+            Learning rate of the default Adafactor optimiser
+            (``method="sgd"`` only).
+        rotation : {"fast", "slow", "identity"}, default="fast"
+            How ``A`` and ``G`` are rotated after each update to remove the
+            factorisation's ``K × K`` degeneracy, leaving ``A @ G.T``
+            unchanged. ``"fast"`` makes the columns of ``G`` orthonormal by
+            symmetric whitening (``K × K`` eigendecomposition). ``"slow"``
+            uses an SVD so that ``G`` is orthonormal and the columns of ``A``
+            are orthogonal and ordered by decreasing norm, like PCA.
+            ``"identity"`` does not rotate.
         dtype : {"float64", "float32"} or dtype, default="float64"
             Precision of the fit. ``Y``, ``W``, ``A`` and ``G`` are cast to it.
             float64 needs JAX's float64 support, enabled with
@@ -145,7 +201,9 @@ class Robusta:
             :class:`~robusta_hmf.warnings.DataWarning` is issued; with True
             they raise ``ValueError``. Negative weights always raise.
         **rotation_kwargs
-            Additional arguments for rotation method
+            Passed to the rotation. For ``"fast"``: ``target`` (``"G"``, the
+            default, or ``"A"``: which factor is made orthonormal), ``whiten``
+            (default True) and ``eps`` (default 1e-6, floor on the eigenvalues).
         """
         self.rank = rank
         self.method = method
@@ -212,17 +270,22 @@ class Robusta:
 
     def set_state(self, state: RHMFState) -> "Robusta":
         """
-        Returns a copy of the object with the given state.
+        Return a copy of this model holding ``state`` as its fitted state.
+
+        Use it to restore a saved fit without refitting, e.g. with a state
+        from :func:`~robusta_hmf.load_state_from_npz`, so that methods called
+        without ``state`` use it. The model itself is left unchanged.
 
         Parameters
         ----------
         state : RHMFState
-            State to set
+            The state the copy should hold.
 
         Returns
         -------
-        new_obj : Robusta
-            New Robusta object with updated state
+        model : Robusta
+            A deep copy of this model with ``state`` set. Its
+            ``loss_history`` and ``fit_info`` are those of this model.
         """
         new_obj = deepcopy(self)
         new_obj._state = state
@@ -239,40 +302,74 @@ class Robusta:
         init_state: RHMFState | None = None,
     ) -> tuple[RHMFState, Array]:
         """
-        Fit the model to data.
+        Fit ``A`` and ``G`` to data, and keep the result on the model.
+
+        Iterates until the convergence test passes or ``max_iter`` is reached,
+        printing the loss at every convergence check. Rows and columns of
+        ``W`` with fewer non-zero weights than ``rank`` are excluded first
+        (unless ``als_ridge`` is set), since the data cannot determine their
+        factors; see :class:`~robusta_hmf.FitInfo` for how the run is recorded.
 
         Parameters
         ----------
         Y : Array, shape (N, M)
-            Data matrix to factorize. May instead be a handle returned by the
-            frame's ``prepare()`` (e.g. a
-            :class:`robusta_hmf.sharded.ShardedData`), in which case ``W`` is
-            already carried inside it and is ignored. Reuse that handle to fit
-            several models to one sample without re-transferring it.
-        W : Array, shape (N, M), optional
-            Weight matrix (inverse variance)
+            Data matrix. May instead be a handle returned by the frame's
+            ``prepare()`` (e.g. a :class:`~robusta_hmf.ShardedData`), in which
+            case ``W`` is carried inside it and the ``W`` argument is ignored.
+            Reuse that handle to fit several models to one sample without
+            re-transferring it.
+        W : Array, shape (N, M)
+            Inverse-variance weights, ``1 / σ²``. Required unless ``Y`` is a
+            prepared handle. Zero marks a missing entry. Entries where ``Y``
+            or ``W`` is NaN or infinite are treated as missing (or raise, with
+            ``nan_error=True``); negative weights raise ``ValueError``.
         max_iter : int, default=1000
-            Maximum number of optimization iterations
+            Maximum number of iterations.
         rotation_cadence : int, default=1
-            How often to apply rotation (set to 1 for ALS internally by OptFrame)
+            Rotate every this many iterations. ALS always rotates every
+            iteration (another value only triggers a warning); this matters for
+            ``method="sgd"``.
         conv_check_cadence : int, default=10
-            How often to check convergence
+            Test convergence (and print the loss) every this many iterations.
         seed : int, default=0
-            Random seed for initialization
+            Random seed, used by ``init_strategy="random"``.
         init_state : RHMFState | None, default=None
-            Initial state to continue training from. If None, initialize from scratch.
+            Start from this state instead of initialising, e.g. to continue a
+            fit or to start from factors computed elsewhere. Its ``A`` and
+            ``G`` must have shapes ``(N, rank)`` and ``(M, rank)``. Exclusions
+            are recomputed from ``W``, so rows and columns the state excluded
+            come back if ``W`` now covers them.
 
         Returns
         -------
         state : RHMFState
-            Final optimization state
-        loss_history : Array
-            Loss values over iterations
+            The fitted factors. Excluded rows of ``A`` and ``G`` are NaN and
+            marked by ``state.row_excluded`` / ``state.col_excluded``.
+        loss_history : Array, shape (n_iter,)
+            The loss after each iteration.
+
+        Raises
+        ------
+        PrecisionError
+            If the model's dtype is float64 and JAX's float64 support is off.
+        FloatingPointError
+            If the loss or the factors become NaN or infinite.
+
+        Warns
+        -----
+        UnderdeterminedWarning
+            If rows or columns are excluded (or, with ``als_ridge``, are
+            determined only by the ridge).
+        ConvergenceWarning
+            If the fit reaches ``max_iter`` without converging, or the loss
+            rises by more than round-off allows.
+        DataWarning
+            If NaN or infinite entries were treated as missing.
 
         Notes
         -----
-        Diagnostics of the run (convergence, exclusions, loss rises) are kept
-        in :attr:`fit_info`.
+        After the fit, :attr:`fit_info` records whether it converged, the
+        number of iterations, any loss rises and any exclusions.
         """
         check_precision(self.dtype, self.rank)
         check_rank(self.rank, *_data_shape(Y))
@@ -434,19 +531,25 @@ class Robusta:
         indices: Array | None = None,
     ) -> Array:
         """
-        Synthesize data from the model: A @ G.T
+        The model's reconstruction of the data, ``A @ G.T``.
+
+        Because outliers are downweighted in the fit, this is the low-rank
+        description of each row without its outliers; ``Y`` minus this is
+        where they show up (see :meth:`residuals`).
 
         Parameters
         ----------
         state : RHMFState | None, default=None
-            State to use. If None, use self._state from last fit.
+            State to use, e.g. the output of :meth:`infer`. If None, use the
+            last fit.
         indices : Array | None, default=None
-            If provided, only synthesize these rows (indices into A)
+            If given, reconstruct only these rows (indices into ``A``).
 
         Returns
         -------
         synthesis : Array, shape (N, M) or (len(indices), M)
-            Synthesized data matrix
+            The reconstruction. NaN in rows and columns the state excludes,
+            where the model is undefined.
         """
         state = state if state is not None else self._state
         if state is None:
@@ -466,22 +569,34 @@ class Robusta:
         conv_check_cadence: int = 10,
     ) -> tuple[RHMFState, Array]:
         """
-        Infer coefficients for new observation(s) with the basis held fixed.
+        Infer coefficients for new rows with the basis ``G`` held fixed.
 
-        Always uses least-squares, not gradient descent. Runs through the same
-        frame as :meth:`fit`, so a sharded model infers on sharded data with
-        the same chunking and the same convergence rule.
+        Alternates the robust-weight update and the least-squares solve for
+        ``A`` (never ``G``), starting from a weighted least-squares fit with
+        the data weights alone. Always uses least squares, even for a model
+        fitted with ``method="sgd"``. Runs through the same frame as
+        :meth:`fit`, so a sharded model infers on sharded data with the same
+        chunking. The model's stored state is not changed, since one model is
+        often applied to many datasets.
+
+        Use it to apply a trained basis to held-out data before
+        :meth:`score`, or to new data; then call :meth:`robust_weights` with
+        the returned state to find outliers in the new rows.
 
         Parameters
         ----------
-        Y_infer : Array, shape (N, M)
-            Held-out data, or a handle from the frame's ``prepare()``.
-        W_infer : Array, shape (N, M), optional
-            Held-out weights.
+        Y_infer : Array, shape (N', M)
+            New data with the same ``M`` columns as the training data, or a
+            handle from the frame's ``prepare()``.
+        W_infer : Array, shape (N', M)
+            Inverse-variance weights for ``Y_infer``. Required unless
+            ``Y_infer`` is a prepared handle.
         state : RHMFState | None, default=None
             State supplying the fixed basis. If None, use the last fit.
+            Columns it excludes stay excluded; new rows with fewer than
+            ``rank`` non-zero weights in the other columns are excluded.
         max_iter : int, default=100
-            Maximum IRLS iterations.
+            Maximum iterations.
         conv_strategy : str, default="max_frac_A"
             Convergence strategy. ``"max_frac_G"`` is meaningless here (G is
             fixed) and is switched to ``"max_frac_A"`` with a warning.
@@ -493,9 +608,10 @@ class Robusta:
         Returns
         -------
         state : RHMFState
-            Inferred coefficients, with ``state.G`` unchanged.
-        loss_history : Array
-            Loss values over iterations.
+            ``A`` of shape ``(N', rank)`` for the new rows (NaN for excluded
+            rows), with ``G`` unchanged.
+        loss_history : Array, shape (n_iter,)
+            The loss after each iteration.
         """
         state = state if state is not None else self._state
         if state is None:
@@ -572,6 +688,20 @@ class Robusta:
         """
         Held-out scores for a state, as sufficient statistics.
 
+        Computes the standardised residuals
+        ``z = (Y - A @ G.T) · sqrt(W · w_robust)``, which follow ``N(0, 1)``
+        when the model is calibrated and the outliers are correctly
+        downweighted, and summarises them. ``.kl``, the KL divergence of a
+        Gaussian with the mean and standard deviation of ``z`` from
+        ``N(0, 1)``, is the model-selection score of the paper: lower is
+        better. Read it alongside a goodness-of-fit measure such as
+        ``.chi2_red``, since a rank that is too small with an aggressive
+        ``robust_scale`` can also score well by downweighting most of the data.
+
+        Typical use is cross-validation over ``rank`` and ``robust_scale``:
+        :meth:`fit` on a training split, :meth:`infer` on the held-out split,
+        then score the inferred state.
+
         Parameters
         ----------
         Y : Array, shape (N, M)
@@ -618,17 +748,19 @@ class Robusta:
 
     def basis_vectors(self, state: RHMFState | None = None) -> Array:
         """
-        Get the basis vectors (G matrix).
+        The basis vectors, ``G``.
 
         Parameters
         ----------
         state : RHMFState | None, default=None
-            State to use. If None, use self._state from last fit.
+            State to use. If None, use the last fit.
 
         Returns
         -------
         G : Array, shape (M, K)
-            Basis vectors
+            One basis vector per column. With the default rotation the
+            columns are orthonormal; they are not ordered by explained
+            variance. Rows for excluded columns of ``Y`` are NaN.
         """
         state = state if state is not None else self._state
         if state is None:
@@ -637,17 +769,19 @@ class Robusta:
 
     def coefficients(self, state: RHMFState | None = None) -> Array:
         """
-        Get the coefficients (A matrix).
+        The coefficients, ``A``.
 
         Parameters
         ----------
         state : RHMFState | None, default=None
-            State to use. If None, use self._state from last fit.
+            State to use, e.g. the output of :meth:`infer`. If None, use the
+            last fit.
 
         Returns
         -------
         A : Array, shape (N, K)
-            Coefficients
+            The coefficients of each row of ``Y`` on the basis vectors. Rows
+            for excluded rows of ``Y`` are NaN.
         """
         state = state if state is not None else self._state
         if state is None:
@@ -656,37 +790,44 @@ class Robusta:
 
     def residuals(self, Y: Array, state: RHMFState | None = None) -> Array:
         """
-        Compute residuals: Y - A @ G.T
+        Residuals of the data from the model, ``Y - A @ G.T``.
+
+        Large residuals relative to the uncertainties mark outliers; multiply
+        by ``sqrt(W)`` to put them in units of the uncertainty.
 
         Parameters
         ----------
         Y : Array, shape (N, M)
-            Data matrix
+            The data the state describes (the training data for the last
+            fit, or the data passed to :meth:`infer` for its state).
         state : RHMFState | None, default=None
-            State to use. If None, use self._state from last fit.
+            State to use. If None, use the last fit.
 
         Returns
         -------
         residuals : Array, shape (N, M)
-            Residuals
+            The residuals. NaN in rows and columns the state excludes.
         """
         return Y - self.synthesize(state=state)
 
     def mse(self, Y: Array, state: RHMFState | None = None) -> float:
         """
-        Compute mean squared error of the reconstruction.
+        Not implemented: always raises ``NotImplementedError``.
+
+        Use :meth:`score` for goodness-of-fit statistics (``.chi2_red``,
+        ``.rmse``) instead.
 
         Parameters
         ----------
         Y : Array, shape (N, M)
-            Data matrix
+            Data matrix.
         state : RHMFState | None, default=None
-            State to use. If None, use self._state from last fit.
+            State to use. If None, use the last fit.
 
-        Returns
-        -------
-        mse : float
-            Mean squared error
+        Raises
+        ------
+        NotImplementedError
+            Always.
         """
         raise NotImplementedError(
             "MSE calculation not implemented yet since I don't know exactly what metric is appropriate and this is name MSE as a placeholder only."
@@ -699,21 +840,31 @@ class Robusta:
         state: RHMFState | None = None,
     ) -> Array:
         """
-        Compute IRLS robust weights (between 0 and 1).
+        Per-entry robust weights, the outlier measure of RHMF.
+
+        ``w = Q² / (Q² + W r²)`` with ``r = Y - A @ G.T`` and
+        ``Q² = robust_nu · robust_scale²``: 1 for an entry the model fits
+        exactly, falling towards 0 as the residual grows past about ``Q``
+        standard deviations. Summarise them per row for an outlier score per
+        object, e.g. the median or a low quantile (the paper uses the 1%
+        quantile and flags rows below 0.5), or per column for one per feature.
+        With ``robust=False`` every weight is 1.
 
         Parameters
         ----------
         Y : Array, shape (N, M)
-            Data matrix
+            The data the state describes.
         W : Array, shape (N, M)
-            Weight matrix (inverse variance)
+            Inverse-variance weights for ``Y``. Entries with ``W = 0`` get
+            weight 1.
         state : RHMFState | None, default=None
-            State to use. If None, use self._state from last fit.
+            State to use, e.g. the output of :meth:`infer` for new data. If
+            None, use the last fit.
 
         Returns
         -------
         weights : Array, shape (N, M)
-            Robust weights. Entries in rows or columns the state excludes are
+            Robust weights in ``(0, 1]``. Entries in rows or columns the state excludes are
             treated like missing data and get weight 1, so per-row summaries
             stay finite; ``state.row_excluded`` / ``col_excluded`` mark them.
         """
@@ -726,27 +877,33 @@ class Robusta:
     # Convenience properties
     @property
     def A(self) -> Array | None:
-        """Coefficients from last fit."""
+        """``A`` ``(N, K)`` from the last :meth:`fit`, or None before fitting."""
         return self._state.A if self._state is not None else None
 
     @property
     def G(self) -> Array | None:
-        """Basis vectors from last fit."""
+        """``G`` ``(M, K)`` from the last :meth:`fit`, or None before fitting."""
         return self._state.G if self._state is not None else None
 
     @property
     def state(self) -> RHMFState | None:
-        """Full state from last fit."""
+        """The :class:`~robusta_hmf.state.RHMFState` of the last :meth:`fit`.
+
+        None before fitting.
+        """
         return self._state
 
     @property
     def loss_history(self) -> Array | None:
-        """Loss history from last fit."""
+        """The loss after each iteration of the last :meth:`fit`, or None before fitting."""
         return self._loss_history
 
     @property
     def fit_info(self) -> FitInfo | None:
-        """Diagnostics of the last :meth:`fit` (not updated by :meth:`infer`)."""
+        """The :class:`~robusta_hmf.FitInfo` of the last :meth:`fit`, or None before fitting.
+
+        Not updated by :meth:`infer`.
+        """
         return self._fit_info
 
 

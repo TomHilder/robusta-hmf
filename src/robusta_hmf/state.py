@@ -14,11 +14,31 @@ def _as_mask(x):
 
 
 class RHMFState(eqx.Module):
-    """Factors ``A`` (N, K) and ``G`` (M, K) of ``Y ≈ A Gᵀ``, plus loop bookkeeping.
+    """The factors ``A`` and ``G`` of ``Y ≈ A Gᵀ``, plus loop bookkeeping.
 
-    ``row_excluded`` (N,) and ``col_excluded`` (M,) mark rows of ``A`` and
-    rows of ``G`` that a fit excluded because the data did not determine them;
-    those rows are NaN. ``None`` means nothing is excluded.
+    Returned by :meth:`Robusta.fit <robusta_hmf.Robusta.fit>` and
+    :meth:`Robusta.infer <robusta_hmf.Robusta.infer>`, and accepted by the
+    other methods of :class:`~robusta_hmf.Robusta` as ``state``. An Equinox
+    module, so it is an immutable JAX pytree. Save and load it with
+    :func:`~robusta_hmf.save_state_to_npz` and
+    :func:`~robusta_hmf.load_state_from_npz`.
+
+    Attributes
+    ----------
+    A : Array, shape (N, K)
+        Coefficients, one row per row of ``Y``.
+    G : Array, shape (M, K)
+        Basis vectors, one column per component and one row per column of ``Y``.
+    it : int
+        Number of iterations run to reach this state.
+    opt_state : optax.OptState | None
+        Optimiser state for ``method="sgd"``; None for ALS.
+    row_excluded : Array of bool, shape (N,), or None
+        Rows of ``Y`` the fit excluded because the data did not determine
+        them (fewer non-zero weights than the rank). Their rows of ``A`` are
+        NaN. None means no row is excluded.
+    col_excluded : Array of bool, shape (M,), or None
+        The same for columns of ``Y``, whose rows of ``G`` are NaN.
     """
 
     A: Array = eqx.field(converter=jax.numpy.asarray)
@@ -141,7 +161,18 @@ def refresh_opt_state(state: RHMFState, opt: optax.GradientTransformation) -> RH
 
 
 def save_state_to_npz(state: RHMFState, filepath: Path):
-    """Save ``A``, ``G``, ``it`` and any exclusion masks (not the optimiser state)."""
+    """Save a state to a ``.npz`` file.
+
+    Saves ``A``, ``G``, ``it`` and any exclusion masks. The optimiser state of
+    an SGD fit is not saved.
+
+    Parameters
+    ----------
+    state : RHMFState
+        The state to save.
+    filepath : str or Path
+        Destination. ``numpy.savez`` appends ``.npz`` if it is missing.
+    """
     masks = {
         name: np.asarray(mask)
         for name, mask in (
@@ -157,7 +188,22 @@ def load_state_from_npz(
     filepath: Path,
     opt_state: optax.OptState | None = None,
 ) -> RHMFState:
-    """Load a state saved by :func:`save_state_to_npz`; absent masks load as ``None``."""
+    """Load a state saved by :func:`save_state_to_npz`.
+
+    Parameters
+    ----------
+    filepath : str or Path
+        The ``.npz`` file.
+    opt_state : optax.OptState | None, default=None
+        Optimiser state to attach, for continuing an SGD fit.
+
+    Returns
+    -------
+    state : RHMFState
+        The saved state. Exclusion masks that were not saved load as None.
+        Pass it as ``state`` to :class:`~robusta_hmf.Robusta`'s methods, or
+        use :meth:`Robusta.set_state <robusta_hmf.Robusta.set_state>`.
+    """
     data = np.load(filepath)
     return RHMFState(
         A=data["A"],

@@ -55,9 +55,20 @@ def custom_init(A: Array, G: Array, N: int, M: int, K: int) -> tuple[Array]:
 class Initialiser:
     """Seeds ``(A, G)`` before the optimisation loop starts.
 
-    ``N``, ``M`` and ``K`` may be left unset, in which case :meth:`Robusta.fit`
-    fills them in from the data. That is what lets a user hand ``Robusta`` a
-    bare ``override_initialiser`` without having to know the shapes up front.
+    Pass one to :class:`~robusta_hmf.Robusta` as ``override_initialiser``.
+    ``N``, ``M`` and ``K`` may be left unset, in which case
+    :meth:`Robusta.fit <robusta_hmf.Robusta.fit>` fills them in from the data,
+    so an initialiser can be built without knowing the shapes up front.
+
+    Parameters
+    ----------
+    N, M, K : int | None, default=None
+        Rows and columns of ``Y``, and the rank.
+    strategy : {"svd", "random", "custom"}, default="svd"
+        ``"svd"``: ``A = U S^½`` and ``G = V S^½`` from the leading ``K``
+        singular values and vectors of ``Y`` (the zero-filled data, without
+        the weights). ``"random"``: independent standard normals.
+        ``"custom"``: the ``A`` and ``G`` passed to :meth:`execute`.
     """
 
     N: int | None = None
@@ -90,6 +101,25 @@ class Initialiser:
         | tuple[optax.GradientTransformation, optax.GradientTransformation]
         | None = None,
     ) -> RHMFState:
+        """Build the initial state.
+
+        Parameters
+        ----------
+        seed : int | None, default=None
+            Random seed, required for ``strategy="random"``.
+        A, G : Array | None, default=None
+            Initial factors, shapes ``(N, K)`` and ``(M, K)``, required for
+            ``strategy="custom"``.
+        Y : Array | None, default=None
+            The ``(N, M)`` data, required for ``strategy="svd"``.
+        opt : optax.GradientTransformation | None, default=None
+            If given, its state is initialised on ``(A, G)`` (for SGD).
+
+        Returns
+        -------
+        state : RHMFState
+            The initial factors, with ``it = 0``.
+        """
         # Initialise A and G according to strategy
         if self.strategy == "random":
             A, G = random_init(seed, self.N, self.M, self.K)

@@ -19,7 +19,16 @@ DEFAULT_DTYPE = np.dtype("float64")
 
 
 class PrecisionError(RuntimeError):
-    """A fit asked for float64 but JAX's float64 support is disabled."""
+    """A fit asked for float64 but JAX's float64 support is disabled.
+
+    JAX computes in float32 unless
+    ``jax.config.update("jax_enable_x64", True)`` is called before any JAX
+    array is created. Rather than silently running a float64 model in
+    float32, :meth:`~robusta_hmf.Robusta.fit`, :meth:`~robusta_hmf.Robusta.infer`
+    and :meth:`~robusta_hmf.Robusta.score` raise this. Enable x64, or pass
+    ``dtype="float32"`` to :class:`~robusta_hmf.Robusta` to choose float32
+    explicitly.
+    """
 
 
 def resolve_dtype(dtype) -> np.dtype:
