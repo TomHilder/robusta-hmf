@@ -1,0 +1,18 @@
+/* Top bar in Catppuccin orange (Mocha "peach"), with dark text on it. */
+:root {
+  --md-primary-fg-color: #fab387;
+  --md-primary-fg-color--light: #fcc9a8;
+  --md-primary-fg-color--dark: #f5935a;
+  --md-primary-bg-color: #1e1e2e;
+  --md-primary-bg-color--light: #1e1e2ebb;
+  --md-accent-fg-color: #fab387;
+  --md-accent-fg-color--transparent: #fab3871a;
+}
+
+/* Light mode: peach is too pale for link text on white, so links and accents
+   use Catppuccin Latte's peach instead. The top bar stays Mocha peach. */
+[data-md-color-scheme="default"] {
+  --md-typeset-a-color: #c4500a;
+  --md-accent-fg-color: #fe640b;
+  --md-accent-fg-color--transparent: #fe640b1a;
+}

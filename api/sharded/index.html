@@ -1,0 +1,1620 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Robust heteroskedastic matrix factorisation in JAX">
+      
+      
+      
+        <link rel="canonical" href="https://tomhilder.github.io/robusta-hmf/api/sharded/">
+      
+      
+        <link rel="prev" href="../robusta/">
+      
+      
+        <link rel="next" href="../metrics/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+      
+        <title>Sharded fitting - robusta-hmf</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#sharded-fitting" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="robusta-hmf" class="md-header__button md-logo" aria-label="robusta-hmf" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            robusta-hmf
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Sharded fitting
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/TomHilder/robusta-hmf" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TomHilder/robusta-hmf
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="robusta-hmf" class="md-nav__button md-logo" aria-label="robusta-hmf" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    robusta-hmf
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/TomHilder/robusta-hmf" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TomHilder/robusta-hmf
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../robusta/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Robusta
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sharded fitting
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sharded fitting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#shardedframe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ShardedFrame
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#robusta_hmf.ShardedFrame" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ShardedFrame
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ShardedFrame">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#robusta_hmf.ShardedFrame.n_devices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n_devices
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#robusta_hmf.ShardedFrame.prepare" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        prepare
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shardeddata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ShardedData
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#robusta_hmf.ShardedData" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ShardedData
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ShardedData">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#robusta_hmf.ShardedData.n_rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n_rows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#robusta_hmf.ShardedData.shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        shape
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rowplan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RowPlan
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#robusta_hmf.RowPlan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RowPlan
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#graminitialiser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GramInitialiser
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#robusta_hmf.GramInitialiser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GramInitialiser
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../diagnostics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Diagnostics, warnings and errors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../customisation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Customisation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#shardedframe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ShardedFrame
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#robusta_hmf.ShardedFrame" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ShardedFrame
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ShardedFrame">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#robusta_hmf.ShardedFrame.n_devices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n_devices
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#robusta_hmf.ShardedFrame.prepare" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        prepare
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shardeddata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ShardedData
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#robusta_hmf.ShardedData" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ShardedData
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ShardedData">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#robusta_hmf.ShardedData.n_rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n_rows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#robusta_hmf.ShardedData.shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        shape
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rowplan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RowPlan
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#robusta_hmf.RowPlan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RowPlan
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#graminitialiser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GramInitialiser
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#robusta_hmf.GramInitialiser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GramInitialiser
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="sharded-fitting">Sharded fitting<a class="headerlink" href="#sharded-fitting" title="Permanent link">&para;</a></h1>
+<p>Row-chunked, multi-device fitting for data larger than one GPU. Pass a <code>ShardedFrame</code> to
+<code>Robusta(override_frame=...)</code>; everything else works as for a dense fit.</p>
+<h2 id="shardedframe">ShardedFrame<a class="headerlink" href="#shardedframe" title="Permanent link">&para;</a></h2>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="robusta_hmf.ShardedFrame" class="doc doc-heading">
+            <code>robusta_hmf.ShardedFrame</code>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#robusta_hmf.ShardedFrame" class="headerlink" title="Permanent link">&para;</a></h2>
+
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="robusta_hmf.OptFrame
+
+
+  
+      dataclass
+   (robusta_hmf.frame.OptFrame)" href="../customisation/#robusta_hmf.OptFrame">OptFrame</a></code></p>
+
+
+
+        <p>An <a class="autorefs autorefs-internal" title="robusta_hmf.OptFrame
+
+
+  
+      dataclass
+  " href="../customisation/#robusta_hmf.OptFrame"><code>OptFrame</code></a> that chunks and shards the rows.</p>
+<p>Reads the likelihood, rotation and ALS ridge off the
+<code>HMF</code> it is bound to, so it never duplicates the
+model's parameter list. Hand it to
+<a class="autorefs autorefs-internal" title="robusta_hmf.Robusta
+
+
+  
+      dataclass
+  " href="../robusta/#robusta_hmf.Robusta"><code>Robusta</code></a> via <code>override_frame</code>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>row_block</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Target rows per scan chunk. Sets peak scratch memory, roughly
+<code>6 * row_block * M * itemsize</code> bytes per device -- ~440 MiB at
+M=2321, K=10, float64. Larger is marginally faster, smaller is safer.</p>
+              </div>
+            </td>
+            <td>
+                  <code>4096</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>devices</code>
+            </td>
+            <td>
+                  <code><span title="collections.abc.Sequence">Sequence</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Devices to shard over. Defaults to all visible devices; a single
+device gives pure chunking, which is the memory fix on its own.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>store_dtype</code>
+            </td>
+            <td>
+                  <code>dtype</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>On-device dtype for <code>Y</code> and <code>W</code>. Measurements are usually float32
+to begin with, and all arithmetic still happens in <code>compute_dtype</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>numpy.float32</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>compute_dtype</code>
+            </td>
+            <td>
+                  <code>dtype | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Dtype of the arithmetic and of <code>A</code>/<code>G</code>. When None, it comes from
+the <code>dtype</code> of the <a class="autorefs autorefs-internal" title="robusta_hmf.Robusta
+
+
+  
+      dataclass
+  " href="../robusta/#robusta_hmf.Robusta"><code>Robusta</code></a> model the frame is
+bound to (float64 by default). Setting it here is the same explicit
+choice as passing <code>dtype</code> to <code>Robusta</code>; setting both to different
+values is an error.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>verbose</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Print the sharding and memory summary when the data is placed.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<details class="note" open>
+  <summary>Notes</summary>
+  <p>Results are not bitwise identical to <a class="autorefs autorefs-internal" title="robusta_hmf.Robusta
+
+
+  
+      dataclass
+  " href="../robusta/#robusta_hmf.Robusta"><code>Robusta</code></a>'s dense
+path, nor across different <code>row_block</code> or device counts: the arithmetic
+is the same but the summation order is not. See the module docstring.</p>
+</details>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="robusta_hmf.ShardedFrame.n_devices" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">n_devices</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#robusta_hmf.ShardedFrame.n_devices" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="robusta_hmf.ShardedFrame.prepare" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">prepare</span><span class="p">(</span><span class="n">Y</span><span class="p">,</span> <span class="n">W</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">nan_error</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></code>
+
+<a href="#robusta_hmf.ShardedFrame.prepare" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Validate and place <code>(Y, W)</code> on the mesh, or pass through an existing handle.</p>
+<p>Returns <code>(data, None)</code>: the weights live inside the
+<a class="autorefs autorefs-internal" title="robusta_hmf.ShardedData
+
+
+  
+      dataclass
+  " href="#robusta_hmf.ShardedData"><code>ShardedData</code></a>, so there is no second array to carry. See
+<code>shard_data()</code> for the checks and <code>nan_error</code>; a handle has
+already been through them.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="shardeddata">ShardedData<a class="headerlink" href="#shardeddata" title="Permanent link">&para;</a></h2>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="robusta_hmf.ShardedData" class="doc doc-heading">
+            <code>robusta_hmf.ShardedData</code>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#robusta_hmf.ShardedData" class="headerlink" title="Permanent link">&para;</a></h2>
+
+
+    <div class="doc doc-contents first">
+
+
+
+        <p><code>Y</code> and <code>W</code> resident on a mesh, plus the plan describing their layout.</p>
+<p>Built once by <a class="autorefs autorefs-internal" title="prepare(Y, W=None, nan_error=False)" href="#robusta_hmf.ShardedFrame.prepare"><code>ShardedFrame.prepare()</code></a> and reused: a (K, Q)
+grid over the same sample would otherwise re-transfer the full matrices for every grid point.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="robusta_hmf.ShardedData.Y, W">Y, W</span></code></td>
+            <td>
+                  <code>(<span title="jaxtyping.Array">Array</span>, <a class="autorefs autorefs-internal" title="shape
+
+  
+      property
+   (robusta_hmf.sharded.ShardedData.shape)" href="#robusta_hmf.ShardedData.shape">shape</a>(n_padded, <span title="robusta_hmf.sharded.ShardedData.n_pixels">n_pixels</span>))</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Sharded, zero-padded data and weights, in <code>store_dtype</code>.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="robusta_hmf.ShardedData.plan">plan</span></code></td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="robusta_hmf.RowPlan
+
+
+  
+      dataclass
+   (robusta_hmf.sharded.RowPlan)" href="#robusta_hmf.RowPlan">RowPlan</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The row layout.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="robusta_hmf.ShardedData.mesh">mesh</span></code></td>
+            <td>
+                  <code><span title="jax.sharding.Mesh">Mesh</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The mesh they are resident on.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="robusta_hmf.ShardedData.n_pixels">n_pixels</span></code></td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Columns of the original matrix.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="robusta_hmf.ShardedData.n_rows" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">n_rows</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#robusta_hmf.ShardedData.n_rows" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Real rows, excluding padding.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="robusta_hmf.ShardedData.shape" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">shape</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#robusta_hmf.ShardedData.shape" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p><code>(n_rows, n_pixels)</code> of the original, unpadded matrix.</p>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="rowplan">RowPlan<a class="headerlink" href="#rowplan" title="Permanent link">&para;</a></h2>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="robusta_hmf.RowPlan" class="doc doc-heading">
+            <code>robusta_hmf.RowPlan</code>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#robusta_hmf.RowPlan" class="headerlink" title="Permanent link">&para;</a></h2>
+
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>How <code>n_rows</code> real rows are laid out over devices and scan chunks.</p>
+<p><code>shard_map</code> needs every device to hold the same number of rows, and the
+inner <code>lax.scan</code> needs that number to be an exact multiple of the chunk
+size, so the row axis is padded up to <code>n_padded</code>. The chunk size is
+shrunk from the requested <code>row_block</code> where that makes the padding
+smaller -- for the full RVS sample on 4 devices this is 18 padded rows
+rather than the 8082 a fixed 8192-row block would need.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="robusta_hmf.RowPlan.n_rows">n_rows</span></code></td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Real rows, before padding.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="robusta_hmf.RowPlan.n_devices">n_devices</span></code></td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Devices in the mesh.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="robusta_hmf.RowPlan.chunk">chunk</span></code></td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Rows per <code>lax.scan</code> step. Sets peak scratch memory.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="robusta_hmf.RowPlan.n_chunks">n_chunks</span></code></td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Scan steps per device.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="graminitialiser">GramInitialiser<a class="headerlink" href="#graminitialiser" title="Permanent link">&para;</a></h2>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="robusta_hmf.GramInitialiser" class="doc doc-heading">
+            <code>robusta_hmf.GramInitialiser</code>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#robusta_hmf.GramInitialiser" class="headerlink" title="Permanent link">&para;</a></h2>
+
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="robusta_hmf.Initialiser
+
+
+  
+      dataclass
+   (robusta_hmf.initialisation.Initialiser)" href="../customisation/#robusta_hmf.Initialiser">Initialiser</a></code></p>
+
+
+
+        <p>SVD initialisation via the Gram matrix, for data too large to <code>svd</code>.</p>
+<p>Identical in exact arithmetic to
+<code>svd_init()</code>: for <code>Y = U S V.T</code>,
+<code>Y.T @ Y = V S^2 V.T</code>, so the top-K eigenvectors of the Gram matrix are
+<code>V[:, :K]</code> and <code>Y @ V = U S</code>. This returns <code>A = U sqrt(S)</code> and
+<code>G = V sqrt(S)</code>, matching the library's convention, without ever forming
+the <code>(N, min(N, M))</code> <code>U</code> that <code>jnp.linalg.svd</code> wants -- which for the
+Gaia RVS sample is as large as <code>Y</code> itself.</p>
+<p>Equivalent does not mean identical in floating point: forming <code>Y.T @ Y</code>
+squares the condition number, so the recovered subspace agrees with
+<code>svd_init</code> at around <code>sqrt(eps)</code> (~1e-8 in float64) rather than
+<code>eps</code>. This is an initialiser, and the first few ALS iterations wash the
+difference out -- fits started from either route agree to ~1e-12 -- but do
+not expect bitwise agreement at iteration zero.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>N</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Filled in by <a class="autorefs autorefs-internal" title="fit(Y, W=None, max_iter=1000, rotation_cadence=1, conv_check_cadence=10, seed=0, init_state=None)" href="../robusta/#robusta_hmf.Robusta.fit"><code>Robusta.fit()</code></a> when left unset.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>M</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Filled in by <a class="autorefs autorefs-internal" title="fit(Y, W=None, max_iter=1000, rotation_cadence=1, conv_check_cadence=10, seed=0, init_state=None)" href="../robusta/#robusta_hmf.Robusta.fit"><code>Robusta.fit()</code></a> when left unset.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>K</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Filled in by <a class="autorefs autorefs-internal" title="fit(Y, W=None, max_iter=1000, rotation_cadence=1, conv_check_cadence=10, seed=0, init_state=None)" href="../robusta/#robusta_hmf.Robusta.fit"><code>Robusta.fit()</code></a> when left unset.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>strategy</code>
+            </td>
+            <td>
+                  <code>(svd, random, custom)</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>"svd"</code> takes the Gram route; the others behave as usual but place
+their output on the mesh.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#34;svd&#34;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>frame</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="robusta_hmf.ShardedFrame
+
+
+  
+      dataclass
+   (robusta_hmf.sharded.ShardedFrame)" href="#robusta_hmf.ShardedFrame">ShardedFrame</a> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The frame supplying the mesh and row plan. Filled in automatically
+when <code>Robusta</code> builds the initialiser.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "navigation.sections", "navigation.expand", "search.highlight"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>
