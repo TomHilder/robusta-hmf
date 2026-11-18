@@ -100,18 +100,30 @@ matrices (see the `Discrete` fast path below).
 
 ### 2. Basis (one per axis)
 
-Required interface:
+The interface follows FINUFFT's plan structure: what does not depend on the data is fixed
+when the basis is constructed (as `makeplan`), what depends on the measurement coordinates
+is computed once per fit by `bind` (as `setpts`), and every iteration only applies the
+bound operator (as `execute`).
 
-| Method | Meaning | `Discrete` | `Fourier` |
-|---|---|---|---|
-| `n_coeffs` | number of basis functions | number of categories | number of modes |
-| `evaluate(coeffs, points)` | function values at the measurements | gather | type-2 NUFFT (or dense) |
-| `adjoint(values, points)` | transpose of `evaluate` | scatter-add | type-1 NUFFT (or dense) |
-| `gram(domain)` | inner products of basis functions over the data domain | I | closed form, not diagonal when padded |
+| Step | Meaning | `Discrete` | `Fourier` (dense) | `Fourier` (NUFFT) |
+|---|---|---|---|---|
+| constructor | modes, domain, tolerance | number of categories | modes, period, offset | modes, period, offset, ε |
+| `bind(points)` | precompute for these coordinates; once per fit | nothing | design matrix Φ | points rescaled to [−π, π); a NUFFT plan once jax-finufft exposes one |
+| `op.evaluate(coeffs)` | function values at the measurements | gather | Φ c | type-2 NUFFT |
+| `op.adjoint(values)` | transpose of `evaluate` | scatter-add | Φᵀ v | type-1 NUFFT |
+| `n_coeffs` | number of basis functions | number of categories | number of modes | number of modes |
+| `gram(domain)` | inner products over the data domain | I | closed form, not diagonal when padded | same |
 
-`evaluate` is linear in `coeffs`, so a dense design matrix, when needed, is available
-generically (for example by `jax.jacfwd`). A basis may additionally provide a **fast-path
-solver** for its axis's step (below).
+The K functions are transformed together as one batch (FINUFFT's `n_trans`). `evaluate` is
+linear in `coeffs`, so a dense design matrix, when needed, is available generically. A
+bound operator may additionally provide a **fast-path solver** for its axis's step (below).
+
+The dense and NUFFT backends of `Fourier` share one coefficient convention: real cos/sin
+coefficients with a fixed, documented map to FINUFFT's complex modes (which carries the
+real-valuedness constraint c₋ₖ = conj(cₖ)), and the coordinate rescaling FINUFFT needs.
+The dense backend is the exact reference; the NUFFT backend must match it to its tolerance
+ε. jax-finufft currently plans and sets points inside every call, so until it exposes
+reusable plans the NUFFT `bind` stores only the rescaled points.
 
 ### 3. Step solvers
 

@@ -28,6 +28,8 @@ generic and the fast path.
 
 ## Phase 2: Fourier basis (dense), ragged toy
 
+- [ ] `Basis.bind(points)` → bound operator (`evaluate`, `adjoint`, `solve`), built once per
+      fit, modelled on FINUFFT's plan / setpts / execute; `Discrete` moved onto it
 - [ ] `Fourier` basis with dense `evaluate` / `adjoint` (explicit cos/sin design), padded
       period, and the Gram matrix over the data domain
 - [ ] Convergence on γ measured on function values over the data domain, not raw
@@ -62,7 +64,8 @@ tested.
 
 ## Phase 5: scaling
 
-- [ ] Fourier `evaluate` / `adjoint` via jax-finufft
+- [ ] Fourier NUFFT backend via jax-finufft, matching the dense backend to its tolerance
+- [ ] Reusable NUFFT plans in `bind`, once jax-finufft exposes them (separate jax-finufft PR)
 - [ ] Fourier fast path: Toeplitz normal-matrix blocks from type-1 NUFFTs; dense or
       `jax.scipy.sparse.linalg.cg`
 - [ ] B-spline fast path: block-banded direct solve
