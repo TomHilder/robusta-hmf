@@ -39,7 +39,9 @@ retire this file.
   as a "negative log-likelihood" and it rescales the SGD gradient. Pick one convention — drop
   the prefactor (match Eq. 170) or use $(\nu+1)/2$ — and apply it consistently across
   `StudentTLikelihood.loss` and `CauchyLikelihood.loss`.
-- **Docs** — user-facing documentation (README, usage/API docs, docstrings).
+- **Docs** — the site (https://tomhilder.github.io/robusta-hmf) is the README plus an API
+  reference built from docstrings. Remaining: docstrings for the public members that have
+  none or only a line (`Robusta`'s properties and helpers, `RHMFState`, `Initialiser`).
 - **Type-checking everywhere** — comprehensive type annotations + a type checker run
   across the codebase (the package already ships a `py.typed` marker).
 - **Code clean-up** — refactors and dead-code removal.
