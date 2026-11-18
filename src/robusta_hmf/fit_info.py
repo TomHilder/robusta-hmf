@@ -36,7 +36,7 @@ class ExclusionEvent:
 
 @dataclass(frozen=True)
 class FitInfo:
-    """How a call to :meth:`robusta_hmf.Robusta.fit` ran.
+    """How a call to [`Robusta.fit()`][robusta_hmf.Robusta.fit] ran.
 
     Attributes
     ----------

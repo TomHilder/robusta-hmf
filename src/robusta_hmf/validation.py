@@ -3,7 +3,7 @@
 """Checks on ``Y`` and ``W`` before they reach an optimisation loop.
 
 Non-finite entries are treated as missing (``Y = W = 0`` there) with one
-:class:`~robusta_hmf.warnings.DataWarning`, or rejected when ``nan_error`` is
+[`DataWarning`][robusta_hmf.DataWarning], or rejected when ``nan_error`` is
 set. Negative weights are always rejected. The rank must not exceed the
 number of rows or columns.
 """
@@ -41,7 +41,7 @@ class BadEntries:
         )
 
     def resolve(self, nan_error: bool) -> None:
-        """Raise or warn for what was counted; see :func:`sanitise`."""
+        """Raise or warn for what was counted; see `sanitise()`."""
         if self.n_nonfinite and nan_error:
             raise ValueError(
                 f"Found {self.n_nonfinite:,} non-finite entries in Y or W "

@@ -58,12 +58,12 @@ class Robusta:
     which flags them as outliers. With ``robust=False`` it is plain
     heteroskedastic matrix factorisation (HMF).
 
-    The interface follows scikit-learn: :meth:`fit` learns ``A`` and ``G``,
-    :meth:`infer` finds coefficients for new rows with ``G`` held fixed,
-    :meth:`score` scores held-out data for choosing ``rank`` and
-    ``robust_scale``, and :meth:`robust_weights` returns the per-entry outlier
-    weights. The model keeps the state of its last :meth:`fit`, which the
-    other methods use when no ``state`` is passed.
+    The interface follows scikit-learn: [`fit()`][robusta_hmf.Robusta.fit] learns ``A`` and ``G``,
+    [`infer()`][robusta_hmf.Robusta.infer] finds coefficients for new rows with ``G`` held fixed,
+    [`score()`][robusta_hmf.Robusta.score] scores held-out data for choosing ``rank`` and
+    ``robust_scale``, and [`robust_weights()`][robusta_hmf.Robusta.robust_weights] returns the
+    per-entry outlier weights. The model keeps the state of its last
+    [`fit()`][robusta_hmf.Robusta.fit], which the other methods use when no ``state`` is passed.
 
     Examples
     --------
@@ -118,14 +118,15 @@ class Robusta:
         **rotation_kwargs,
     ):
         """
-        Configure a model. Nothing is computed until :meth:`fit`.
+        Configure a model. Nothing is computed until [`fit()`][robusta_hmf.Robusta.fit].
 
         Parameters
         ----------
         rank : int
             Number of basis vectors, ``K``. It must be chosen before fitting
             (unlike PCA, the components of a rank-``K`` fit are not the first
-            ``K`` of a larger fit); :meth:`score` on held-out data helps choose it.
+            ``K`` of a larger fit); [`score()`][robusta_hmf.Robusta.score] on held-out data helps
+            choose it.
         method : {"als", "sgd"}, default="als"
             ``"als"``: iteratively reweighted alternating least squares, the
             algorithm of the paper. ``"sgd"``: gradient descent on the loss
@@ -147,7 +148,7 @@ class Robusta:
             singular vectors of ``Y`` (scaled by the square roots of the
             singular values); ``"random"`` draws standard normals from ``seed``.
             To start from factors you already have, pass ``init_state`` to
-            :meth:`fit` instead.
+            [`fit()`][robusta_hmf.Robusta.fit] instead.
         override_initialiser : Initialiser | None, default=None
             Custom initialiser; replaces ``init_strategy`` if given.
         conv_strategy : str, default="max_frac_G"
@@ -165,14 +166,14 @@ class Robusta:
             Custom optimisation frame, which owns how the loop is scheduled.
             Defaults to a plain ``OptFrame`` that evaluates each step over the
             whole matrix. Pass
-            :class:`robusta_hmf.sharded.ShardedFrame` to chunk and shard the
+            [`ShardedFrame`][robusta_hmf.ShardedFrame] to chunk and shard the
             row axis, for data larger than one device's memory.
         als_ridge : float | None, default=None
             Ridge added to the diagonal of every least-squares solve for ``A``
             and ``G`` (``method="als"`` only). Without it, rows and columns
             with fewer non-zero weights than ``rank`` are excluded from the
             fit; with it they are kept and shrunk towards zero, and an
-            :class:`~robusta_hmf.warnings.UnderdeterminedWarning` names them.
+            [`UnderdeterminedWarning`][robusta_hmf.UnderdeterminedWarning] names them.
         learning_rate : float, default=1e-3
             Learning rate of the default Adafactor optimiser
             (``method="sgd"`` only).
@@ -189,17 +190,17 @@ class Robusta:
             float64 needs JAX's float64 support, enabled with
             ``jax.config.update("jax_enable_x64", True)`` before any JAX array
             is created; without it, fitting raises
-            :class:`~robusta_hmf.precision.PrecisionError` rather than silently
+            [`PrecisionError`][robusta_hmf.PrecisionError] rather than silently
             running in float32. float32 is faster, especially on GPUs, but can
             diverge when rows or columns of ``W`` have fewer non-zero weights
             than ``rank``, so it has to be requested explicitly. When None, a
             ``compute_dtype`` set on ``override_frame`` is used, else float64.
         nan_error : bool, default=False
-            What :meth:`fit`, :meth:`infer` and :meth:`score` do with entries
-            where ``Y`` or ``W`` is NaN or infinite. With False they are
-            treated as missing (``Y = W = 0`` there) and one
-            :class:`~robusta_hmf.warnings.DataWarning` is issued; with True
-            they raise ``ValueError``. Negative weights always raise.
+            What [`fit()`][robusta_hmf.Robusta.fit], [`infer()`][robusta_hmf.Robusta.infer] and
+            [`score()`][robusta_hmf.Robusta.score] do with entries where ``Y`` or ``W`` is NaN or
+            infinite. With False they are treated as missing (``Y = W = 0`` there) and one
+            [`DataWarning`][robusta_hmf.DataWarning] is issued; with True they raise
+            ``ValueError``. Negative weights always raise.
         **rotation_kwargs
             Passed to the rotation. For ``"fast"``: ``target`` (``"G"``, the
             default, or ``"A"``: which factor is made orthonormal), ``whiten``
@@ -273,7 +274,7 @@ class Robusta:
         Return a copy of this model holding ``state`` as its fitted state.
 
         Use it to restore a saved fit without refitting, e.g. with a state
-        from :func:`~robusta_hmf.load_state_from_npz`, so that methods called
+        from [`load_state_from_npz()`][robusta_hmf.load_state_from_npz], so that methods called
         without ``state`` use it. The model itself is left unchanged.
 
         Parameters
@@ -308,13 +309,13 @@ class Robusta:
         printing the loss at every convergence check. Rows and columns of
         ``W`` with fewer non-zero weights than ``rank`` are excluded first
         (unless ``als_ridge`` is set), since the data cannot determine their
-        factors; see :class:`~robusta_hmf.FitInfo` for how the run is recorded.
+        factors; see [`FitInfo`][robusta_hmf.FitInfo] for how the run is recorded.
 
         Parameters
         ----------
         Y : Array, shape (N, M)
             Data matrix. May instead be a handle returned by the frame's
-            ``prepare()`` (e.g. a :class:`~robusta_hmf.ShardedData`), in which
+            ``prepare()`` (e.g. a [`ShardedData`][robusta_hmf.ShardedData]), in which
             case ``W`` is carried inside it and the ``W`` argument is ignored.
             Reuse that handle to fit several models to one sample without
             re-transferring it.
@@ -368,7 +369,7 @@ class Robusta:
 
         Notes
         -----
-        After the fit, :attr:`fit_info` records whether it converged, the
+        After the fit, [`fit_info`][robusta_hmf.Robusta.fit_info] records whether it converged, the
         number of iterations, any loss rises and any exclusions.
         """
         check_precision(self.dtype, self.rank)
@@ -535,13 +536,13 @@ class Robusta:
 
         Because outliers are downweighted in the fit, this is the low-rank
         description of each row without its outliers; ``Y`` minus this is
-        where they show up (see :meth:`residuals`).
+        where they show up (see [`residuals()`][robusta_hmf.Robusta.residuals]).
 
         Parameters
         ----------
         state : RHMFState | None, default=None
-            State to use, e.g. the output of :meth:`infer`. If None, use the
-            last fit.
+            State to use, e.g. the output of [`infer()`][robusta_hmf.Robusta.infer]. If None, use
+            the last fit.
         indices : Array | None, default=None
             If given, reconstruct only these rows (indices into ``A``).
 
@@ -575,13 +576,14 @@ class Robusta:
         ``A`` (never ``G``), starting from a weighted least-squares fit with
         the data weights alone. Always uses least squares, even for a model
         fitted with ``method="sgd"``. Runs through the same frame as
-        :meth:`fit`, so a sharded model infers on sharded data with the same
+        [`fit()`][robusta_hmf.Robusta.fit], so a sharded model infers on sharded data with the same
         chunking. The model's stored state is not changed, since one model is
         often applied to many datasets.
 
         Use it to apply a trained basis to held-out data before
-        :meth:`score`, or to new data; then call :meth:`robust_weights` with
-        the returned state to find outliers in the new rows.
+        [`score()`][robusta_hmf.Robusta.score], or to new data; then call
+        [`robust_weights()`][robusta_hmf.Robusta.robust_weights] with the returned state to find
+        outliers in the new rows.
 
         Parameters
         ----------
@@ -699,8 +701,9 @@ class Robusta:
         ``robust_scale`` can also score well by downweighting most of the data.
 
         Typical use is cross-validation over ``rank`` and ``robust_scale``:
-        :meth:`fit` on a training split, :meth:`infer` on the held-out split,
-        then score the inferred state.
+        [`fit()`][robusta_hmf.Robusta.fit] on a training split,
+        [`infer()`][robusta_hmf.Robusta.infer] on the held-out split, then score the inferred
+        state.
 
         Parameters
         ----------
@@ -709,8 +712,8 @@ class Robusta:
         W : Array, shape (N, M), optional
             Held-out weights.
         state : RHMFState | None, default=None
-            State to score, normally the output of :meth:`infer`. If None, use
-            the last fit.
+            State to score, normally the output of [`infer()`][robusta_hmf.Robusta.infer]. If None,
+            use the last fit.
 
         Returns
         -------
@@ -774,8 +777,8 @@ class Robusta:
         Parameters
         ----------
         state : RHMFState | None, default=None
-            State to use, e.g. the output of :meth:`infer`. If None, use the
-            last fit.
+            State to use, e.g. the output of [`infer()`][robusta_hmf.Robusta.infer]. If None, use
+            the last fit.
 
         Returns
         -------
@@ -799,7 +802,7 @@ class Robusta:
         ----------
         Y : Array, shape (N, M)
             The data the state describes (the training data for the last
-            fit, or the data passed to :meth:`infer` for its state).
+            fit, or the data passed to [`infer()`][robusta_hmf.Robusta.infer] for its state).
         state : RHMFState | None, default=None
             State to use. If None, use the last fit.
 
@@ -814,7 +817,7 @@ class Robusta:
         """
         Not implemented: always raises ``NotImplementedError``.
 
-        Use :meth:`score` for goodness-of-fit statistics (``.chi2_red``,
+        Use [`score()`][robusta_hmf.Robusta.score] for goodness-of-fit statistics (``.chi2_red``,
         ``.rmse``) instead.
 
         Parameters
@@ -858,8 +861,8 @@ class Robusta:
             Inverse-variance weights for ``Y``. Entries with ``W = 0`` get
             weight 1.
         state : RHMFState | None, default=None
-            State to use, e.g. the output of :meth:`infer` for new data. If
-            None, use the last fit.
+            State to use, e.g. the output of [`infer()`][robusta_hmf.Robusta.infer] for new data.
+            If None, use the last fit.
 
         Returns
         -------
@@ -877,17 +880,20 @@ class Robusta:
     # Convenience properties
     @property
     def A(self) -> Array | None:
-        """``A`` ``(N, K)`` from the last :meth:`fit`, or None before fitting."""
+        """``A`` ``(N, K)`` from the last [`fit()`][robusta_hmf.Robusta.fit], or None before
+        fitting."""
         return self._state.A if self._state is not None else None
 
     @property
     def G(self) -> Array | None:
-        """``G`` ``(M, K)`` from the last :meth:`fit`, or None before fitting."""
+        """``G`` ``(M, K)`` from the last [`fit()`][robusta_hmf.Robusta.fit], or None before
+        fitting."""
         return self._state.G if self._state is not None else None
 
     @property
     def state(self) -> RHMFState | None:
-        """The :class:`~robusta_hmf.state.RHMFState` of the last :meth:`fit`.
+        """The [`RHMFState`][robusta_hmf.state.RHMFState] of the last
+        [`fit()`][robusta_hmf.Robusta.fit].
 
         None before fitting.
         """
@@ -895,14 +901,16 @@ class Robusta:
 
     @property
     def loss_history(self) -> Array | None:
-        """The loss after each iteration of the last :meth:`fit`, or None before fitting."""
+        """The loss after each iteration of the last [`fit()`][robusta_hmf.Robusta.fit], or None
+        before fitting."""
         return self._loss_history
 
     @property
     def fit_info(self) -> FitInfo | None:
-        """The :class:`~robusta_hmf.FitInfo` of the last :meth:`fit`, or None before fitting.
+        """The [`FitInfo`][robusta_hmf.FitInfo] of the last [`fit()`][robusta_hmf.Robusta.fit], or
+        None before fitting.
 
-        Not updated by :meth:`infer`.
+        Not updated by [`infer()`][robusta_hmf.Robusta.infer].
         """
         return self._fit_info
 

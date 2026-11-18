@@ -16,12 +16,12 @@ def _as_mask(x):
 class RHMFState(eqx.Module):
     """The factors ``A`` and ``G`` of ``Y ≈ A Gᵀ``, plus loop bookkeeping.
 
-    Returned by :meth:`Robusta.fit <robusta_hmf.Robusta.fit>` and
-    :meth:`Robusta.infer <robusta_hmf.Robusta.infer>`, and accepted by the
-    other methods of :class:`~robusta_hmf.Robusta` as ``state``. An Equinox
+    Returned by [`Robusta.fit()`][robusta_hmf.Robusta.fit] and
+    [`Robusta.infer()`][robusta_hmf.Robusta.infer], and accepted by the
+    other methods of [`Robusta`][robusta_hmf.Robusta] as ``state``. An Equinox
     module, so it is an immutable JAX pytree. Save and load it with
-    :func:`~robusta_hmf.save_state_to_npz` and
-    :func:`~robusta_hmf.load_state_from_npz`.
+    [`save_state_to_npz()`][robusta_hmf.save_state_to_npz] and
+    [`load_state_from_npz()`][robusta_hmf.load_state_from_npz].
 
     Attributes
     ----------
@@ -188,7 +188,7 @@ def load_state_from_npz(
     filepath: Path,
     opt_state: optax.OptState | None = None,
 ) -> RHMFState:
-    """Load a state saved by :func:`save_state_to_npz`.
+    """Load a state saved by [`save_state_to_npz()`][robusta_hmf.save_state_to_npz].
 
     Parameters
     ----------
@@ -201,8 +201,8 @@ def load_state_from_npz(
     -------
     state : RHMFState
         The saved state. Exclusion masks that were not saved load as None.
-        Pass it as ``state`` to :class:`~robusta_hmf.Robusta`'s methods, or
-        use :meth:`Robusta.set_state <robusta_hmf.Robusta.set_state>`.
+        Pass it as ``state`` to [`Robusta`][robusta_hmf.Robusta]'s methods, or
+        use [`Robusta.set_state()`][robusta_hmf.Robusta.set_state].
     """
     data = np.load(filepath)
     return RHMFState(

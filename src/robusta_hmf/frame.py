@@ -30,13 +30,13 @@ from .validation import sanitise
 class OptFrame:
     """Owns the optimisation loop: data placement, initialisation, iteration.
 
-    :class:`~robusta_hmf.Robusta` configures the model (an :class:`HMF`) and
+    [`Robusta`][robusta_hmf.Robusta] configures the model (an `HMF`) and
     delegates execution to a frame. A subclass can change *how* the loop is
-    scheduled -- see :class:`robusta_hmf.sharded.ShardedFrame`, which chunks
+    scheduled -- see [`ShardedFrame`][robusta_hmf.ShardedFrame], which chunks
     and shards the row axis -- without re-declaring the model's parameter list.
 
     ``compute_dtype`` is the dtype of the arithmetic and of ``A``/``G``.
-    ``Robusta`` sets it through :meth:`bind`; ``None`` leaves arrays in
+    ``Robusta`` sets it through `bind()`; ``None`` leaves arrays in
     whatever dtype they arrive in.
     """
 
@@ -65,10 +65,10 @@ class OptFrame:
 
         The base frame converts them to JAX arrays in ``compute_dtype``, then
         treats entries where either is non-finite as missing (``Y = W = 0``,
-        with a :class:`~robusta_hmf.warnings.DataWarning`), or raises
+        with a [`DataWarning`][robusta_hmf.DataWarning]), or raises
         ``ValueError`` for them if ``nan_error`` is set. Negative weights raise
         ``ValueError``. The return value is fed to both the initialiser and
-        :meth:`run`, so a frame needing a resident device layout builds it
+        `run()`, so a frame needing a resident device layout builds it
         once here rather than per grid point.
         """
         if W is None:
@@ -111,7 +111,8 @@ class OptFrame:
     def initial_coefficients(
         self, Y: Array, W: Array, G: Array, ridge: float | None, row_excluded=None
     ) -> Array:
-        """One weighted A step against a fixed basis, seeding :meth:`Robusta.infer`.
+        """One weighted A step against a fixed basis, seeding
+        [`Robusta.infer()`][robusta_hmf.Robusta.infer].
 
         Rows marked in ``row_excluded`` get zero weight, so they solve to zero
         rather than to an arbitrary point of a singular system.
@@ -164,7 +165,7 @@ class OptFrame:
         """Iterate ``step`` until converged or ``max_iter``.
 
         Returns the final state, the loss at every iteration, and a
-        :class:`~robusta_hmf.fit_info.FitInfo` describing the run.
+        [`FitInfo`][robusta_hmf.FitInfo] describing the run.
 
         Rows and columns marked in ``init_state.row_excluded`` /
         ``col_excluded`` get zero weight throughout, so their factors solve to
@@ -224,7 +225,7 @@ class OptFrame:
         return state, jnp.array(loss_history), info
 
     def make_monitor(self, n_rows: int, rank: int, infer: bool) -> RunMonitor:
-        """The :class:`~robusta_hmf.convergence.RunMonitor` for one run of the loop.
+        """The `RunMonitor` for one run of the loop.
 
         Loss rises are checked only for ALS without a ridge: a ridge makes ALS
         minimise ``loss + ridge·(‖A‖² + ‖G‖²)``, and with rotation that is not
@@ -255,7 +256,8 @@ def check_factors_finite(A, G, iteration: int, dtype) -> None:
 
 
 def make_fit_info(converged: bool, loss_history: list, loss_rises=()) -> FitInfo:
-    """The :class:`FitInfo` for a loop that ran ``len(loss_history)`` iterations."""
+    """The [`FitInfo`][robusta_hmf.FitInfo] for a loop that ran ``len(loss_history)``
+    iterations."""
     return FitInfo(
         converged=converged,
         stop_reason="converged" if converged else "max_iter",

@@ -55,9 +55,9 @@ def custom_init(A: Array, G: Array, N: int, M: int, K: int) -> tuple[Array]:
 class Initialiser:
     """Seeds ``(A, G)`` before the optimisation loop starts.
 
-    Pass one to :class:`~robusta_hmf.Robusta` as ``override_initialiser``.
+    Pass one to [`Robusta`][robusta_hmf.Robusta] as ``override_initialiser``.
     ``N``, ``M`` and ``K`` may be left unset, in which case
-    :meth:`Robusta.fit <robusta_hmf.Robusta.fit>` fills them in from the data,
+    [`Robusta.fit()`][robusta_hmf.Robusta.fit] fills them in from the data,
     so an initialiser can be built without knowing the shapes up front.
 
     Parameters
@@ -68,7 +68,7 @@ class Initialiser:
         ``"svd"``: ``A = U S^½`` and ``G = V S^½`` from the leading ``K``
         singular values and vectors of ``Y`` (the zero-filled data, without
         the weights). ``"random"``: independent standard normals.
-        ``"custom"``: the ``A`` and ``G`` passed to :meth:`execute`.
+        ``"custom"``: the ``A`` and ``G`` passed to [`execute()`][robusta_hmf.Initialiser.execute].
     """
 
     N: int | None = None

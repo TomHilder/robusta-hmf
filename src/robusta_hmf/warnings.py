@@ -2,7 +2,7 @@
 
 """Warning classes issued by robusta-hmf, and where they point.
 
-All derive from :class:`RobustaWarning`, so every warning the library issues
+All derive from [`RobustaWarning`][robusta_hmf.RobustaWarning], so every warning the library issues
 can be filtered or escalated at once, e.g.
 ``warnings.simplefilter("error", RobustaWarning)``.
 """
@@ -39,8 +39,8 @@ class RobustaWarning(UserWarning):
 class DataWarning(RobustaWarning):
     """The input data were modified before use.
 
-    Issued by :meth:`~robusta_hmf.Robusta.fit`, :meth:`~robusta_hmf.Robusta.infer`
-    and :meth:`~robusta_hmf.Robusta.score` (or ``prepare()`` on a frame) when
+    Issued by [`fit()`][robusta_hmf.Robusta.fit], [`infer()`][robusta_hmf.Robusta.infer]
+    and [`score()`][robusta_hmf.Robusta.score] (or ``prepare()`` on a frame) when
     entries of ``Y`` or ``W`` are NaN or infinite: those entries are treated
     as missing (``Y = W = 0``), and the message says how many there were.
     Pass ``nan_error=True`` to raise ``ValueError`` instead.
@@ -54,7 +54,7 @@ class UnderdeterminedWarning(RobustaWarning):
     ``G``) has ``rank`` unknowns and needs at least that many non-zero
     weights. Without ``als_ridge`` these rows and columns are excluded from
     the fit and returned as NaN (see
-    :attr:`FitInfo.exclusions <robusta_hmf.FitInfo>`); with ``als_ridge``
+    [`FitInfo.exclusions`][robusta_hmf.FitInfo]); with ``als_ridge``
     they are kept, determined only by the ridge, and the warning names them.
     """
 

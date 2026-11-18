@@ -41,7 +41,7 @@ def never_converged(*args, **kwargs) -> bool:
 class ConvergenceTester:
     """Decides when a fit has converged, from consecutive checked states.
 
-    :class:`~robusta_hmf.Robusta` builds one from ``conv_strategy`` and
+    [`Robusta`][robusta_hmf.Robusta] builds one from ``conv_strategy`` and
     ``conv_tol``; pass one as ``override_conv_tester`` to set it directly.
 
     Parameters
@@ -50,12 +50,12 @@ class ConvergenceTester:
         ``"max_frac_G"``: converged when ``max((G_new - G_old)²) / mean(G_new²)``
         is below ``tol``, i.e. the largest change in any entry of ``G`` is
         small compared with the typical size of ``G``. ``"max_frac_A"``: the
-        same for ``A`` (used by :meth:`~robusta_hmf.Robusta.infer`, where
+        same for ``A`` (used by [`infer()`][robusta_hmf.Robusta.infer], where
         ``G`` is fixed). ``"rel_frac_loss"``: converged when
         ``|loss_new - loss_old| / |loss_new|`` is below ``tol``. ``"none"``:
         never converged, so the fit runs to ``max_iter``.
     tol : float, default=1e-6
-        Tolerance. Note that :class:`~robusta_hmf.Robusta` passes its own
+        Tolerance. Note that [`Robusta`][robusta_hmf.Robusta] passes its own
         ``conv_tol`` (default 1e-3).
     """
 
@@ -102,7 +102,7 @@ class ConvergenceTester:
 RISE_TOLERANCE = 2
 #: Number of previous steps averaged for that decrease.
 RISE_WINDOW = 5
-#: Multiple of ε·√(|L|·S₀) treated as round-off (see :func:`rising_loss_iterations`).
+#: Multiple of ε·√(|L|·S₀) treated as round-off (see `rising_loss_iterations()`).
 ROUNDOFF_FACTOR = 100
 
 
@@ -141,11 +141,11 @@ def rising_loss_iterations(
 class RunMonitor:
     """Watches an optimisation loop's losses and reports on how it ended.
 
-    :meth:`update` runs at each convergence check: it reads the losses
-    recorded since the last check and issues one :class:`ConvergenceWarning`
-    per run, at the first loss rise (ALS without a ridge only). :meth:`finish`
-    warns if the loop hit ``max_iter`` without converging, and returns every
-    flagged iteration. ``data_scale`` is the loss of the zero model.
+    `update()` runs at each convergence check: it reads the losses
+    recorded since the last check and issues one
+    [`ConvergenceWarning`][robusta_hmf.ConvergenceWarning] per run, at the first loss rise (ALS
+    without a ridge only). `finish()` warns if the loop hit ``max_iter`` without converging, and
+    returns every flagged iteration. ``data_scale`` is the loss of the zero model.
     """
 
     def __init__(
