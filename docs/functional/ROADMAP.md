@@ -7,7 +7,7 @@ so the abstractions are tested against two basis families before anything is opt
 ## Phase 0: spec and roadmap
 
 - [x] `functional-robusta` branch off `main`
-- [ ] Spec and roadmap agreed
+- [x] Spec and roadmap agreed
 
 ## Phase 1: generic engine, discrete bases, equivalence
 
