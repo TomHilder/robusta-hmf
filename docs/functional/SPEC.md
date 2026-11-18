@@ -9,8 +9,7 @@ every measurement can sit at its own coordinate, and each object can have its ow
 measurements. The learned basis vectors become continuous functions that can be evaluated
 anywhere. Robustness, heteroskedasticity and missing data carry over unchanged.
 
-This follows Hogg's two notes ("ragged" and "fully functional" RHMF). The design must not be
-specialised to one basis family: Fourier is the expected default, but sparse bases
+The design must not be specialised to one basis family: Fourier is the expected default, but sparse bases
 (B-splines, wavelets) must fit without restructuring the library.
 
 ## Model
@@ -32,8 +31,8 @@ Three cases of one model:
 | Case | row basis | column basis |
 |---|---|---|
 | RHMF today (`Robusta`) | `Indicator` (one per object) | `Indicator` (one per pixel) |
-| Ragged spectra (Hogg note 1) | `Indicator` | `Fourier` (or another continuous basis) |
-| Fully functional (Hogg note 2) | continuous, e.g. 2-D `Fourier` on the sky | continuous |
+| Ragged spectra | `Indicator` | `Fourier` (or another continuous basis) |
+| Fully functional | continuous, e.g. 2-D `Fourier` on the sky | continuous |
 
 An `Indicator` basis gives each category (object, pixel) its own free coefficient, so with
 indicators on both axes the model is exactly today's Y ≈ A Gᵀ.

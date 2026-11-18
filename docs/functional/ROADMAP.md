@@ -78,7 +78,7 @@ tested.
 
 **Exit:** one engine, no change visible to `Robusta` users.
 
-## Phase 7 (sketch): fully functional (Hogg note 2)
+## Phase 7 (sketch): fully functional
 
 A continuous row basis (for example 2-D Fourier on the sky), data without object rows, and
 both steps coupled. The phases above should already allow it through `row_basis`; scope,
