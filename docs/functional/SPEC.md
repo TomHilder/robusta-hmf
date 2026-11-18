@@ -53,10 +53,33 @@ warm-started and descend on) their quadratic objectives.
 
 **Rotation.** The column functions are made orthonormal under the basis inner product
 ⟨g_k, g_k′⟩ = (γᵀ S γ)_kk′, where S is the column basis's Gram matrix. The fast rotation
-whitens γᵀSγ exactly as `FastAffine` whitens GᵀG today (S = I for `Indicator`, and S = L·I
-for `Fourier` over its period). An SVD-based canonical frame, ordered by singular value, is
-the analogue of `SlowAffine`. For a continuous row basis the row-side Gram enters the same
-way.
+whitens γᵀSγ exactly as `FastAffine` whitens GᵀG today. An SVD-based canonical frame,
+ordered by singular value, is the analogue of `SlowAffine`. For a continuous row basis the
+row-side Gram enters the same way.
+
+The inner product is taken over the **data domain** D (the range the column coordinates
+cover, after any user transforms), not over the basis's full period:
+S_mm′ = ∫[D] H_m(c) H_m′(c) dc. S = I for `Indicator`. For a padded `Fourier` basis S is
+not diagonal, but it is only n_coeffs × n_coeffs, has a closed form, and is computed once.
+Over the full period it would be diagonal, but it would then include the padding, where
+the functions are set by the solver's tie-break rather than by data (see Padding below).
+(Even over the full period a real cos/sin basis gives S = L for the constant mode and L/2
+for the others, not L·I.)
+
+**Padding.** A `Fourier` basis is periodic, so the period must exceed the span of D by a
+gap; otherwise the fit wraps one end of the data onto the other. With correlation length s
+of the structure being fitted (for spectra, the longest one, e.g. the continuum, not the
+line width), the gap should be several s. The cost is modes: at fixed resolution
+n_coeffs ∝ period. Padding makes the column step rank-deficient **regardless of the number
+of measurements**: with the data covering a fraction f of the period, only about f·n_coeffs
+directions are determined. The other ≈ (1 − f)·n_coeffs directions are functions that
+vanish on D and live only in the padding (in a numerical check, 100× more data did not move
+the cut-off, and the normal-matrix condition number was ≈ 10³⁰⁰ for f ≤ 0.5). This does not affect the
+fit on D, but it fixes two requirements: the column solve must be rank-revealing (Step
+solvers below), and anything that looks at the coefficients (the Gram above, a `max_frac`
+convergence test on γ) must not see the padding directions. Convergence on γ is therefore
+tested on function values over D, or on the coefficients projected onto the determined
+subspace.
 
 ## Architecture
 
@@ -80,7 +103,7 @@ Required interface:
 | `n_coeffs` | number of basis functions | number of categories | number of modes |
 | `evaluate(coeffs, points)` | function values at the measurements | gather | type-2 NUFFT (or dense) |
 | `adjoint(values, points)` | transpose of `evaluate` | scatter-add | type-1 NUFFT (or dense) |
-| `gram()` | inner products of basis functions | I | L·I |
+| `gram(domain)` | inner products of basis functions over the data domain | I | closed form, not diagonal when padded |
 
 `evaluate` is linear in `coeffs`, so a dense design matrix, when needed, is available
 generically (for example by `jax.jacfwd`). A basis may additionally provide a **fast-path
@@ -89,14 +112,24 @@ solver** for its axis's step (below).
 ### 3. Step solvers
 
 - **Generic (baseline)**: build the dense normal equations from the design and solve
-  directly. Correct for any basis, limited to small `n_coeffs × K` (a few thousand). It is
-  the reference every fast path is tested against.
+  them with a **rank-revealing** solve: the minimum-norm solution via `eigh` with a relative
+  eigenvalue cut-off, as `als._min_norm_solve` already does for K > n_obs. A plain `solve`
+  is not enough, because a padded basis makes the system singular however many
+  measurements there are (see Padding). Any least-squares minimiser keeps the Appendix A
+  argument intact; minimum norm is the tie-break, and for `Fourier` it sends the function
+  towards zero in the padding, which is never evaluated. The cut-off must sit above the
+  rising-loss check's round-off floor. Correct for any basis, limited to small
+  `n_coeffs × K` (a few thousand). It is the reference every fast path is tested against.
 - **Fast paths** (optional, chosen by the basis):
   - `Indicator`: the step separates into batched K × K solves (today's a- and g-steps,
     `als.normal_equations` / `solve_normal_equations`).
   - Banded (B-splines): block-banded direct solve.
   - `Fourier`: normal-matrix blocks are Toeplitz and come from type-1 NUFFTs; solved densely
-    or with JAX's conjugate gradients (`jax.scipy.sparse.linalg.cg`) when too large.
+    (rank-revealing, as above) or with JAX's conjugate gradients
+    (`jax.scipy.sparse.linalg.cg`) when too large. CG on the singular but consistent system
+    never changes the null-space part of its starting point, so a warm start carries its
+    padding component forward: project it out, or accept it, since it does not change the
+    fit on D.
 
 Anything specific to one basis family lives in that basis's fast path, never in the loop,
 the state or the public API.
@@ -155,7 +188,12 @@ per-object shifts, sharding. The design must not preclude them:
 
 ## Open questions (decide when they matter)
 
-- Column coordinate for spectra (ln λ?), band limit, and how to handle the periodic edges.
+- Column coordinate for spectra (ln λ?), band limit, and the padding gap (rule in Padding
+  above; the number of correlation lengths is still to be chosen).
+- Edge modes: directions partly on D and partly in the padding have small but non-zero
+  eigenvalues and may amplify noise near the ends of D. The eigenvalue drop is steep, so
+  this band is narrow, and pooling many objects should average it down; check on the
+  Phase 2 toy.
 - Initialisation when a basis is not `Indicator` (the SVD start needs rectangular data).
 - Coverage and exclusion rules for continuous bases (a basis function with no data in its
   support; poorly constrained Fourier modes).

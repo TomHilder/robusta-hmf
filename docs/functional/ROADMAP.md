@@ -13,7 +13,8 @@ so the abstractions are tested against two basis families before anything is opt
 
 - [ ] `robusta_hmf.functional` package: `Measurements` (+ `from_matrix`), `Basis` interface,
       `Indicator` basis, state for (α, γ)
-- [ ] Generic dense step solver (reference path)
+- [ ] Generic dense step solver (reference path), rank-revealing (minimum norm with an
+      eigenvalue cut-off), with a test on a deliberately singular system
 - [ ] w-step, loss and rotation on flat measurements, reusing `likelihoods.py` and the
       rotation maths where possible
 - [ ] `FunctionalRobusta.fit` with `Robusta`'s convergence, warnings and precision rules
@@ -26,13 +27,17 @@ generic and the fast path.
 
 ## Phase 2: Fourier basis (dense), ragged toy
 
-- [ ] `Fourier` basis with dense `evaluate` / `adjoint` (explicit cos/sin design)
+- [ ] `Fourier` basis with dense `evaluate` / `adjoint` (explicit cos/sin design), padded
+      period, and the Gram matrix over the data domain
+- [ ] Convergence on γ measured on function values over the data domain, not raw
+      coefficients
 - [ ] `predict` at arbitrary coordinates
 - [ ] Initialisation for non-indicator bases
 - [ ] Ragged toy: per-object coordinates (shifts, different sampling, different lengths);
       recovery of the true functions, compared with "resample to a common grid, then
       `Robusta`"
 - [ ] Plots of recovered functions, residuals and robust weights
+- [ ] Edge-mode check: noise near the ends of the data domain vs the padding fraction
 
 **Exit:** the toy recovers the true basis and flags injected outliers at least as well as
 the resample-then-`Robusta` baseline.
