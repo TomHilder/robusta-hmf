@@ -99,7 +99,7 @@ class Robusta:
             Number of latent factors/basis vectors
         method : OptMethod, default="als"
             Optimization method, either "als" or "sgd"
-        robust : bool, default=False
+        robust : bool, default=True
             If True, use Student-t likelihood; if False, use Gaussian
         robust_nu : float, default=1.0
             Degrees of freedom for Student-t likelihood (only used if robust=True)
@@ -109,11 +109,12 @@ class Robusta:
             Initialization strategy for factors
         override_initialiser : Initialiser | None, default=None
             Custom initialiser object (overrides init_strategy if provided)
-        conv_strategy : str, default="rel_frac_loss"
-            Convergence detection strategy
+        conv_strategy : str, default="max_frac_G"
+            Convergence detection strategy: "max_frac_G", "max_frac_A",
+            "rel_frac_loss" or "none"
         conv_tol : float, default=1e-3
             Convergence tolerance
-        conv_tester : ConvergenceTester | None, default=None
+        override_conv_tester : ConvergenceTester | None, default=None
             Custom convergence tester (overrides conv_strategy/conv_tol if provided)
         override_frame : OptFrame | None, default=None
             Custom optimisation frame, which owns how the loop is scheduled.
@@ -252,9 +253,9 @@ class Robusta:
             Weight matrix (inverse variance)
         max_iter : int, default=1000
             Maximum number of optimization iterations
-        rotation_cadence : int, default=10
+        rotation_cadence : int, default=1
             How often to apply rotation (set to 1 for ALS internally by OptFrame)
-        conv_check_cadence : int, default=20
+        conv_check_cadence : int, default=10
             How often to check convergence
         seed : int, default=0
             Random seed for initialization

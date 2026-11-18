@@ -242,8 +242,3 @@ If you use `robusta-hmf` in your research, please cite the accompanying paper
 
 Found a bug, or have a question or feature request? Please
 [open an issue](https://github.com/TomHilder/robusta-hmf/issues) on GitHub.
-
-## TODOs
-
-- [ ] More interpretable loss, maybe normalised in some sensible way (maybe proper NLL)
-- [ ] Type checking with `mypy`

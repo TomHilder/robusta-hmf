@@ -40,7 +40,7 @@ Never chain `git add` and `git commit` with `&&`. Run them as separate sequentia
 ## Project Management
 
 `PLAN.md` (top-level) is a lightweight status + outstanding-work doc for the project. Read it at the start of a session for context. It has three short sections:
-- **Status** — one-line summary of where the project is (currently: library + paper complete, maintenance mode).
+- **Status** — one-line summary of where the project is.
 - **Outstanding** — forward-looking work and parked ideas that have nowhere else to live (releases, paper revisions, deferred designs).
 - **Log** — thin, append-only; add an entry when you do something notable.
 

@@ -5,12 +5,14 @@ file is used. Git history is the detailed record; this is for orientation and fo
 
 ## Status
 
-**Active development** (as of 2026-06-27). The library and both paper example applications
-(toy validation + Gaia RVS outlier identification) are done, and the manuscript is
-effectively done. Ongoing work is software engineering — hardening and polishing the
-library — plus possible feature extensions. Releases are automated: push a `vX.Y.Z` tag and
-`.github/workflows/release.yml` builds and publishes to PyPI via Trusted Publishers
-(hatch-vcs derives the version from the tag). Latest release is `v0.1.0` (2026-11-17).
+**Hardening the library** (as of 2026-11-18). The paper is accepted (ApJ, in press; AAS
+data review fixes merged 2026-11-17, catalogue DOI still to come) and both example
+applications (toy validation + Gaia RVS outlier identification) are done. Ongoing work is
+software engineering — hardening and polishing the library — plus possible feature
+extensions. Releases are automated: push a `vX.Y.Z` tag and
+`.github/workflows/release.yml` runs the tests, then builds and publishes to PyPI via
+Trusted Publishers (hatch-vcs derives the version from the tag). Latest release is `v0.1.1`
+(2026-11-18).
 
 ## Outstanding
 
@@ -72,6 +74,7 @@ Append-only. Add an entry when you do something notable.
 
 | Date | Event |
 |------|-------|
+| 2026-11-18 | Released `v0.1.1` (docs only): corrected the defaults stated in the `Robusta.__init__` and `fit()` docstrings; refreshed PLAN.md status; moved the README TODOs into PLAN.md (they were already here). |
 | 2026-11-17 | Released `v0.1.0`, the first release since `v0.0.2` (2025-11-24): `ShardedFrame`, `score()` and `robusta_hmf.metrics`, explicit precision (`dtype=`, `PrecisionError`; importing the package no longer enables x64), and the under-determined-fit handling of PR #13. Breaking changes are listed in the GitHub release notes. Hogg's email and Andrew R. Casey added to the package authors; `pandas` moved from the core dependencies to the `examples` group. |
 | 2026-11-13 | Under-determined fits (#2, #10; PR #13): NaN/inf inputs are treated as missing (`DataWarning`, or `nan_error=True`); rows and columns with fewer non-zero weights than the rank are excluded before the loop (cascading), returned as NaN with `row_excluded`/`col_excluded` masks, and reported (`UnderdeterminedWarning`, `fit_info.exclusions`); with `als_ridge` they are reported instead, plus a warning when the ridge is below working precision. A rising ALS loss or reaching `max_iter` gives a `ConvergenceWarning`; `model.fit_info` records the run. `score()` honours exclusions. Exclusion on robust weights during the fit was tried and dropped (false positives from the initial guess). Ordinary fits are bit-identical to before. |
 | 2026-11-10 | Precision made explicit: `Robusta(dtype=...)`, float64 by default; with `jax_enable_x64` off a float64 fit raises `PrecisionError` instead of silently running in float32 (the global x64 side effect was removed in f6a17aa). Dense loop now raises on a non-finite loss, like the sharded one. Paper scripts set x64 / `dtype=` so they reproduce the published fits. |
