@@ -11,16 +11,16 @@ so the abstractions are tested against two basis families before anything is opt
 
 ## Phase 1: generic engine, discrete bases, equivalence
 
-- [ ] `robusta_hmf.functional` package: `Measurements` (+ `from_matrix`), `Basis` interface,
+- [x] `robusta_hmf.functional` package: `Measurements` (+ `from_matrix`), `Basis` interface,
       `Discrete` basis, state for (α, γ)
-- [ ] Generic dense step solver (reference path), rank-revealing (minimum norm with an
+- [x] Generic dense step solver (reference path), rank-revealing (minimum norm with an
       eigenvalue cut-off), with a test on a deliberately singular system
-- [ ] w-step, loss and rotation on flat measurements, reusing `likelihoods.py` and the
+- [x] w-step, loss and rotation on flat measurements, reusing `likelihoods.py` and the
       rotation maths where possible
-- [ ] `FunctionalRobusta.fit` with `Robusta`'s convergence, warnings and precision rules
-- [ ] `Discrete` fast path: batched K × K solves via `als.py`, keeping the dense (N, M)
+- [x] `FunctionalRobusta.fit` with `Robusta`'s convergence, warnings and precision rules
+- [x] `Discrete` fast path: batched K × K solves via `als.py`, keeping the dense (N, M)
       layout when both axes are `Discrete` and the data are rectangular
-- [ ] Equivalence tests against `Robusta` on small problems (missing data, outliers,
+- [x] Equivalence tests against `Robusta` on small problems (missing data, outliers,
       several K and Q)
 
 **Exit:** discrete × discrete matches `Robusta` to float64 round-off, through both the
@@ -32,7 +32,7 @@ generic and the fast path.
       period, and the Gram matrix over the data domain
 - [ ] Convergence on γ measured on function values over the data domain, not raw
       coefficients
-- [ ] `predict` at arbitrary coordinates
+- [x] `predict` at arbitrary coordinates
 - [ ] Initialisation for non-discrete bases
 - [ ] Ragged toy: per-object coordinates (shifts, different sampling, different lengths);
       recovery of the true functions, compared with "resample to a common grid, then
