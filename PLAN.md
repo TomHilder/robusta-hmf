@@ -40,8 +40,8 @@ retire this file.
   the prefactor (match Eq. 170) or use $(\nu+1)/2$ — and apply it consistently across
   `StudentTLikelihood.loss` and `CauchyLikelihood.loss`.
 - **Docs** — the site (https://tomhilder.github.io/robusta-hmf) is the README plus an API
-  reference built from docstrings. Remaining: docstrings for the public members that have
-  none or only a line (`Robusta`'s properties and helpers, `RHMFState`, `Initialiser`).
+  reference built from docstrings, which now cover the public API. `Robusta.mse()` is public
+  but raises `NotImplementedError`: implement it or remove it.
 - **Type-checking everywhere** — comprehensive type annotations + a type checker run
   across the codebase (the package already ships a `py.typed` marker).
 - **Code clean-up** — refactors and dead-code removal.
