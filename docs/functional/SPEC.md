@@ -35,8 +35,8 @@ Three cases of one model:
 | Fully functional | continuous, e.g. 2-D `Fourier` on the sky | continuous |
 
 A `Discrete` basis gives each category (object, pixel) its own free coefficient: each basis
-function is the indicator of one category. With discrete bases on both axes the model is
-exactly today's Y ≈ A Gᵀ.
+function is 1 on one category and 0 on all others. With discrete bases on both axes the
+model is exactly today's Y ≈ A Gᵀ.
 
 ## Algorithm
 
