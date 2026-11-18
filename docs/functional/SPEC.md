@@ -30,12 +30,13 @@ Three cases of one model:
 
 | Case | row basis | column basis |
 |---|---|---|
-| RHMF today (`Robusta`) | `Indicator` (one per object) | `Indicator` (one per pixel) |
-| Ragged spectra | `Indicator` | `Fourier` (or another continuous basis) |
+| RHMF today (`Robusta`) | `Discrete` (one per object) | `Discrete` (one per pixel) |
+| Ragged spectra | `Discrete` | `Fourier` (or another continuous basis) |
 | Fully functional | continuous, e.g. 2-D `Fourier` on the sky | continuous |
 
-An `Indicator` basis gives each category (object, pixel) its own free coefficient, so with
-indicators on both axes the model is exactly today's Y ≈ A Gᵀ.
+A `Discrete` basis gives each category (object, pixel) its own free coefficient: each basis
+function is the indicator of one category. With discrete bases on both axes the model is
+exactly today's Y ≈ A Gᵀ.
 
 ## Algorithm
 
@@ -58,7 +59,7 @@ row-side Gram enters the same way.
 
 The inner product is taken over the **data domain** D (the range the column coordinates
 cover, after any user transforms), not over the basis's full period:
-S_mm′ = ∫[D] H_m(c) H_m′(c) dc. S = I for `Indicator`. For a padded `Fourier` basis S is
+S_mm′ = ∫[D] H_m(c) H_m′(c) dc. S = I for `Discrete`. For a padded `Fourier` basis S is
 not diagonal, but it is only n_coeffs × n_coeffs, has a closed form, and is computed once.
 Over the full period it would be diagonal, but it would then include the padding, where
 the functions are set by the solver's tie-break rather than by data (see Padding below).
@@ -86,18 +87,22 @@ The iteration loop never knows which basis it is using. Three layers:
 
 ### 1. Data: `Measurements`
 
-A flat list of measurements: `row`, `col` (integer ids for an `Indicator` axis, coordinates
+A flat list of measurements: `row`, `col` (integer ids for a `Discrete` axis, coordinates
 otherwise; `row` may be 2-D for a sky position), `y`, `w`. Rectangular data are one layout
 of this, via `Measurements.from_matrix(Y, W)` (row i, column j ↦ ids i, j). Zero weights
 and NaN handling follow `Robusta`'s rules. Known per-measurement coordinate transforms (for
 example a Doppler shift into the rest frame) are applied by the user to `col`; no special
 support is needed.
 
+The flat list is the general representation, not necessarily the storage. When both axes
+are `Discrete` and the data are rectangular, the engine keeps Y and W as dense (N, M)
+matrices (see the `Discrete` fast path below).
+
 ### 2. Basis (one per axis)
 
 Required interface:
 
-| Method | Meaning | `Indicator` | `Fourier` |
+| Method | Meaning | `Discrete` | `Fourier` |
 |---|---|---|---|
 | `n_coeffs` | number of basis functions | number of categories | number of modes |
 | `evaluate(coeffs, points)` | function values at the measurements | gather | type-2 NUFFT (or dense) |
@@ -120,8 +125,13 @@ solver** for its axis's step (below).
   rising-loss check's round-off floor. Correct for any basis, limited to small
   `n_coeffs × K` (a few thousand). It is the reference every fast path is tested against.
 - **Fast paths** (optional, chosen by the basis):
-  - `Indicator`: the step separates into batched K × K solves (today's a- and g-steps,
-    `als.normal_equations` / `solve_normal_equations`).
+  - `Discrete`: the step separates into batched K × K solves (today's a- and g-steps,
+    `als.normal_equations` / `solve_normal_equations`). On flat measurements this costs
+    index arrays and gather/scatter where today's code uses dense matrix products. So when
+    both axes are `Discrete` and the data are rectangular, the fast path keeps the dense
+    (N, M) layout and runs the existing kernels unchanged. This is what makes the backend
+    swap free for `Robusta` users. (The generic path on a `Discrete` axis builds a dense
+    design with one column per category, almost all zeros: tests on small problems only.)
   - Banded (B-splines): block-banded direct solve.
   - `Fourier`: normal-matrix blocks are Toeplitz and come from type-1 NUFFTs; solved densely
     (rank-revealing, as above) or with JAX's conjugate gradients
@@ -137,13 +147,13 @@ the state or the public API.
 
 ```python
 from robusta_hmf import Robusta                        # unchanged
-from robusta_hmf.functional import FunctionalRobusta, Measurements, Indicator, Fourier
+from robusta_hmf.functional import FunctionalRobusta, Measurements, Discrete, Fourier
 
 data = Measurements(row=row_id, col=lam, y=flux, w=ivar)
 model = FunctionalRobusta(
     rank=10,
     robust_scale=5.0,
-    row_basis=Indicator(n=n_objects),
+    row_basis=Discrete(n=n_objects),
     col_basis=Fourier(n_modes=801, period=L),
 )
 state, loss_history = model.fit(data)
@@ -165,11 +175,11 @@ against it:
 data = Measurements.from_matrix(Y, W)
 ref = Robusta(rank=5, robust_scale=5.0)
 new = FunctionalRobusta(rank=5, robust_scale=5.0,
-                        row_basis=Indicator(n=N), col_basis=Indicator(n=M))
+                        row_basis=Discrete(n=N), col_basis=Discrete(n=M))
 ```
 
 With the same initial state and settings, A, G, robust weights and loss history must agree
-to float64 round-off (about 1e-10 relative). Once the indicator path matches across the
+to float64 round-off (about 1e-10 relative). Once the discrete path matches across the
 existing test suite, `Robusta`'s dense backend is swapped to delegate to the generic engine,
 removing the duplicate code; the equivalence tests then guard against regressions.
 `ShardedFrame` is out of scope for the first swap.
@@ -193,7 +203,7 @@ per-object shifts, sharding. The design must not preclude them:
   eigenvalues and may amplify noise near the ends of D. The eigenvalue drop is steep, so
   this band is narrow, and pooling many objects should average it down; check on the
   Phase 2 toy.
-- Initialisation when a basis is not `Indicator` (the SVD start needs rectangular data).
+- Initialisation when a basis is not `Discrete` (the SVD start needs rectangular data).
 - Coverage and exclusion rules for continuous bases (a basis function with no data in its
   support; poorly constrained Fourier modes).
 - NUFFT tolerance relative to the rising-loss check's round-off floor.

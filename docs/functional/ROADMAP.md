@@ -9,20 +9,21 @@ so the abstractions are tested against two basis families before anything is opt
 - [x] `functional-robusta` branch off `main`
 - [ ] Spec and roadmap agreed
 
-## Phase 1: generic engine, indicator bases, equivalence
+## Phase 1: generic engine, discrete bases, equivalence
 
 - [ ] `robusta_hmf.functional` package: `Measurements` (+ `from_matrix`), `Basis` interface,
-      `Indicator` basis, state for (α, γ)
+      `Discrete` basis, state for (α, γ)
 - [ ] Generic dense step solver (reference path), rank-revealing (minimum norm with an
       eigenvalue cut-off), with a test on a deliberately singular system
 - [ ] w-step, loss and rotation on flat measurements, reusing `likelihoods.py` and the
       rotation maths where possible
 - [ ] `FunctionalRobusta.fit` with `Robusta`'s convergence, warnings and precision rules
-- [ ] `Indicator` fast path: batched K × K solves via `als.py`
+- [ ] `Discrete` fast path: batched K × K solves via `als.py`, keeping the dense (N, M)
+      layout when both axes are `Discrete` and the data are rectangular
 - [ ] Equivalence tests against `Robusta` on small problems (missing data, outliers,
       several K and Q)
 
-**Exit:** indicator × indicator matches `Robusta` to float64 round-off, through both the
+**Exit:** discrete × discrete matches `Robusta` to float64 round-off, through both the
 generic and the fast path.
 
 ## Phase 2: Fourier basis (dense), ragged toy
@@ -32,7 +33,7 @@ generic and the fast path.
 - [ ] Convergence on γ measured on function values over the data domain, not raw
       coefficients
 - [ ] `predict` at arbitrary coordinates
-- [ ] Initialisation for non-indicator bases
+- [ ] Initialisation for non-discrete bases
 - [ ] Ragged toy: per-object coordinates (shifts, different sampling, different lengths);
       recovery of the true functions, compared with "resample to a common grid, then
       `Robusta`"
@@ -72,7 +73,7 @@ tested.
 
 ## Phase 6: backend swap
 
-- [ ] `Robusta`'s dense backend delegates to the generic engine with indicator bases
+- [ ] `Robusta`'s dense backend delegates to the generic engine with discrete bases
 - [ ] Full existing test suite passes unchanged; equivalence tests kept as guards
 - [ ] Remove the duplicated code; `ShardedFrame` stays as it is for now
 
