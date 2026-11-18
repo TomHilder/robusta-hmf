@@ -1,4 +1,4 @@
-# Robusta-HMF
+# robusta-hmf
 
 `jax` implementation of robust heteroskedastic matrix factorisation. Robusta like the coffee bean, get it?
 
