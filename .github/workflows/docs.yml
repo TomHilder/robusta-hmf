@@ -1,0 +1,56 @@
+name: Documentation
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"  # Same trigger as release.yml: the published docs match the PyPI release
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'src/**'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'src/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:  # Allow manual deploy
+
+permissions:
+  contents: write
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r docs/requirements.txt
+          pip install -e .
+
+      - name: Build documentation
+        run: mkdocs build --strict
+
+      # Deploy to GitHub Pages (tomhilder.github.io/robusta-hmf) on version tags
+      # and manual runs only; pushes and PRs just check that the docs build.
+      - name: Deploy to gh-pages
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          mkdocs gh-deploy --force
