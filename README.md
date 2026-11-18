@@ -2,6 +2,8 @@
 
 `jax` implementation of robust heteroskedastic matrix factorisation. Robusta like the coffee bean, get it?
 
+Documentation, including the API reference: https://tomhilder.github.io/robusta-hmf
+
 ## Installation
 
 Easiest is from PyPI either with `pip`
