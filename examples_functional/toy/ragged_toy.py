@@ -9,11 +9,12 @@ objects and objects with an extra emission line. Fits
 - the baseline: each object linearly interpolated onto a common grid, then Robusta,
 
 with the same rank and robust scale, and saves data, truth and both fits to
-outputs/ragged_toy.npz.
+outputs/ragged_toy_nf<n_freq>.npz.
 
-    uv run python examples_functional/toy/ragged_toy.py
+    uv run python examples_functional/toy/ragged_toy.py [--n-freq 60]
 """
 
+import argparse
 from pathlib import Path
 
 import jax
@@ -29,7 +30,6 @@ SEED = 0
 N = 400
 K = 4
 Q = 4.0
-N_FREQ = 60
 PAD = 0.25
 GRID = np.linspace(0.0, 1.0, 101)  # the baseline's common grid
 FINE = np.linspace(0.0, 1.0, 2001)  # for comparing functions
@@ -121,6 +121,9 @@ def resample_to_grid(d):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--n-freq", type=int, default=60, help="Fourier harmonics (2n+1 modes)")
+    N_FREQ = parser.parse_args().n_freq
     OUT.mkdir(exist_ok=True)
     rng = np.random.default_rng(SEED)
     d = make_data(rng)
@@ -139,7 +142,7 @@ def main():
     rb_wgrid = np.asarray(rb.robust_weights(Y, W))
 
     np.savez(
-        OUT / "ragged_toy.npz",
+        OUT / f"ragged_toy_nf{N_FREQ}.npz",
         **d,
         fine=FINE, grid=GRID, truth_fine=true_functions(FINE),
         fr_A=np.asarray(fr_state.row_coeffs), fr_gamma=np.asarray(fr_state.col_coeffs),

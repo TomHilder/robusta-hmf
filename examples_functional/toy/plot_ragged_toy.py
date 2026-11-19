@@ -1,8 +1,9 @@
 """Figures and summary numbers for the ragged toy (run ragged_toy.py first).
 
-    uv run --group examples python examples_functional/toy/plot_ragged_toy.py
+    uv run --group examples python examples_functional/toy/plot_ragged_toy.py [--n-freq 60]
 """
 
+import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -10,14 +11,13 @@ import numpy as np
 from mpl_drip import get_color
 
 HERE = Path(__file__).parent
-FIGS = HERE / "figs"
 FR, RB, TRUTH = get_color(0), get_color(1), "0.15"
 FR_LABEL, RB_LABEL = "FunctionalRobusta", "resample + Robusta"
 LO, HI = 0.01, 0.99  # comparison range: the baseline excludes its end grid points
 
 
-def load():
-    d = dict(np.load(HERE / "outputs" / "ragged_toy.npz"))
+def load(n_freq=60):
+    d = dict(np.load(HERE / "outputs" / f"ragged_toy_nf{n_freq}.npz"))
     fine = d["fine"]
     d["keep"] = (fine >= LO) & (fine <= HI)
     # Baseline basis on the fine grid (linear, as it was built).
@@ -200,9 +200,14 @@ def fig_object_scores(d, s_fr, s_rb):
 
 
 def main():
+    global FIGS
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--n-freq", type=int, default=60)
+    n_freq = parser.parse_args().n_freq
+    FIGS = HERE / "figs" / f"nf{n_freq}"
     plt.style.use("mpl_drip.custom")
-    FIGS.mkdir(exist_ok=True)
-    d = load()
+    FIGS.mkdir(parents=True, exist_ok=True)
+    d = load(n_freq)
     w_fr, w_rb = d["fr_w"], baseline_point_weights(d)
     s_fr, s_rb = object_scores(d, w_fr, w_rb)
 
