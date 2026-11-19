@@ -11,6 +11,23 @@ from .state import RHMFState, update_state
 RotationMethod: TypeAlias = Literal["fast", "slow", "fast-weighted", "identity"]
 
 
+def whitening_transform(C, eps: float):
+    """Symmetric whitening of a ``K × K`` Gram matrix ``C``.
+
+    Returns ``(R, R_inv)`` with ``R = V Λ^{-1/2} Vᵀ`` from the eigendecomposition
+    of ``½(C + Cᵀ) + eps·I``, eigenvalues floored at ``eps``, so that
+    ``Rᵀ C R ≈ I``. Applying ``G → G R`` and ``A → A R_inv`` leaves ``A Gᵀ``
+    unchanged.
+    """
+    K = C.shape[0]
+    C = 0.5 * (C + C.T) + eps * jnp.eye(K, dtype=C.dtype)
+    evals, V = jnp.linalg.eigh(C)
+    lam = jnp.maximum(evals, eps)
+    R = V @ ((1.0 / jnp.sqrt(lam))[:, None] * V.T)
+    R_inv = V @ (jnp.sqrt(lam)[:, None] * V.T)
+    return R, R_inv
+
+
 class Rotation(eqx.Module):
     """Base class for rotations to deal with symmetries."""
 
@@ -40,17 +57,11 @@ class FastAffine(Rotation):
         else:
             X = A
 
-        # Compute symmetric covariance
-        C = 0.5 * (X.T @ X + (X.T @ X).T) + self.eps * jnp.eye(K, dtype=A.dtype)
-        evals, V = jnp.linalg.eigh(C)
-        lam = jnp.maximum(evals, self.eps)
-
         if self.whiten:
-            invsqrt = 1.0 / jnp.sqrt(lam)
-            sqrtv = jnp.sqrt(lam)
-            R = V @ (invsqrt[:, None] * V.T)  # V Λ^{-1/2} V^T
-            Rinverse = V @ (sqrtv[:, None] * V.T)  # inverse of above
+            R, Rinverse = whitening_transform(X.T @ X, self.eps)
         else:
+            C = 0.5 * (X.T @ X + (X.T @ X).T) + self.eps * jnp.eye(K, dtype=A.dtype)
+            _, V = jnp.linalg.eigh(C)
             R = V
             Rinverse = V
 

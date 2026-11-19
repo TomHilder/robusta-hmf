@@ -19,6 +19,9 @@ Trusted Publishers (hatch-vcs derives the version from the tag). Latest release 
 Forward-looking work. Empty this list as items are done; if it stays empty indefinitely,
 retire this file.
 
+**FunctionalRobusta** (function-basis RHMF for ragged data; branch `functional-robusta`)
+- Design in `docs/functional/SPEC.md`, phases in `docs/functional/ROADMAP.md`.
+
 **Engineering / hardening**
 - **Switch the Gaia pipeline onto `robusta_hmf.sharded`** — `examples_paper/gaia_rvs`
   (on the `peer-review` branch) still carries `distributed_robusta.py` and
