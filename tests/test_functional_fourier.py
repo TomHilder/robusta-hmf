@@ -11,6 +11,8 @@ import numpy as np
 import pytest
 from robusta_hmf import RobustaWarning
 from robusta_hmf.functional import Discrete, Fourier, FunctionalRobusta, Measurements
+from robusta_hmf.functional import bases as bases_module
+from robusta_hmf.functional.bases import DenseBound, IndexedBound
 
 jax.config.update("jax_enable_x64", True)
 
@@ -135,3 +137,71 @@ def test_flags_injected_outliers():
     w = np.asarray(model.robust_weights(data))
     assert np.all(w[bad] < 0.1)
     assert np.median(w[~bad]) > 0.9
+
+
+# ----------------------------
+# Repeated coordinates: IndexedBound and chunked accumulation
+# ----------------------------
+def repeated_points(rng, n=600, n_distinct=40):
+    grid = np.sort(rng.uniform(*DOMAIN, size=n_distinct))
+    return grid[rng.integers(0, n_distinct, size=n)]
+
+
+def test_fourier_binds_repeated_coordinates_as_indexed():
+    rng = np.random.default_rng(10)
+    basis = Fourier(n_freq=4, domain=DOMAIN)
+    assert isinstance(basis.bind(jnp.asarray(repeated_points(rng))), IndexedBound)
+    assert isinstance(basis.bind(jnp.asarray(rng.uniform(*DOMAIN, size=50))), DenseBound)
+
+
+def test_indexed_bound_matches_dense():
+    rng = np.random.default_rng(11)
+    basis = Fourier(n_freq=4, domain=DOMAIN)
+    x = jnp.asarray(repeated_points(rng))
+    indexed, dense = basis.bind(x), DenseBound(basis.features(x))
+    c = jnp.asarray(rng.normal(size=(9, 3)))
+    v = jnp.asarray(rng.normal(size=(x.size, 3)))
+    np.testing.assert_allclose(indexed.evaluate(c), dense.evaluate(c), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(indexed.adjoint(v), dense.adjoint(v), rtol=1e-10, atol=1e-10)
+    np.testing.assert_allclose(indexed.design_rows(5, 17), dense.design()[5:17], atol=1e-14)
+    y = jnp.asarray(rng.normal(size=x.size))
+    w = jnp.asarray(rng.uniform(0.5, 2.0, size=x.size))
+    other = jnp.asarray(rng.normal(size=(x.size, 3)))
+    np.testing.assert_allclose(
+        indexed.solve(other, y, w, 100), dense.solve(other, y, w, 100), rtol=1e-8, atol=1e-10
+    )
+
+
+def test_chunked_segment_gram_matches_single_pass(monkeypatch):
+    rng = np.random.default_rng(12)
+    n, K, S = 1000, 3, 7
+    other = jnp.asarray(rng.normal(size=(n, K)))
+    y, w = jnp.asarray(rng.normal(size=n)), jnp.asarray(rng.uniform(size=n))
+    seg = jnp.asarray(rng.integers(0, S, size=n))
+    M1, b1 = bases_module.segment_gram(other, y, w, seg, S)
+    monkeypatch.setattr(bases_module, "CHUNK", 64)  # 1000 = 15 full chunks + a padded one
+    M2, b2 = bases_module.segment_gram(other, y, w, seg, S)
+    np.testing.assert_allclose(M2, M1, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(b2, b1, rtol=1e-12, atol=1e-12)
+
+
+def test_fit_with_repeated_coordinates_recovers_functions(monkeypatch):
+    """Ragged rows on a shared coordinate grid: the indexed path, chunked, recovers the truth."""
+    monkeypatch.setattr(bases_module, "CHUNK", 256)
+    rng = np.random.default_rng(13)
+    basis = Fourier(n_freq=4, domain=DOMAIN)
+    N, K = 60, 2
+    grid = np.linspace(*DOMAIN, 50)
+    G_true = rng.normal(size=(basis.n_coeffs, K)) / np.arange(1, basis.n_coeffs + 1)[:, None]
+    A_true = rng.normal(size=(N, K))
+    rows = np.repeat(np.arange(N), 30)
+    cols = np.concatenate([rng.choice(grid, 30, replace=False) for _ in range(N)])
+    Phi = np.asarray(basis.features(jnp.asarray(cols)))
+    y = np.sum(A_true[rows] * (Phi @ G_true), axis=1) + 0.01 * rng.normal(size=rows.size)
+    data = Measurements(rows, cols, y, np.full(y.size, 1e4))
+    model = FunctionalRobusta(K, Discrete(N), basis, robust_scale=5.0, conv_tol=1e-10)
+    state, _ = model.fit(data, max_iter=500)
+    Phi_grid = np.asarray(basis.features(jnp.asarray(grid)))
+    fit = np.asarray(state.row_coeffs) @ (Phi_grid @ np.asarray(state.col_coeffs)).T
+    truth = A_true @ (Phi_grid @ G_true).T
+    assert np.sqrt(np.mean((fit - truth) ** 2)) < 0.01

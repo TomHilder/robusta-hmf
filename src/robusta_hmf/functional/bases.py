@@ -25,8 +25,49 @@ import jax.numpy as jnp
 import numpy as np
 from jaxtyping import Array
 
-from ..als import solve_normal_equations
+from ..als import _min_norm_solve, solve_normal_equations
 from .solvers import generic_solve
+
+
+#: Measurements per chunk when accumulating per-category ``K × K`` sums, which bounds the
+#: ``chunk · K²`` intermediate (2¹⁸ · 12² doubles is 300 MB).
+CHUNK = 2**18
+
+
+def segment_gram(other: Array, y: Array, w: Array, segments: Array, n_segments: int):
+    """Per-segment ``Σ wⱼ oⱼ oⱼᵀ`` and ``Σ wⱼ yⱼ oⱼ``, accumulated in chunks of measurements.
+
+    Returns ``M`` of shape ``(n_segments, K, K)`` and ``b`` of shape ``(n_segments, K)``.
+    With at most `CHUNK` measurements this is a single segment sum; beyond that the
+    measurements are processed `CHUNK` at a time so the ``(chunk, K, K)`` intermediate
+    stays bounded.
+    """
+    n, K = other.shape
+
+    def partial(o, yy, ww, seg):
+        outer = (ww[:, None, None] * o[:, :, None] * o[:, None, :]).reshape(o.shape[0], K * K)
+        M = jax.ops.segment_sum(outer, seg, num_segments=n_segments).reshape(n_segments, K, K)
+        b = jax.ops.segment_sum((ww * yy)[:, None] * o, seg, num_segments=n_segments)
+        return M, b
+
+    if n <= CHUNK:
+        return partial(other, y, w, segments)
+    pad = (-n) % CHUNK
+    n_chunks = (n + pad) // CHUNK
+
+    def chunked(x):
+        x = jnp.concatenate([x, jnp.zeros((pad,) + x.shape[1:], x.dtype)])
+        return x.reshape((n_chunks, CHUNK) + x.shape[1:])
+
+    xs = (chunked(other), chunked(y), chunked(w), chunked(segments))  # padded w = 0
+
+    def body(carry, chunk):
+        M, b = partial(*chunk)
+        return (carry[0] + M, carry[1] + b), None
+
+    init = (jnp.zeros((n_segments, K, K), other.dtype), jnp.zeros((n_segments, K), other.dtype))
+    (M, b), _ = jax.lax.scan(body, init, xs)
+    return M, b
 
 
 class BoundBasis(eqx.Module):
@@ -52,6 +93,10 @@ class BoundBasis(eqx.Module):
     def design(self) -> Array:
         """The dense design matrix ``(n_points, n_coeffs)``, from `evaluate`."""
         return self.evaluate(jnp.eye(self.n_coeffs, dtype=jnp.zeros(()).dtype))
+
+    def design_rows(self, start: int, stop: int) -> Array:
+        """Rows ``start:stop`` of the design matrix, without building all of it if avoidable."""
+        return self.design()[start:stop]
 
     def solve(self, other: Array, y: Array, w: Array, other_n: int) -> Array:
         """Weighted least-squares coefficients on this axis, the other axis fixed.
@@ -94,6 +139,50 @@ class DenseBound(BoundBasis):
 
     def design(self) -> Array:
         return self.Phi
+
+
+class IndexedBound(BoundBasis):
+    """A bound basis whose measurements share a limited set of coordinates.
+
+    ``Phi`` holds the basis at the ``T`` distinct coordinates and ``index`` maps each
+    measurement to one of them. Evaluation is a ``(T, K)`` product then a gather, and the
+    least-squares step needs only per-coordinate ``K × K`` sums, so the cost of the normal
+    equations no longer scales as ``n_points · (n_coeffs · K)²``.
+    """
+
+    Phi: Array
+    index: Array
+
+    @property
+    def n_coeffs(self) -> int:
+        return int(self.Phi.shape[1])
+
+    def evaluate(self, coeffs: Array) -> Array:
+        return (self.Phi @ coeffs)[self.index]
+
+    def adjoint(self, values: Array) -> Array:
+        summed = jax.ops.segment_sum(values, self.index, num_segments=self.Phi.shape[0])
+        return self.Phi.T @ summed
+
+    def design(self) -> Array:
+        return self.Phi[self.index]
+
+    def design_rows(self, start: int, stop: int) -> Array:
+        return self.Phi[self.index[start:stop]]
+
+    def solve(self, other: Array, y: Array, w: Array, other_n: int) -> Array:
+        """The generic minimum-norm solve, with the normal equations built per coordinate.
+
+        ``M[(b,k),(b′,k′)] = Σₜ Φₜ_b Φₜ_b′ Cₜ[k,k′]`` with ``Cₜ = Σ_{j at t} wⱼ oⱼ oⱼᵀ``: the
+        same system `generic_solve` builds, assembled from ``T`` coordinates instead of
+        every measurement.
+        """
+        T, B = self.Phi.shape
+        K = other.shape[1]
+        C, c = segment_gram(other, y, w, self.index, T)
+        M = jnp.einsum("tb,tc,tkl->bkcl", self.Phi, self.Phi, C).reshape(B * K, B * K)
+        rhs = jnp.einsum("tb,tk->bk", self.Phi, c).reshape(B * K)
+        return _min_norm_solve(M, rhs).reshape(B, K)
 
 
 class Basis(eqx.Module):
@@ -147,10 +236,7 @@ class DiscreteBound(BoundBasis):
     def solve(self, other: Array, y: Array, w: Array, other_n: int) -> Array:
         if not self.fast:
             return super().solve(other, y, w, other_n)
-        K = other.shape[1]
-        outer = (other[:, :, None] * other[:, None, :]).reshape(other.shape[0], K * K)
-        M = self.adjoint(w[:, None] * outer).reshape(self.n, K, K)
-        b = self.adjoint((w * y)[:, None] * other)
+        M, b = segment_gram(other, y, w, self.points, self.n)
         return solve_normal_equations(M, b, None, n_obs=other_n)
 
 
@@ -265,7 +351,11 @@ class Fourier(Basis):
         mt = theta[:, None] * m[None, :]
         return jnp.concatenate([jnp.ones_like(theta)[:, None], jnp.cos(mt), jnp.sin(mt)], axis=1)
 
-    def bind(self, points: Array) -> DenseBound:
+    def bind(self, points: Array) -> DenseBound | IndexedBound:
+        """Dense design, or `IndexedBound` when the coordinates repeat (≤ ¼ distinct)."""
+        values, index = np.unique(np.asarray(points), return_inverse=True)
+        if 4 * values.size <= index.size:
+            return IndexedBound(self.features(jnp.asarray(values)), jnp.asarray(index.ravel()))
         return DenseBound(self.features(points))
 
     def gram(self) -> Array:

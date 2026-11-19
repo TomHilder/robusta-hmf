@@ -2,6 +2,7 @@
 
 from typing import Literal
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 from jaxtyping import Array
@@ -11,7 +12,7 @@ from ..fit_info import FitInfo
 from ..initialisation import random_init, svd_init
 from ..likelihoods import GaussianLikelihood, Likelihood, StudentTLikelihood
 from ..precision import DEFAULT_DTYPE, check_precision, resolve_dtype
-from .bases import Basis, Discrete
+from .bases import CHUNK, Basis, Discrete
 from .engine import make_layout, run
 from .measurements import Measurements, sanitise_measurements
 from .state import FunctionalState
@@ -241,7 +242,15 @@ class FunctionalRobusta:
         row_op = self.row_basis.bind(data.row)
         col_op = self.col_basis.bind(data.col)
         y = jnp.where(data.w > 0, data.y, 0.0)
-        D = row_op.adjoint(y[:, None] * col_op.design())
+        n_rows = self.row_basis.n_coeffs
+        D = jnp.zeros((n_rows, col_op.n_coeffs), self.dtype)
+        for start in range(0, data.n, CHUNK):  # never the whole (n_points, n_coeffs) design
+            stop = min(start + CHUNK, data.n)
+            D = D + jax.ops.segment_sum(
+                y[start:stop, None] * col_op.design_rows(start, stop),
+                data.row[start:stop],
+                num_segments=n_rows,
+            )
         _, s, Vh = jnp.linalg.svd(D, full_matrices=False)
         G = Vh[: self.rank].T * jnp.sqrt(s[: self.rank])
         A = row_op.solve(col_op.evaluate(G), data.y, data.w, col_op.n_coeffs)
