@@ -28,14 +28,14 @@ generic and the fast path.
 
 ## Phase 2: Fourier basis (dense), ragged toy
 
-- [ ] `Basis.bind(points)` → bound operator (`evaluate`, `adjoint`, `solve`), built once per
+- [x] `Basis.bind(points)` → bound operator (`evaluate`, `adjoint`, `solve`), built once per
       fit, modelled on FINUFFT's plan / setpts / execute; `Discrete` moved onto it
-- [ ] `Fourier` basis with dense `evaluate` / `adjoint` (explicit cos/sin design), padded
+- [x] `Fourier` basis with dense `evaluate` / `adjoint` (explicit cos/sin design), padded
       period, and the Gram matrix over the data domain
-- [ ] Convergence on γ measured on function values over the data domain, not raw
+- [x] Convergence on γ measured on function values over the data domain, not raw
       coefficients
 - [x] `predict` at arbitrary coordinates
-- [ ] Initialisation for non-discrete bases
+- [x] Initialisation for non-discrete bases
 - [ ] Ragged toy: per-object coordinates (shifts, different sampling, different lengths);
       recovery of the true functions, compared with "resample to a common grid, then
       `Robusta`"

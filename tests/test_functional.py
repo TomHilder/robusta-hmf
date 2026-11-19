@@ -18,6 +18,7 @@ from robusta_hmf.functional import (
     FunctionalState,
     Measurements,
 )
+from robusta_hmf.functional.bases import DenseBound
 from robusta_hmf.functional.engine import DenseLayout, FlatLayout, make_layout
 from robusta_hmf.functional.solvers import generic_solve
 
@@ -99,12 +100,11 @@ def test_negative_weights_raise():
 # ----------------------------
 def test_discrete_adjoint_is_transpose_of_evaluate():
     rng = np.random.default_rng(0)
-    basis = Discrete(7)
-    points = jnp.asarray(rng.integers(0, 7, size=40))
+    op = Discrete(7).bind(jnp.asarray(rng.integers(0, 7, size=40)))
     c = jnp.asarray(rng.normal(size=(7, 3)))
     v = jnp.asarray(rng.normal(size=(40, 3)))
-    lhs = jnp.sum(basis.evaluate(c, points) * v)
-    rhs = jnp.sum(c * basis.adjoint(v, points))
+    lhs = jnp.sum(op.evaluate(c) * v)
+    rhs = jnp.sum(c * op.adjoint(v))
     assert abs(float(lhs - rhs)) < 1e-12
 
 
@@ -119,13 +119,12 @@ def test_discrete_rejects_bad_ids(points, match):
 
 def test_discrete_fast_solve_matches_generic():
     rng = np.random.default_rng(1)
-    basis = Discrete(6)
     points = jnp.asarray(rng.integers(0, 6, size=50))
     other = jnp.asarray(rng.normal(size=(50, 2)))
     y = jnp.asarray(rng.normal(size=50))
     w = jnp.asarray(rng.uniform(0.5, 2.0, size=50))
-    fast = basis.solve(points, other, y, w, other_n=50)
-    slow = Discrete(6, fast=False).solve(points, other, y, w, other_n=50)
+    fast = Discrete(6).bind(points).solve(other, y, w, other_n=50)
+    slow = Discrete(6, fast=False).bind(points).solve(other, y, w, other_n=50)
     assert rel_diff(fast, slow) < TOL
 
 
@@ -141,13 +140,9 @@ class DuplicatedDiscrete(Basis):
     def n_coeffs(self):
         return self.n + 1
 
-    def evaluate(self, coeffs, points):
-        return coeffs[points] + jnp.where((points == 0)[:, None], coeffs[self.n], 0.0)
-
-    def adjoint(self, values, points):
-        out = jax.ops.segment_sum(values, points, num_segments=self.n)
-        extra = jnp.sum(jnp.where((points == 0)[:, None], values, 0.0), axis=0)
-        return jnp.concatenate([out, extra[None]], axis=0)
+    def bind(self, points):
+        onehot = jax.nn.one_hot(points, self.n)
+        return DenseBound(jnp.concatenate([onehot, onehot[:, :1]], axis=1))
 
     def gram(self):
         return None
@@ -155,21 +150,21 @@ class DuplicatedDiscrete(Basis):
 
 def test_generic_solve_is_minimum_norm_on_a_duplicated_function():
     rng = np.random.default_rng(2)
-    basis = DuplicatedDiscrete(4)
     points = jnp.asarray(rng.integers(0, 4, size=30))
+    op = DuplicatedDiscrete(4).bind(points)
     other = jnp.asarray(rng.normal(size=(30, 2)))
     y = jnp.asarray(rng.normal(size=30))
     w = jnp.asarray(rng.uniform(0.5, 2.0, size=30))
-    coeffs = basis.solve(points, other, y, w, other_n=30)
+    coeffs = op.solve(other, y, w, other_n=30)
     # The duplicated pair shares its coefficient equally (minimum norm) ...
     np.testing.assert_allclose(coeffs[0], coeffs[4], rtol=1e-10)
     # ... and the fit equals the full-rank fit without the duplicate.
-    ref = Discrete(4).solve(points, other, y, w, other_n=30)
+    ref = Discrete(4).bind(points).solve(other, y, w, other_n=30)
     np.testing.assert_allclose(coeffs[0] + coeffs[4], ref[0], rtol=1e-10)
     np.testing.assert_allclose(coeffs[1:4], ref[1:4], rtol=1e-10)
     # It is the minimum-norm least-squares solution.
     X = np.asarray(
-        (basis.design(points)[:, :, None] * other[:, None, :]).reshape(30, -1)
+        (op.design()[:, :, None] * other[:, None, :]).reshape(30, -1)
     ) * np.sqrt(np.asarray(w))[:, None]
     lstsq = np.linalg.lstsq(X, np.asarray(y) * np.sqrt(np.asarray(w)), rcond=None)[0]
     np.testing.assert_allclose(np.asarray(coeffs).ravel(), lstsq, rtol=1e-8, atol=1e-12)
@@ -181,7 +176,7 @@ def test_generic_solve_gives_zero_for_an_untouched_function():
     other = jnp.asarray(rng.normal(size=(30, 2)))
     y = jnp.asarray(rng.normal(size=30))
     w = jnp.ones(30)
-    coeffs = generic_solve(Discrete(5).design(points), other, y, w)
+    coeffs = generic_solve(Discrete(5).bind(points).design(), other, y, w)
     assert np.all(np.isfinite(coeffs))
     np.testing.assert_array_equal(coeffs[4], 0.0)
 

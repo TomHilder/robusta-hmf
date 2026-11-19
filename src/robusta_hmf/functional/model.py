@@ -42,9 +42,11 @@ class FunctionalRobusta:
     robust_scale : float, default=1.0
         Student-t scale, ``Q`` in the paper.
     init_strategy : {"svd", "random"}, default="svd"
-        ``"svd"``: leading singular vectors of the zero-filled data matrix;
-        needs `Discrete` bases on both axes. ``"random"``: standard normal
-        coefficients.
+        ``"svd"``: needs a `Discrete` row basis. With a `Discrete` column basis
+        too, the leading singular vectors of the zero-filled data matrix, as
+        ``Robusta``; otherwise those of each row's data projected onto the
+        column basis, with the row coefficients fitted to them.
+        ``"random"``: standard normal coefficients.
     conv_strategy : {"max_frac_G", "max_frac_A", "rel_frac_loss", "none"}, default="max_frac_G"
         As for ``Robusta``, with ``G`` the column and ``A`` the row coefficients.
     conv_tol : float, default=1e-3
@@ -150,7 +152,8 @@ class FunctionalRobusta:
         state, loss_history, fit_info = run(
             layout,
             self.likelihood,
-            self.col_basis.gram(),
+            self.row_basis,
+            self.col_basis,
             self.conv_tester,
             monitor,
             state,
@@ -164,8 +167,10 @@ class FunctionalRobusta:
     def predict(self, row: Array, col: Array, state: FunctionalState | None = None) -> Array:
         """The model ``Σₖ a_k(r) g_k(c)`` at paired coordinates ``(row[j], col[j])``."""
         state = self._resolve_state(state)
-        a = self.row_basis.evaluate(state.row_coeffs, jnp.asarray(row))
-        g = self.col_basis.evaluate(state.col_coeffs, jnp.asarray(col))
+        self.row_basis.check_points(row)
+        self.col_basis.check_points(col)
+        a = self.row_basis.bind(jnp.asarray(row)).evaluate(state.row_coeffs)
+        g = self.col_basis.bind(jnp.asarray(col)).evaluate(state.col_coeffs)
         return jnp.sum(a * g, axis=1)
 
     def robust_weights(self, data: Measurements, state: FunctionalState | None = None) -> Array:
@@ -213,13 +218,33 @@ class FunctionalRobusta:
         if self.init_strategy == "random":
             A, G = random_init(seed, n_row, n_col, self.rank)
             return FunctionalState(A, G, it=0)
-        if not (isinstance(self.row_basis, Discrete) and isinstance(self.col_basis, Discrete)):
+        if not isinstance(self.row_basis, Discrete):
             raise ValueError(
-                "init_strategy='svd' needs Discrete bases on both axes; use "
+                "init_strategy='svd' needs a Discrete row basis; use "
                 "init_strategy='random' or pass init_state."
             )
-        Y = jnp.zeros((n_row, n_col), self.dtype).at[data.row, data.col].set(data.y)
-        A, G = svd_init(Y, n_row, n_col, self.rank)
+        if isinstance(self.col_basis, Discrete):
+            Y = jnp.zeros((n_row, n_col), self.dtype).at[data.row, data.col].set(data.y)
+            A, G = svd_init(Y, n_row, n_col, self.rank)
+            return FunctionalState(A, G, it=0)
+        return self._projection_svd_state(data)
+
+    def _projection_svd_state(self, data: Measurements) -> FunctionalState:
+        """SVD start for a Discrete row basis and any column basis.
+
+        Each row's measurements are projected onto the column basis
+        (``Φᵢᵀ yᵢ``, which for a Discrete column basis is the zero-filled data
+        row). The leading right singular vectors of these projections seed the
+        column coefficients, and the row coefficients are then their weighted
+        least-squares fit to the data.
+        """
+        row_op = self.row_basis.bind(data.row)
+        col_op = self.col_basis.bind(data.col)
+        y = jnp.where(data.w > 0, data.y, 0.0)
+        D = row_op.adjoint(y[:, None] * col_op.design())
+        _, s, Vh = jnp.linalg.svd(D, full_matrices=False)
+        G = Vh[: self.rank].T * jnp.sqrt(s[: self.rank])
+        A = row_op.solve(col_op.evaluate(G), data.y, data.w, col_op.n_coeffs)
         return FunctionalState(A, G, it=0)
 
     def _resolve_state(self, state: FunctionalState | None) -> FunctionalState:

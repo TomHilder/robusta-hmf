@@ -21,7 +21,7 @@ from ..frame import check_factors_finite, make_fit_info
 from ..likelihoods import Likelihood
 from ..precision import nonfinite_loss_message
 from ..rotations import whitening_transform
-from .bases import Basis, Discrete
+from .bases import Basis, BoundBasis, Discrete
 from .measurements import Measurements
 from .state import FunctionalState
 
@@ -57,37 +57,34 @@ class DenseLayout(eqx.Module):
 
 
 class FlatLayout(eqx.Module):
-    """A flat list of measurements, for any pair of bases."""
+    """A flat list of measurements, for any pair of bases, bound to its coordinates."""
 
-    data: Measurements
-    row_basis: Basis = eqx.field(static=True)
-    col_basis: Basis = eqx.field(static=True)
+    y: Array
+    w: Array
+    row_op: BoundBasis
+    col_op: BoundBasis
 
     @property
     def w_data(self) -> Array:
-        return self.data.w
+        return self.w
 
     def row_values(self, state: FunctionalState) -> Array:
-        return self.row_basis.evaluate(state.row_coeffs, self.data.row)
+        return self.row_op.evaluate(state.row_coeffs)
 
     def col_values(self, state: FunctionalState) -> Array:
-        return self.col_basis.evaluate(state.col_coeffs, self.data.col)
+        return self.col_op.evaluate(state.col_coeffs)
 
     def model(self, state: FunctionalState) -> Array:
         return jnp.sum(self.row_values(state) * self.col_values(state), axis=1)
 
     def residuals(self, state: FunctionalState) -> Array:
-        return self.data.y - self.model(state)
+        return self.y - self.model(state)
 
     def row_step(self, state: FunctionalState, Wt: Array) -> Array:
-        return self.row_basis.solve(
-            self.data.row, self.col_values(state), self.data.y, Wt, self.col_basis.n_coeffs
-        )
+        return self.row_op.solve(self.col_values(state), self.y, Wt, self.col_op.n_coeffs)
 
     def col_step(self, state: FunctionalState, Wt: Array) -> Array:
-        return self.col_basis.solve(
-            self.data.col, self.row_values(state), self.data.y, Wt, self.row_basis.n_coeffs
-        )
+        return self.col_op.solve(self.row_values(state), self.y, Wt, self.row_op.n_coeffs)
 
 
 Layout = DenseLayout | FlatLayout
@@ -104,7 +101,7 @@ def make_layout(data: Measurements, row_basis: Basis, col_basis: Basis) -> Layou
     )
     if dense:
         return DenseLayout(*data.as_matrices())
-    return FlatLayout(data, row_basis, col_basis)
+    return FlatLayout(data.y, data.w, row_basis.bind(data.row), col_basis.bind(data.col))
 
 
 def rotate(state: FunctionalState, gram: Array | None) -> FunctionalState:
@@ -149,12 +146,20 @@ def is_converged(
     new: FunctionalState,
     old_loss,
     new_loss,
+    row_basis: Basis,
+    col_basis: Basis,
 ) -> bool:
-    """`ConvergenceTester`'s strategies, with ``G`` the column and ``A`` the row coefficients."""
+    """`ConvergenceTester`'s strategies, with ``G`` the column and ``A`` the row functions.
+
+    The ``max_frac`` tests compare the functions sampled over the data domain
+    (`Basis.domain_values`), which for `Discrete` bases are the coefficients.
+    """
     if tester.strategy == "max_frac_G":
-        return bool(max_frac_mat(old.col_coeffs, new.col_coeffs, tol=tester.tol))
+        view = col_basis.domain_values
+        return bool(max_frac_mat(view(old.col_coeffs), view(new.col_coeffs), tol=tester.tol))
     if tester.strategy == "max_frac_A":
-        return bool(max_frac_mat(old.row_coeffs, new.row_coeffs, tol=tester.tol))
+        view = row_basis.domain_values
+        return bool(max_frac_mat(view(old.row_coeffs), view(new.row_coeffs), tol=tester.tol))
     if tester.strategy == "rel_frac_loss":
         return bool(rel_frac_loss(old_loss, new_loss, tol=tester.tol))
     return False
@@ -163,7 +168,8 @@ def is_converged(
 def run(
     layout: Layout,
     likelihood: Likelihood,
-    gram: Array | None,
+    row_basis: Basis,
+    col_basis: Basis,
     tester: ConvergenceTester,
     monitor: RunMonitor,
     state: FunctionalState,
@@ -177,6 +183,7 @@ def run(
     rotated, and convergence is tested every ``conv_check_cadence``
     iterations against the state at the previous test.
     """
+    gram = col_basis.gram()
     loss_history = []
     prev_state, prev_loss = state, jnp.inf
     converged = False
@@ -185,7 +192,7 @@ def run(
         loss_history.append(loss)
         if i % conv_check_cadence == 0 and i != 0:
             monitor.update(loss_history)
-            if is_converged(tester, prev_state, state, prev_loss, loss):
+            if is_converged(tester, prev_state, state, prev_loss, loss, row_basis, col_basis):
                 print(f"Converged at iteration {i}")
                 converged = True
                 break

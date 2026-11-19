@@ -2,10 +2,19 @@
 
 """Bases for the row and column functions of `FunctionalRobusta`.
 
-A basis is the only place that knows what its functions are. The engine
-talks to it through `Basis.evaluate`, `Basis.adjoint`, `Basis.gram` and
-`Basis.solve`; a basis family with structure to exploit overrides `solve`
-with a fast path and keeps the generic solver as its reference.
+A basis is the only place that knows what its functions are. Its interface
+follows FINUFFT's plan structure:
+
+- the constructor fixes everything that does not depend on the data (as
+  ``makeplan``);
+- `Basis.bind` takes the measurement coordinates once per fit and returns a
+  `BoundBasis` holding whatever can be precomputed for them (as ``setpts``);
+- every iteration only applies the bound operator: `BoundBasis.evaluate`,
+  `BoundBasis.adjoint` and `BoundBasis.solve` (as ``execute``).
+
+The engine sees nothing else. A basis family with structure to exploit gives
+its bound operator a fast `BoundBasis.solve`; the generic dense solver stays as
+its reference.
 """
 
 import abc
@@ -13,17 +22,18 @@ import abc
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jaxtyping import Array
 
 from ..als import solve_normal_equations
 from .solvers import generic_solve
 
 
-class Basis(eqx.Module):
-    """A finite set of functions on one axis (rows or columns).
+class BoundBasis(eqx.Module):
+    """A basis bound to a set of measurement coordinates.
 
-    Coefficients are stored as ``(n_coeffs, K)`` arrays: column ``k`` holds
-    the expansion of the ``k``-th function on this axis.
+    Coefficients are ``(n_coeffs, K)`` arrays: column ``k`` holds the
+    expansion of the ``k``-th function. Values are ``(n_points, K)``.
     """
 
     @property
@@ -32,33 +42,18 @@ class Basis(eqx.Module):
         """Number of basis functions."""
 
     @abc.abstractmethod
-    def evaluate(self, coeffs: Array, points: Array) -> Array:
-        """Values of the expanded functions at ``points``.
-
-        Maps coefficients ``(n_coeffs, K)`` to values ``(n_points, K)``. Linear
-        in ``coeffs``.
-        """
+    def evaluate(self, coeffs: Array) -> Array:
+        """Values of the expanded functions at the bound points. Linear in ``coeffs``."""
 
     @abc.abstractmethod
-    def adjoint(self, values: Array, points: Array) -> Array:
+    def adjoint(self, values: Array) -> Array:
         """Transpose of `evaluate`: ``(n_points, K)`` to ``(n_coeffs, K)``."""
 
-    @abc.abstractmethod
-    def gram(self) -> Array | None:
-        """Inner products of the basis functions over the data domain.
-
-        ``(n_coeffs, n_coeffs)``, or None when it is the identity.
-        """
-
-    def design(self, points: Array) -> Array:
+    def design(self) -> Array:
         """The dense design matrix ``(n_points, n_coeffs)``, from `evaluate`."""
-        eye = jnp.eye(self.n_coeffs, dtype=_float_dtype(points))
-        return self.evaluate(eye, points)
+        return self.evaluate(jnp.eye(self.n_coeffs, dtype=jnp.zeros(()).dtype))
 
-    def check_points(self, points) -> None:
-        """Raise ``ValueError`` if ``points`` are not valid coordinates for this basis."""
-
-    def solve(self, points: Array, other: Array, y: Array, w: Array, other_n: int) -> Array:
+    def solve(self, other: Array, y: Array, w: Array, other_n: int) -> Array:
         """Weighted least-squares coefficients on this axis, the other axis fixed.
 
         Minimises ``Σⱼ wⱼ (yⱼ − Σₖ fₖ(pⱼ) oⱼₖ)²`` over the coefficients of the
@@ -67,8 +62,6 @@ class Basis(eqx.Module):
 
         Parameters
         ----------
-        points : Array, shape (n_points, ...)
-            Coordinates of the measurements on this axis.
         other : Array, shape (n_points, K)
             The other axis's functions evaluated at each measurement.
         y, w : Array, shape (n_points,)
@@ -81,12 +74,84 @@ class Basis(eqx.Module):
         -------
         coeffs : Array, shape (n_coeffs, K)
         """
-        return generic_solve(self.design(points), other, y, w)
+        return generic_solve(self.design(), other, y, w)
 
 
-def _float_dtype(points):
-    dtype = jnp.asarray(points).dtype
-    return dtype if jnp.issubdtype(dtype, jnp.floating) else jnp.zeros(()).dtype
+class DenseBound(BoundBasis):
+    """A bound basis held as its dense design matrix ``Φ``."""
+
+    Phi: Array
+
+    @property
+    def n_coeffs(self) -> int:
+        return int(self.Phi.shape[1])
+
+    def evaluate(self, coeffs: Array) -> Array:
+        return self.Phi @ coeffs
+
+    def adjoint(self, values: Array) -> Array:
+        return self.Phi.T @ values
+
+    def design(self) -> Array:
+        return self.Phi
+
+
+class Basis(eqx.Module):
+    """A finite set of functions on one axis (rows or columns)."""
+
+    @property
+    @abc.abstractmethod
+    def n_coeffs(self) -> int:
+        """Number of basis functions."""
+
+    @abc.abstractmethod
+    def bind(self, points: Array) -> BoundBasis:
+        """Precompute for the coordinates ``points``; called once per fit."""
+
+    @abc.abstractmethod
+    def gram(self) -> Array | None:
+        """Inner products of the basis functions over the data domain.
+
+        ``(n_coeffs, n_coeffs)``, or None when it is the identity.
+        """
+
+    def domain_values(self, coeffs: Array) -> Array:
+        """The expanded functions sampled over the data domain, for comparing two states.
+
+        Convergence tests look at these rather than at raw coefficients, which
+        may hold directions the data do not determine.
+        """
+        return coeffs
+
+    def check_points(self, points) -> None:
+        """Raise ``ValueError`` if ``points`` are not valid coordinates for this basis."""
+
+
+class DiscreteBound(BoundBasis):
+    """`Discrete` bound to a set of category ids."""
+
+    points: Array
+    n: int = eqx.field(static=True)
+    fast: bool = eqx.field(static=True, default=True)
+
+    @property
+    def n_coeffs(self) -> int:
+        return self.n
+
+    def evaluate(self, coeffs: Array) -> Array:
+        return coeffs[self.points]
+
+    def adjoint(self, values: Array) -> Array:
+        return jax.ops.segment_sum(values, self.points, num_segments=self.n)
+
+    def solve(self, other: Array, y: Array, w: Array, other_n: int) -> Array:
+        if not self.fast:
+            return super().solve(other, y, w, other_n)
+        K = other.shape[1]
+        outer = (other[:, :, None] * other[:, None, :]).reshape(other.shape[0], K * K)
+        M = self.adjoint(w[:, None] * outer).reshape(self.n, K, K)
+        b = self.adjoint((w * y)[:, None] * other)
+        return solve_normal_equations(M, b, None, n_obs=other_n)
 
 
 class Discrete(Basis):
@@ -117,11 +182,8 @@ class Discrete(Basis):
     def n_coeffs(self) -> int:
         return self.n
 
-    def evaluate(self, coeffs: Array, points: Array) -> Array:
-        return coeffs[points]
-
-    def adjoint(self, values: Array, points: Array) -> Array:
-        return jax.ops.segment_sum(values, points, num_segments=self.n)
+    def bind(self, points: Array) -> DiscreteBound:
+        return DiscreteBound(jnp.asarray(points), self.n, self.fast)
 
     def gram(self) -> None:
         return None
@@ -139,11 +201,107 @@ class Discrete(Basis):
                 f"[{int(points.min())}, {int(points.max())}]."
             )
 
-    def solve(self, points: Array, other: Array, y: Array, w: Array, other_n: int) -> Array:
-        if not self.fast:
-            return super().solve(points, other, y, w, other_n)
-        K = other.shape[1]
-        outer = (other[:, :, None] * other[:, None, :]).reshape(other.shape[0], K * K)
-        M = self.adjoint(w[:, None] * outer, points).reshape(self.n, K, K)
-        b = self.adjoint((w * y)[:, None] * other, points)
-        return solve_normal_equations(M, b, None, n_obs=other_n)
+
+class Fourier(Basis):
+    """Real Fourier series on a padded period around a 1-D data domain.
+
+    With ``domain = (lo, hi)``, span ``s = hi − lo`` and period
+    ``L = s · (1 + pad)``, the ``2·n_freq + 1`` basis functions are, in order,
+
+        1,  cos(m θ) for m = 1..n_freq,  sin(m θ) for m = 1..n_freq,
+        θ(x) = 2π (x − lo) / L.
+
+    The data occupy the fraction ``1 / (1 + pad)`` of the period, so the
+    functions do not wrap one end of the domain onto the other. The functions
+    are defined only on the domain; coordinates outside it are rejected.
+
+    Relation to FINUFFT's complex modes: with real coefficients ``a₀``,
+    ``a_m`` (cosines) and ``b_m`` (sines), ``g(x) = Σ_m c_m e^{i m θ}`` with
+    ``c₀ = a₀``, ``c_m = (a_m − i b_m) / 2`` and ``c₋ₘ = conj(c_m)``; FINUFFT's
+    coordinate is ``θ − π ∈ [−π, π)``, which multiplies ``c_m`` by ``(−1)^m``.
+
+    Parameters
+    ----------
+    n_freq : int
+        Highest harmonic of the period.
+    domain : (float, float)
+        The range ``(lo, hi)`` the coordinates cover.
+    pad : float, default=0.25
+        Gap between the end of the data and its periodic image, as a fraction
+        of the span.
+    """
+
+    n_freq: int = eqx.field(static=True)
+    domain: tuple[float, float] = eqx.field(static=True)
+    pad: float = eqx.field(static=True, default=0.25)
+
+    def __check_init__(self):
+        lo, hi = self.domain
+        if not hi > lo:
+            raise ValueError(f"Fourier domain must have hi > lo, got {self.domain}.")
+        if int(self.n_freq) < 0:
+            raise ValueError(f"n_freq must be >= 0, got {self.n_freq}.")
+        if not self.pad >= 0:
+            raise ValueError(f"pad must be >= 0, got {self.pad}.")
+
+    @property
+    def span(self) -> float:
+        return float(self.domain[1] - self.domain[0])
+
+    @property
+    def period(self) -> float:
+        return self.span * (1.0 + self.pad)
+
+    @property
+    def n_coeffs(self) -> int:
+        return 2 * self.n_freq + 1
+
+    def features(self, points: Array) -> Array:
+        """The design matrix ``(n_points, n_coeffs)`` at ``points``."""
+        x = jnp.asarray(points)
+        x = x.astype(x.dtype if jnp.issubdtype(x.dtype, jnp.floating) else jnp.zeros(()).dtype)
+        theta = (2 * jnp.pi / self.period) * (x - self.domain[0])
+        m = jnp.arange(1, self.n_freq + 1, dtype=x.dtype)
+        mt = theta[:, None] * m[None, :]
+        return jnp.concatenate([jnp.ones_like(theta)[:, None], jnp.cos(mt), jnp.sin(mt)], axis=1)
+
+    def bind(self, points: Array) -> DenseBound:
+        return DenseBound(self.features(points))
+
+    def gram(self) -> Array:
+        """``∫[domain] H_m H_m′ dx`` in closed form (product-to-sum identities)."""
+        F, s = self.n_freq, self.span
+        omega = 2 * np.pi / self.period
+
+        def ic(k):  # ∫₀ˢ cos(k ω u) du
+            k = np.abs(k)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                return np.where(k == 0, s, np.sin(k * omega * s) / (k * omega))
+
+        def is_(k):  # ∫₀ˢ sin(k ω u) du, odd in k
+            with np.errstate(divide="ignore", invalid="ignore"):
+                return np.where(k == 0, 0.0, (1 - np.cos(k * omega * s)) / (k * omega))
+
+        c = np.arange(F + 1)  # cosine harmonics, 0 is the constant
+        n = np.arange(1, F + 1)  # sine harmonics
+        cc = 0.5 * (ic(c[:, None] - c[None, :]) + ic(c[:, None] + c[None, :]))
+        ss = 0.5 * (ic(n[:, None] - n[None, :]) - ic(n[:, None] + n[None, :]))
+        cs = 0.5 * (is_(c[:, None] + n[None, :]) + is_(n[None, :] - c[:, None]))
+        S = np.block([[cc, cs], [cs.T, ss]])
+        return jnp.asarray(S)
+
+    def domain_values(self, coeffs: Array) -> Array:
+        grid = jnp.linspace(self.domain[0], self.domain[1], 2 * self.n_coeffs, dtype=coeffs.dtype)
+        return self.features(grid) @ coeffs
+
+    def check_points(self, points) -> None:
+        x = np.asarray(points)
+        if x.ndim != 1:
+            raise ValueError(f"A Fourier axis needs 1-D coordinates, got shape {x.shape}.")
+        lo, hi = self.domain
+        tol = 1e-9 * self.span
+        if x.size and (x.min() < lo - tol or x.max() > hi + tol):
+            raise ValueError(
+                f"Coordinates must lie in the Fourier domain [{lo}, {hi}], got range "
+                f"[{x.min()}, {x.max()}]."
+            )
