@@ -42,11 +42,16 @@ class FunctionalRobusta:
         Student-t degrees of freedom.
     robust_scale : float, default=1.0
         Student-t scale, ``Q`` in the paper.
-    init_strategy : {"svd", "random"}, default="svd"
-        ``"svd"``: needs a `Discrete` row basis. With a `Discrete` column basis
-        too, the leading singular vectors of the zero-filled data matrix, as
-        ``Robusta``; otherwise those of each row's data projected onto the
-        column basis, with the row coefficients fitted to them.
+    init_strategy : {"svd", "svd_fit", "random"}, default="svd"
+        ``"svd"`` and ``"svd_fit"`` need a `Discrete` row basis. With a
+        `Discrete` column basis too, ``"svd"`` takes the leading singular
+        vectors of the zero-filled data matrix, as ``Robusta``. Otherwise each
+        row's measurements are reduced to a vector of column-basis
+        coefficients, the leading right singular vectors of those vectors seed
+        the column functions, and the row coefficients are fitted to them:
+        ``"svd"`` uses the projection ``Φᵢᵀ yᵢ``; ``"svd_fit"`` uses each row's
+        weighted minimum-norm least-squares fit, which accounts for uneven
+        sampling and the weights at the cost of one small solve per row.
         ``"random"``: standard normal coefficients.
     conv_strategy : {"max_frac_G", "max_frac_A", "rel_frac_loss", "none"}, default="max_frac_G"
         As for ``Robusta``, with ``G`` the column and ``A`` the row coefficients.
@@ -66,7 +71,7 @@ class FunctionalRobusta:
         robust: bool = True,
         robust_nu: float = 1.0,
         robust_scale: float = 1.0,
-        init_strategy: Literal["svd", "random"] = "svd",
+        init_strategy: Literal["svd", "svd_fit", "random"] = "svd",
         conv_strategy: ConvStrategy = "max_frac_G",
         conv_tol: float = 1e-3,
         dtype: str | np.dtype | None = None,
@@ -76,8 +81,10 @@ class FunctionalRobusta:
             raise ValueError(f"robust_scale must be positive, got {robust_scale}")
         if robust_nu <= 0:
             raise ValueError(f"robust_nu must be positive, got {robust_nu}")
-        if init_strategy not in ("svd", "random"):
-            raise ValueError(f"init_strategy must be 'svd' or 'random', got {init_strategy!r}")
+        if init_strategy not in ("svd", "svd_fit", "random"):
+            raise ValueError(
+                f"init_strategy must be 'svd', 'svd_fit' or 'random', got {init_strategy!r}"
+            )
         self.rank = rank
         self.row_basis = row_basis
         self.col_basis = col_basis
@@ -221,25 +228,22 @@ class FunctionalRobusta:
             return FunctionalState(A, G, it=0)
         if not isinstance(self.row_basis, Discrete):
             raise ValueError(
-                "init_strategy='svd' needs a Discrete row basis; use "
+                f"init_strategy={self.init_strategy!r} needs a Discrete row basis; use "
                 "init_strategy='random' or pass init_state."
             )
+        if self.init_strategy == "svd_fit":
+            return self._row_svd_state(data, self._row_fits(data))
         if isinstance(self.col_basis, Discrete):
             Y = jnp.zeros((n_row, n_col), self.dtype).at[data.row, data.col].set(data.y)
             A, G = svd_init(Y, n_row, n_col, self.rank)
             return FunctionalState(A, G, it=0)
-        return self._projection_svd_state(data)
+        return self._row_svd_state(data, self._row_projections(data))
 
-    def _projection_svd_state(self, data: Measurements) -> FunctionalState:
-        """SVD start for a Discrete row basis and any column basis.
+    def _row_projections(self, data: Measurements) -> Array:
+        """Each row's measurements projected onto the column basis, ``Φᵢᵀ yᵢ``.
 
-        Each row's measurements are projected onto the column basis
-        (``Φᵢᵀ yᵢ``, which for a Discrete column basis is the zero-filled data
-        row). The leading right singular vectors of these projections seed the
-        column coefficients, and the row coefficients are then their weighted
-        least-squares fit to the data.
+        For a Discrete column basis this is the zero-filled data row.
         """
-        row_op = self.row_basis.bind(data.row)
         col_op = self.col_basis.bind(data.col)
         y = jnp.where(data.w > 0, data.y, 0.0)
         n_rows = self.row_basis.n_coeffs
@@ -251,6 +255,43 @@ class FunctionalRobusta:
                 data.row[start:stop],
                 num_segments=n_rows,
             )
+        return D
+
+    def _row_fits(self, data: Measurements) -> Array:
+        """Each row's weighted minimum-norm least-squares coefficients in the column basis.
+
+        Rows with fewer measurements than column basis functions are
+        underdetermined; the minimum-norm solution breaks the tie. Rows without
+        measurements get zero coefficients.
+        """
+        order = np.argsort(np.asarray(data.row), kind="stable")
+        rows = np.asarray(data.row)[order]
+        y = np.asarray(data.y)[order]
+        sw = np.sqrt(np.asarray(data.w)[order])
+        col_op = self.col_basis.bind(jnp.asarray(np.asarray(data.col)[order]))
+        n_rows = self.row_basis.n_coeffs
+        bounds = np.searchsorted(rows, np.arange(n_rows + 1))
+        D = np.zeros((n_rows, col_op.n_coeffs))
+        r = 0
+        while r < n_rows:  # blocks of whole rows, about CHUNK measurements each
+            r_end = max(int(np.searchsorted(bounds, bounds[r] + CHUNK, side="right")) - 1, r + 1)
+            r_end = min(r_end, n_rows)
+            start, stop = int(bounds[r]), int(bounds[r_end])
+            Phi = np.asarray(col_op.design_rows(start, stop)) if stop > start else None
+            for i in range(r, r_end):
+                lo, hi = int(bounds[i]) - start, int(bounds[i + 1]) - start
+                if hi > lo:
+                    X = sw[start + lo : start + hi, None] * Phi[lo:hi]
+                    b = sw[start + lo : start + hi] * y[start + lo : start + hi]
+                    D[i] = np.linalg.lstsq(X, b, rcond=None)[0]
+            r = r_end
+        return jnp.asarray(D, self.dtype)
+
+    def _row_svd_state(self, data: Measurements, D: Array) -> FunctionalState:
+        """Column functions from the leading right singular vectors of the per-row vectors
+        ``D``, then the row coefficients as their weighted least-squares fit to the data."""
+        row_op = self.row_basis.bind(data.row)
+        col_op = self.col_basis.bind(data.col)
         _, s, Vh = jnp.linalg.svd(D, full_matrices=False)
         G = Vh[: self.rank].T * jnp.sqrt(s[: self.rank])
         A = row_op.solve(col_op.evaluate(G), data.y, data.w, col_op.n_coeffs)

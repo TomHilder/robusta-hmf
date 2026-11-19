@@ -205,3 +205,30 @@ def test_fit_with_repeated_coordinates_recovers_functions(monkeypatch):
     fit = np.asarray(state.row_coeffs) @ (Phi_grid @ np.asarray(state.col_coeffs)).T
     truth = A_true @ (Phi_grid @ G_true).T
     assert np.sqrt(np.mean((fit - truth) ** 2)) < 0.01
+
+
+def test_svd_fit_start_recovers_functions():
+    """The per-row least-squares SVD start: same truth recovery as the projection start."""
+    basis, data, A_true, G_true = ragged_problem(seed=4)
+    model = FunctionalRobusta(2, Discrete(80), basis, robust_scale=5.0, conv_tol=1e-10,
+                              init_strategy="svd_fit")
+    state, _ = model.fit(data, max_iter=500)
+    x = np.linspace(*DOMAIN, 400)
+    Phi = np.asarray(basis.features(jnp.asarray(x)))
+    truth = A_true @ (Phi @ G_true).T
+    fit = np.asarray(state.row_coeffs) @ (Phi @ np.asarray(state.col_coeffs)).T
+    assert np.sqrt(np.mean((fit - truth) ** 2)) < 0.01
+
+
+def test_svd_fit_rows_match_lstsq(monkeypatch):
+    """_row_fits is each row's weighted minimum-norm fit, also across chunk boundaries."""
+    monkeypatch.setattr("robusta_hmf.functional.model.CHUNK", 50)
+    basis, data, _, _ = ragged_problem(seed=5)
+    model = FunctionalRobusta(2, Discrete(80), basis, init_strategy="svd_fit")
+    D = np.asarray(model._row_fits(model._prepare(data)))
+    for i in (0, 17, 79):
+        m = np.asarray(data.row) == i
+        Phi = np.asarray(basis.features(data.col[m]))
+        sw = np.sqrt(np.asarray(data.w)[m])
+        ref = np.linalg.lstsq(sw[:, None] * Phi, sw * np.asarray(data.y)[m], rcond=None)[0]
+        np.testing.assert_allclose(D[i], ref, rtol=1e-8, atol=1e-10)
