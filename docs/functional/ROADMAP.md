@@ -90,5 +90,16 @@ data and scaling to be decided after Phase 5.
 
 ## Not yet scheduled
 
-Real-data application (no target chosen yet), regularisation / GP priors, non-negativity,
+Real-data application: SPHEREx spectral imaging (see below), regularisation / GP priors,
+non-negativity,
 line-spread functions, sharding of `FunctionalRobusta`.
+
+## Real data: SPHEREx (target for the wavelength-continuous case)
+
+SPHEREx measurements arrive as a flat list (sky position, wavelength, flux, variance), so
+they need no binning into channels or sky pixels. Example access pattern: the
+`katieclogston/rosette-nebula` notebook, which queries a `talltable` service for one HEALPix
+patch, then bins to a 512 × 512 × 102 cube and runs `Robusta`. Points to settle: data
+access (`talltable`), SPHEREx's resolution changing across the band (a resolution-uniform
+column coordinate, or knot spacing for B-splines), and per-measurement bandpasses
+(fit the spectrum at instrument resolution first). Scheduled after Phase 2.
