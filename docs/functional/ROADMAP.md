@@ -36,10 +36,10 @@ generic and the fast path.
       coefficients
 - [x] `predict` at arbitrary coordinates
 - [x] Initialisation for non-discrete bases
-- [ ] Ragged toy: per-object coordinates (shifts, different sampling, different lengths);
+- [x] Ragged toy: per-object coordinates (shifts, different sampling, different lengths);
       recovery of the true functions, compared with "resample to a common grid, then
       `Robusta`"
-- [ ] Plots of recovered functions, residuals and robust weights
+- [x] Plots of recovered functions, residuals and robust weights
 - [ ] Edge-mode check: noise near the ends of the data domain vs the padding fraction
 
 **Exit:** the toy recovers the true basis and flags injected outliers at least as well as
